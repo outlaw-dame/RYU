@@ -13,6 +13,8 @@ function mapEdition(d: any): SearchDocument {
     title: d.title,
     description: d.description || '',
     authorText: '',
+    isbnText: `${d.isbn10 || ''} ${d.isbn13 || ''}`.trim(),
+    enrichmentText: '',
     source: 'local',
     updatedAt: d.updatedAt
   };
@@ -25,6 +27,8 @@ function mapWork(w: any): SearchDocument {
     title: w.title,
     description: w.summary || '',
     authorText: '',
+    isbnText: '',
+    enrichmentText: '',
     source: 'local',
     updatedAt: w.updatedAt
   };
@@ -37,6 +41,8 @@ function mapAuthor(a: any): SearchDocument {
     title: a.name,
     description: '',
     authorText: a.name,
+    isbnText: '',
+    enrichmentText: '',
     source: 'local',
     updatedAt: a.updatedAt
   };
@@ -110,5 +116,5 @@ export async function searchOrama(query: string) {
 
   const docs = res.hits.map((h: any) => h.document);
 
-  return dedupe(rankLexical(docs));
+  return dedupe(rankLexical(docs, query));
 }
