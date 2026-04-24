@@ -1,6 +1,6 @@
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
-import { enrichEntityLinks } from "./entity-enrichment";
+import { enrichKnowledgeEntity } from "./entity-enrichment";
 
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
@@ -32,6 +32,19 @@ async function writeEntityResolution(db: RyuDatabase, entity: CanonicalApEntity)
   });
 }
 
+function toKnowledgeCandidate(entity: CanonicalApEntity) {
+  switch (entity.kind) {
+    case 'author':
+      return { id: entity.id, kind: 'author' as const, label: entity.name };
+    case 'work':
+      return { id: entity.id, kind: 'work' as const, label: entity.title, authorLabels: entity.authorIds };
+    case 'edition':
+      return { id: entity.id, kind: 'edition' as const, label: entity.title, authorLabels: entity.authorIds };
+    default:
+      return null;
+  }
+}
+
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
   return {
     async upsertAuthor(entity) {
@@ -45,7 +58,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      void enrichEntityLinks(entity);
+      const candidate = toKnowledgeCandidate(entity);
+      if (candidate) void enrichKnowledgeEntity(candidate);
     },
     async upsertWork(entity) {
       const timestamp = nowIso();
@@ -59,7 +73,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      void enrichEntityLinks(entity);
+      const candidate = toKnowledgeCandidate(entity);
+      if (candidate) void enrichKnowledgeEntity(candidate);
     },
     async upsertEdition(entity) {
       const timestamp = nowIso();
@@ -78,7 +93,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      void enrichEntityLinks(entity);
+      const candidate = toKnowledgeCandidate(entity);
+      if (candidate) void enrichKnowledgeEntity(candidate);
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
