@@ -48,6 +48,8 @@ export async function getDatabase(): Promise<RyuDatabase> {
   return dbPromise;
 }
 
+export const initializeDatabase = getDatabase;
+
 export async function closeDatabaseForTests(): Promise<void> {
   if (!dbPromise) return;
   const db = await dbPromise;
