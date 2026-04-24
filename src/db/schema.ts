@@ -1,422 +1,217 @@
-export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
-type MigrationDoc = Record<string, unknown> | null;
+export const SCHEMA_VERSION = 1;
 
-export interface InstanceDoc {
-  id: string;
-  url: string;
-  softwareName?: string;
-  softwareVersion?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AccountDoc {
-  id: string;
-  handle: string;
-  apId: string;
-  instanceId: string;
-  displayName?: string;
-  avatarUrl?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface AuthorDoc {
-  id: string;
-  apId: string;
-  name: string;
-  summary?: string;
-  url?: string;
-  importedAt: string;
-  updatedAt: string;
-}
-
-export interface WorkDoc {
-  id: string;
-  apId: string;
-  title: string;
-  summary?: string;
-  url?: string;
-  authorIds: string[];
-  importedAt: string;
-  updatedAt: string;
-}
-
-export interface EditionDoc {
-  id: string;
-  apId: string;
-  title: string;
-  subtitle?: string;
-  description?: string;
-  authorIds: string[];
-  workId?: string;
-  coverUrl?: string;
-  isbn10?: string;
-  isbn13?: string;
-  sourceUrl: string;
-  importedAt: string;
-  updatedAt: string;
-}
-
-export interface StatusDoc {
-  id: string;
-  accountId: string;
-  editionId?: string;
-  type: string;
-  content?: string;
-  publishedAt: string;
-  updatedAt: string;
-}
-
-export interface ShelfDoc {
-  id: string;
-  accountId: string;
-  name: string;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ShelfBookDoc {
-  id: string;
-  shelfId: string;
-  editionId: string;
-  addedAt: string;
-}
-
-export interface EntityResolutionDoc {
-  id: string;
-  canonicalUri: string;
-  entityType: 'instance' | 'account' | 'author' | 'work' | 'edition' | 'status';
-  entityId: string;
-  resolvedAt: string;
-}
-
-export interface FetchQueueDoc {
-  id: string;
-  url: string;
-  host: string;
-  status: QueueStatus;
-  attempts: number;
-  lastAttemptAt?: string;
-  nextAttemptAt?: string;
-  error?: string;
-}
-
-export interface WriteQueueDoc {
-  id: string;
-  operation: string;
-  entityType: string;
-  entityId: string;
-  payload: string;
-  status: QueueStatus;
-  attempts: number;
-  enqueuedAt: string;
-  updatedAt: string;
-  error?: string;
-}
-
-const idField = { type: 'string', maxLength: 2048 };
-const urlField = { type: 'string', maxLength: 2048 };
-const shortTextField = { type: 'string', maxLength: 512 };
-const mediumTextField = { type: 'string', maxLength: 4096 };
-const longTextField = { type: 'string', maxLength: 20000 };
-const timestampField = { type: 'string', minLength: 20, maxLength: 40 };
-const SCHEMA_VERSION = 1;
-const queueStatusField = {
-  type: 'string',
-  enum: ['pending', 'processing', 'completed', 'failed'],
-  maxLength: 32
-};
-const stringArrayField = {
-  type: 'array',
-  items: { type: 'string', maxLength: 2048 },
-  default: []
-};
-
-function identityMigration(doc: MigrationDoc): MigrationDoc {
-  return doc;
-}
-
-function ensureStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
-}
-
-function migrateWorkV1(doc: MigrationDoc): MigrationDoc {
-  if (!doc) return doc;
-  return {
-    ...doc,
-    authorIds: ensureStringArray(doc.authorIds)
-  };
-}
-
-function migrateEditionV1(doc: MigrationDoc): MigrationDoc {
-  if (!doc) return doc;
-  const workId = typeof doc.workId === 'string' ? doc.workId : undefined;
-  return {
-    ...doc,
-    authorIds: ensureStringArray(doc.authorIds),
-    ...(workId ? { workId } : {})
-  };
-}
-
-export const collections = {
-  instances: {
-    schema: {
-      title: 'instances schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['url', 'updatedAt'],
-      properties: {
-        id: idField,
-        url: urlField,
-        softwareName: shortTextField,
-        softwareVersion: shortTextField,
-        createdAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'url', 'createdAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  accounts: {
-    schema: {
-      title: 'accounts schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['handle', 'apId', 'instanceId', 'updatedAt'],
-      properties: {
-        id: idField,
-        handle: shortTextField,
-        apId: urlField,
-        instanceId: idField,
-        displayName: mediumTextField,
-        avatarUrl: urlField,
-        createdAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'handle', 'apId', 'instanceId', 'createdAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  works: {
-    schema: {
-      title: 'works schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['apId', 'importedAt', 'updatedAt'],
-      properties: {
-        id: idField,
-        apId: urlField,
-        title: mediumTextField,
-        summary: longTextField,
-        url: urlField,
-        authorIds: stringArrayField,
-        importedAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'apId', 'title', 'authorIds', 'importedAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: migrateWorkV1
-    }
-  },
-  editions: {
-    schema: {
-      title: 'editions schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['apId', 'sourceUrl', 'workId', 'importedAt'],
-      properties: {
-        id: idField,
-        apId: urlField,
-        title: mediumTextField,
-        subtitle: mediumTextField,
-        description: longTextField,
-        authorIds: stringArrayField,
-        workId: idField,
-        coverUrl: urlField,
-        isbn10: shortTextField,
-        isbn13: shortTextField,
-        sourceUrl: urlField,
-        importedAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'apId', 'title', 'authorIds', 'sourceUrl', 'importedAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: migrateEditionV1
-    }
-  },
-  authors: {
-    schema: {
-      title: 'authors schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['apId', 'name', 'importedAt'],
-      properties: {
-        id: idField,
-        apId: urlField,
-        name: mediumTextField,
-        summary: longTextField,
-        url: urlField,
-        importedAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'apId', 'name', 'importedAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  statuses: {
-    schema: {
-      title: 'statuses schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['accountId', 'publishedAt'],
-      properties: {
-        id: idField,
-        accountId: idField,
-        editionId: idField,
-        type: shortTextField,
-        content: longTextField,
-        publishedAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'accountId', 'type', 'publishedAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  shelves: {
-    schema: {
-      title: 'shelves schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['accountId', 'name', 'updatedAt'],
-      properties: {
-        id: idField,
-        accountId: idField,
-        name: mediumTextField,
-        description: longTextField,
-        createdAt: timestampField,
-        updatedAt: timestampField
-      },
-      required: ['id', 'accountId', 'name', 'createdAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  shelfbooks: {
-    schema: {
-      title: 'shelfbooks schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['shelfId', 'editionId', 'addedAt'],
-      properties: {
-        id: idField,
-        shelfId: idField,
-        editionId: idField,
-        addedAt: timestampField
-      },
-      required: ['id', 'shelfId', 'editionId', 'addedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  entityresolutions: {
-    schema: {
-      title: 'entity resolutions schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['canonicalUri', 'entityType', 'resolvedAt'],
-      properties: {
-        id: idField,
-        canonicalUri: urlField,
-        entityType: shortTextField,
-        entityId: idField,
-        resolvedAt: timestampField
-      },
-      required: ['id', 'canonicalUri', 'entityType', 'entityId', 'resolvedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  fetchqueue: {
-    schema: {
-      title: 'fetch queue schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['host', 'status'],
-      properties: {
-        id: idField,
-        url: urlField,
-        host: shortTextField,
-        status: queueStatusField,
-        attempts: { type: 'number', minimum: 0, maximum: 1000 },
-        lastAttemptAt: timestampField,
-        nextAttemptAt: timestampField,
-        error: longTextField
-      },
-      required: ['id', 'url', 'host', 'status', 'attempts']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  },
-  writequeue: {
-    schema: {
-      title: 'write queue schema',
-      version: SCHEMA_VERSION,
-      type: 'object',
-      primaryKey: 'id',
-      additionalProperties: false,
-      indexes: ['status', 'entityType', 'entityId', 'updatedAt'],
-      properties: {
-        id: idField,
-        operation: shortTextField,
-        entityType: shortTextField,
-        entityId: idField,
-        payload: longTextField,
-        status: queueStatusField,
-        attempts: { type: 'number', minimum: 0, maximum: 1000 },
-        enqueuedAt: timestampField,
-        updatedAt: timestampField,
-        error: longTextField
-      },
-      required: ['id', 'operation', 'entityType', 'entityId', 'payload', 'status', 'attempts', 'enqueuedAt', 'updatedAt']
-    },
-    migrationStrategies: {
-      1: identityMigration
-    }
-  }
-} as const;
+export const schemaStatements = [
+  `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS accounts (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL,
+    display_name TEXT,
+    avatar_url TEXT,
+    instance_url TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expiry TEXT,
+    proxy_session TEXT,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS works (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    sort_title TEXT,
+    subtitle TEXT,
+    description TEXT,
+    first_published TEXT,
+    subjects TEXT,
+    series_name TEXT,
+    series_number TEXT,
+    openlibrary_key TEXT,
+    wikidata_id TEXT,
+    last_fetched TEXT,
+    source_instance TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS editions (
+    id TEXT PRIMARY KEY,
+    work_id TEXT,
+    title TEXT NOT NULL,
+    subtitle TEXT,
+    description TEXT,
+    isbn_13 TEXT,
+    isbn_10 TEXT,
+    asin TEXT,
+    oclc_number TEXT,
+    pages INTEGER,
+    physical_format TEXT,
+    publishers TEXT,
+    published_date TEXT,
+    languages TEXT,
+    cover_url TEXT,
+    cover_cached INTEGER DEFAULT 0,
+    last_fetched TEXT,
+    source_instance TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_editions_work ON editions(work_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_editions_isbn13 ON editions(isbn_13)`,
+  `CREATE TABLE IF NOT EXISTS authors (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    sort_name TEXT,
+    bio TEXT,
+    born TEXT,
+    died TEXT,
+    wikipedia_url TEXT,
+    openlibrary_key TEXT,
+    wikidata_id TEXT,
+    photo_url TEXT,
+    last_fetched TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS edition_authors (
+    edition_id TEXT NOT NULL,
+    author_id TEXT NOT NULL,
+    role TEXT DEFAULT 'author',
+    sort_order INTEGER DEFAULT 0,
+    PRIMARY KEY (edition_id, author_id, role)
+  )`,
+  `CREATE TABLE IF NOT EXISTS shelves (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    identifier TEXT NOT NULL,
+    is_default INTEGER DEFAULT 0,
+    privacy TEXT DEFAULT 'public',
+    sort_order INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS shelf_books (
+    shelf_id TEXT NOT NULL,
+    edition_id TEXT NOT NULL,
+    added_date TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (shelf_id, edition_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS reading_progress (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    edition_id TEXT NOT NULL,
+    progress_type TEXT NOT NULL,
+    progress REAL NOT NULL,
+    started_date TEXT,
+    finished_date TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TABLE IF NOT EXISTS statuses (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    account_id TEXT NOT NULL,
+    edition_id TEXT,
+    title TEXT,
+    content TEXT,
+    content_text TEXT,
+    quote_text TEXT,
+    rating REAL,
+    page_number INTEGER,
+    privacy TEXT DEFAULT 'public',
+    sensitive INTEGER DEFAULT 0,
+    spoiler_text TEXT,
+    in_reply_to TEXT,
+    published TEXT NOT NULL,
+    favourites_count INTEGER DEFAULT 0,
+    replies_count INTEGER DEFAULT 0,
+    boosts_count INTEGER DEFAULT 0,
+    is_favourited INTEGER DEFAULT 0,
+    is_boosted INTEGER DEFAULT 0,
+    last_fetched TEXT,
+    source_instance TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_statuses_account ON statuses(account_id, published DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_statuses_edition ON statuses(edition_id, published DESC)`,
+  `CREATE TABLE IF NOT EXISTS timeline_entries (id TEXT PRIMARY KEY, timeline_type TEXT NOT NULL, status_id TEXT NOT NULL, activity_type TEXT NOT NULL, boosted_by TEXT, position TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE INDEX IF NOT EXISTS idx_timeline_type ON timeline_entries(timeline_type, position DESC)`,
+  `CREATE TABLE IF NOT EXISTS write_queue (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    attempts INTEGER DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_write_queue_status ON write_queue(status, created_at)`,
+  `CREATE TABLE IF NOT EXISTS entity_resolution (
+    uri TEXT PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    state TEXT DEFAULT 'stub',
+    unresolved TEXT,
+    last_attempt TEXT,
+    error_count INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+  `CREATE TRIGGER IF NOT EXISTS accounts_updated_at
+    AFTER UPDATE ON accounts
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE accounts SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS works_updated_at
+    AFTER UPDATE ON works
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE works SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS editions_updated_at
+    AFTER UPDATE ON editions
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE editions SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS authors_updated_at
+    AFTER UPDATE ON authors
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE authors SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS shelves_updated_at
+    AFTER UPDATE ON shelves
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE shelves SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS statuses_updated_at
+    AFTER UPDATE ON statuses
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE statuses SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS write_queue_updated_at
+    AFTER UPDATE ON write_queue
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE write_queue SET updated_at = datetime('now') WHERE id = OLD.id;
+    END`,
+  `CREATE TRIGGER IF NOT EXISTS entity_resolution_updated_at
+    AFTER UPDATE ON entity_resolution
+    FOR EACH ROW
+    WHEN NEW.updated_at = OLD.updated_at
+    BEGIN
+      UPDATE entity_resolution SET updated_at = datetime('now') WHERE uri = OLD.uri;
+    END`,
+  `CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(title, author_names, isbn, content, tokenize='porter unicode61')`
+] as const;

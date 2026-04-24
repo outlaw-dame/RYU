@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
@@ -8,8 +8,6 @@ import { CoverGrid } from "../components/common/CoverGrid";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { SkeletonCoverGrid } from "../components/common/Skeleton";
 import { useDatabase } from "../hooks/useDatabase";
-import { useImportedBooks } from "../hooks/useImportedBooks";
-import { ActivityPubResolver } from "../sync/resolver";
 
 const sampleBooks = [
   { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
@@ -71,32 +69,8 @@ function ScreenTitle({ eyebrow, title }: { eyebrow?: string; title: string }) {
 
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
-  const [importUrl, setImportUrl] = useState("");
-  const [importError, setImportError] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
   const { state } = useDatabase();
-  const { books: importedBooks, loading: importedBooksLoading, reload: reloadImportedBooks } = useImportedBooks(state === "ready");
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
-  const resolver = useMemo(() => new ActivityPubResolver(), []);
-
-  const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
-
-  const importBook = useCallback(async () => {
-    if (!importUrl.trim()) return;
-
-    setIsImporting(true);
-    setImportError(null);
-    try {
-      await resolver.importEditionFromUrl(importUrl);
-      setImportUrl("");
-      await reloadImportedBooks();
-      setActiveTab("home");
-    } catch (error) {
-      setImportError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsImporting(false);
-    }
-  }, [importUrl, reloadImportedBooks, resolver]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -117,72 +91,16 @@ export function App() {
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="My Library" />
                   <SectionHeader title="Currently Reading" actionLabel="See All" />
-                  {state === "ready" && !importedBooksLoading ? <CoverGrid books={featuredBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
+                  {state === "ready" ? <CoverGrid books={sampleBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
                   <div style={{ height: "var(--space-8)" }} />
-                  <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
-                  <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} />
+                  <SectionHeader title="Recently Added" />
+                  <CoverGrid books={sampleBooks.slice(3)} />
                 </TabPanel>
               )}
               {activeTab === "search" && (
                 <TabPanel id="search" activeTab={activeTab}>
                   <ScreenTitle title="Search" />
-                  <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
-                    <div style={{
-                      borderRadius: "var(--radius-lg)",
-                      padding: "var(--space-4)",
-                      background: "var(--color-bg-secondary)",
-                      boxShadow: "var(--shadow-card)"
-                    }}>
-                      <h2 style={{ margin: "0 0 var(--space-2)", fontFamily: "var(--font-display)", fontSize: "var(--text-title3)", lineHeight: "var(--leading-title3)" }}>Import a BookWyrm edition</h2>
-                      <p style={{ margin: "0 0 var(--space-3)", color: "var(--color-text-secondary)" }}>Paste a public ActivityPub Edition URL. The app will fetch, validate, normalize, and store it locally.</p>
-                      <div style={{ display: "grid", gap: "var(--space-3)" }}>
-                        <input
-                          type="url"
-                          inputMode="url"
-                          value={importUrl}
-                          onChange={(event) => setImportUrl(event.target.value)}
-                          placeholder="https://bookwyrm.example/book/edition/123"
-                          style={{
-                            width: "100%",
-                            minHeight: "var(--touch-min)",
-                            borderRadius: "var(--radius-md)",
-                            border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                            background: "var(--color-bg)",
-                            color: "var(--color-text)",
-                            padding: "0 var(--space-3)",
-                            fontSize: "var(--text-body)"
-                          }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void importBook()}
-                          disabled={isImporting || state !== "ready"}
-                          style={{
-                            minHeight: "var(--touch-min)",
-                            border: 0,
-                            borderRadius: "var(--radius-md)",
-                            background: "var(--color-accent)",
-                            color: "white",
-                            fontWeight: 700,
-                            padding: "0 var(--space-4)",
-                            opacity: isImporting || state !== "ready" ? 0.6 : 1
-                          }}
-                        >
-                          {isImporting ? "Importing..." : "Import edition"}
-                        </button>
-                      </div>
-                      {importError ? <p style={{ margin: "var(--space-3) 0 0", color: "#c23b3b" }}>{importError}</p> : null}
-                    </div>
-                  </section>
-                  <div style={{ height: "var(--space-6)" }} />
-                  {importedBooks.length > 0 ? (
-                    <>
-                      <SectionHeader title="Imported Editions" />
-                      <CoverGrid books={importedBooks} />
-                    </>
-                  ) : (
-                    <EmptyState title="No imported books yet" description="Your first successful import will appear here and on the Home tab." />
-                  )}
+                  <EmptyState title="Search is coming next" description="Phase 2 wires local FTS5, BookWyrm search, and ISBN lookup." />
                 </TabPanel>
               )}
               {activeTab === "shelves" && (
