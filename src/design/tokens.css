@@ -1,0 +1,169 @@
+/*
+ * Ryu Design Tokens
+ * Body: system stack for iOS-native readability.
+ * Display: Plus Jakarta Sans for Oku/Graphik-like editorial warmth.
+ */
+
+:root {
+  color-scheme: light dark;
+
+  --font-display: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
+
+  --text-tab: 0.625rem;
+  --text-caption2: 0.6875rem;
+  --text-caption1: 0.75rem;
+  --text-footnote: 0.8125rem;
+  --text-subhead: 0.9375rem;
+  --text-callout: 1rem;
+  --text-body: 1.0625rem;
+  --text-headline: 1.0625rem;
+  --text-title3: 1.25rem;
+  --text-title2: 1.375rem;
+  --text-title1: 1.75rem;
+  --text-large-title: 2.125rem;
+
+  --leading-large-title: 1.21;
+  --leading-title1: 1.21;
+  --leading-title2: 1.27;
+  --leading-title3: 1.25;
+  --leading-body: 1.29;
+  --leading-subhead: 1.33;
+  --leading-footnote: 1.38;
+  --leading-caption1: 1.33;
+  --leading-caption2: 1.18;
+
+  --tracking-large-title: 0.011em;
+  --tracking-title1: 0.013em;
+  --tracking-title2: 0.016em;
+  --tracking-title3: 0.019em;
+  --tracking-body: -0.024em;
+  --tracking-subhead: -0.016em;
+  --tracking-footnote: -0.006em;
+  --tracking-caption1: 0em;
+  --tracking-caption2: 0.006em;
+  --tracking-caps: 0.06em;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.375rem;
+  --radius-full: 9999px;
+  --radius-cover: 0.375rem;
+  --radius-cover-lg: 0.625rem;
+
+  --touch-min: 44px;
+  --tab-bar-height: 49px;
+  --nav-bar-height: 44px;
+
+  --safe-top: max(24px, env(safe-area-inset-top, 24px));
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+:root,
+:root[data-theme="light"] {
+  --color-bg: #f2f2f7;
+  --color-bg-elevated: #ffffff;
+  --color-bg-secondary: #e5e5ea;
+  --color-bg-tertiary: #d1d1d6;
+  --color-bg-glass: rgba(242, 242, 247, 0.68);
+
+  --color-text: rgba(0, 0, 0, 1);
+  --color-text-secondary: rgba(60, 60, 67, 0.6);
+  --color-text-tertiary: rgba(60, 60, 67, 0.3);
+  --color-text-quaternary: rgba(60, 60, 67, 0.18);
+
+  --color-accent: #5856d6;
+  --color-accent-soft: rgba(88, 86, 214, 0.12);
+  --color-separator: rgba(60, 60, 67, 0.29);
+  --color-rating: #ff9f0a;
+  --color-rating-empty: #d1d1d6;
+  --color-danger: #ff3b30;
+
+  --color-shelf-want: #5856d6;
+  --color-shelf-want-bg: rgba(88, 86, 214, 0.12);
+  --color-shelf-reading: #32ade6;
+  --color-shelf-reading-bg: rgba(50, 173, 230, 0.13);
+  --color-shelf-read: #34c759;
+  --color-shelf-read-bg: rgba(52, 199, 89, 0.13);
+  --color-shelf-dnf: #8e8e93;
+  --color-shelf-dnf-bg: rgba(142, 142, 147, 0.12);
+
+  --shadow-cover: 0 2px 10px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #000000;
+    --color-bg-elevated: #1c1c1e;
+    --color-bg-secondary: #2c2c2e;
+    --color-bg-tertiary: #3a3a3c;
+    --color-bg-glass: rgba(0, 0, 0, 0.6);
+
+    --color-text: rgba(255, 255, 255, 1);
+    --color-text-secondary: rgba(235, 235, 245, 0.6);
+    --color-text-tertiary: rgba(235, 235, 245, 0.3);
+    --color-text-quaternary: rgba(235, 235, 245, 0.18);
+
+    --color-accent: #5e5ce6;
+    --color-accent-soft: rgba(94, 92, 230, 0.15);
+    --color-separator: rgba(84, 84, 88, 0.65);
+    --color-rating: #ff9f0a;
+    --color-rating-empty: #48484a;
+    --color-danger: #ff453a;
+
+    --color-shelf-want: #5e5ce6;
+    --color-shelf-want-bg: rgba(94, 92, 230, 0.15);
+    --color-shelf-reading: #64d2ff;
+    --color-shelf-reading-bg: rgba(100, 210, 255, 0.12);
+    --color-shelf-read: #30d158;
+    --color-shelf-read-bg: rgba(48, 209, 88, 0.12);
+    --color-shelf-dnf: #8e8e93;
+    --color-shelf-dnf-bg: rgba(142, 142, 147, 0.12);
+
+    --shadow-cover: 0 2px 10px rgba(0, 0, 0, 0.4), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; height: 100%; margin: 0; }
+html { min-height: -webkit-fill-available; background: var(--color-bg); }
+body {
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+  font-family: var(--font-body);
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
+  letter-spacing: var(--tracking-body);
+  color: var(--color-text);
+  background: var(--color-bg);
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+button, input, textarea, select { font: inherit; }
+button { color: inherit; }
+input::placeholder { color: var(--color-text-tertiary); opacity: 1; }
+input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }
+::-webkit-scrollbar { display: none; }
+
+.scroll-container { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
+.text-content { -webkit-user-select: text; user-select: text; }
+.skeleton { background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-tertiary) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease infinite; }
+@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }

@@ -1,0 +1,131 @@
+import { useCallback, useState } from "react";
+import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
+import { ErrorBoundary } from "../components/common/ErrorBoundary";
+import { OfflineIndicator } from "../components/common/OfflineIndicator";
+import { EmptyState } from "../components/common/EmptyState";
+import { CoverGrid } from "../components/common/CoverGrid";
+import { SectionHeader } from "../components/common/SectionHeader";
+import { SkeletonCoverGrid } from "../components/common/Skeleton";
+import { useDatabase } from "../hooks/useDatabase";
+
+const sampleBooks = [
+  { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
+  { id: "2", title: "Dune", author: "Frank Herbert", coverUrl: "https://covers.openlibrary.org/b/isbn/9780441013593-M.jpg" },
+  { id: "3", title: "Piranesi", author: "Susanna Clarke", coverUrl: "https://covers.openlibrary.org/b/isbn/9781635575996-M.jpg" },
+  { id: "4", title: "Project Hail Mary", author: "Andy Weir", coverUrl: "https://covers.openlibrary.org/b/isbn/9780593135204-M.jpg" },
+  { id: "5", title: "The Dispossessed", author: "Ursula K. Le Guin", coverUrl: "https://covers.openlibrary.org/b/isbn/9780061054884-M.jpg" },
+  { id: "6", title: "Exhalation", author: "Ted Chiang", coverUrl: "https://covers.openlibrary.org/b/isbn/9781101947883-M.jpg" }
+];
+
+function TabPanel({ id, activeTab, children }: { id: TabId; activeTab: TabId; children: React.ReactNode }) {
+  return (
+    <motion.section
+      key={id}
+      id={`panel-${id}`}
+      role="tabpanel"
+      aria-labelledby={`tab-${id}`}
+      hidden={activeTab !== id}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.18 }}
+      className="scroll-container"
+      style={{
+        height: "100%",
+        paddingTop: "var(--safe-top)",
+        paddingBottom: "calc(var(--space-8) + var(--safe-bottom))"
+      }}
+    >
+      {children}
+    </motion.section>
+  );
+}
+
+function ScreenTitle({ eyebrow, title }: { eyebrow?: string; title: string }) {
+  return (
+    <header style={{ padding: "0 var(--space-4) var(--space-6)" }}>
+      {eyebrow ? (
+        <div style={{
+          fontSize: "var(--text-subhead)",
+          lineHeight: "var(--leading-subhead)",
+          letterSpacing: "var(--tracking-subhead)",
+          color: "var(--color-text-tertiary)",
+          marginBottom: "var(--space-1)"
+        }}>{eyebrow}</div>
+      ) : null}
+      <h1 style={{
+        margin: 0,
+        fontFamily: "var(--font-display)",
+        fontSize: "var(--text-large-title)",
+        lineHeight: "var(--leading-large-title)",
+        letterSpacing: "var(--tracking-large-title)",
+        fontWeight: 700,
+        color: "var(--color-text)"
+      }}>{title}</h1>
+    </header>
+  );
+}
+
+export function App() {
+  const [activeTab, setActiveTab] = useState<TabId>("home");
+  const { state } = useDatabase();
+  const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
+
+  return (
+    <MotionConfig reducedMotion="user">
+      <ErrorBoundary>
+        <div style={{
+          width: "100%",
+          height: "100dvh",
+          display: "flex",
+          flexDirection: "column",
+          background: "var(--color-bg)",
+          color: "var(--color-text)",
+          overflow: "hidden"
+        }}>
+          <OfflineIndicator />
+          <main style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+            <AnimatePresence mode="wait">
+              {activeTab === "home" && (
+                <TabPanel id="home" activeTab={activeTab}>
+                  <ScreenTitle eyebrow="Good evening" title="My Library" />
+                  <SectionHeader title="Currently Reading" actionLabel="See All" />
+                  {state === "ready" ? <CoverGrid books={sampleBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
+                  <div style={{ height: "var(--space-8)" }} />
+                  <SectionHeader title="Recently Added" />
+                  <CoverGrid books={sampleBooks.slice(3)} />
+                </TabPanel>
+              )}
+              {activeTab === "search" && (
+                <TabPanel id="search" activeTab={activeTab}>
+                  <ScreenTitle title="Search" />
+                  <EmptyState title="Search is coming next" description="Phase 2 wires local FTS5, BookWyrm search, and ISBN lookup." />
+                </TabPanel>
+              )}
+              {activeTab === "shelves" && (
+                <TabPanel id="shelves" activeTab={activeTab}>
+                  <ScreenTitle title="Shelves" />
+                  <CoverGrid books={sampleBooks} />
+                </TabPanel>
+              )}
+              {activeTab === "activity" && (
+                <TabPanel id="activity" activeTab={activeTab}>
+                  <ScreenTitle title="Activity" />
+                  <EmptyState title="No activity yet" description="Reviews, follows, favourites, and reading updates will appear here." />
+                </TabPanel>
+              )}
+              {activeTab === "profile" && (
+                <TabPanel id="profile" activeTab={activeTab}>
+                  <ScreenTitle title="Profile" />
+                  <EmptyState title="Connect BookWyrm" description="Authentication is planned for Phase 3 after the API compatibility audit." />
+                </TabPanel>
+              )}
+            </AnimatePresence>
+          </main>
+          <AppTabBar activeTab={activeTab} onChange={changeTab} />
+        </div>
+      </ErrorBoundary>
+    </MotionConfig>
+  );
+}
