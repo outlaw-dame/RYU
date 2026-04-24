@@ -5,23 +5,9 @@
   "type": "module",
   "description": "A local-first iOS-style Progressive Web App client for BookWyrm.",
   "license": "AGPL-3.0-or-later",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/outlaw-dame/RYU.git"
-  },
-  "keywords": [
-    "bookwyrm",
-    "activitypub",
-    "pwa",
-    "ios",
-    "local-first",
-    "rxdb",
-    "indexeddb",
-    "books"
-  ],
-  "engines": {
-    "node": ">=20.0.0"
-  },
+  "repository": { "type": "git", "url": "https://github.com/outlaw-dame/RYU.git" },
+  "keywords": ["bookwyrm","activitypub","pwa","ios","local-first","rxdb","indexeddb","books"],
+  "engines": { "node": ">=20.0.0" },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -30,6 +16,7 @@
     "clean": "rm -rf dist .vite node_modules/.vite"
   },
   "dependencies": {
+    "@orama/orama": "^2.0.0",
     "@tanstack/react-query": "^5.62.7",
     "dexie": "^4.0.10",
     "dompurify": "^3.2.3",
