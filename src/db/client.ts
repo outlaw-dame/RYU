@@ -1,18 +1,63 @@
-import { createRxDatabase, addRxPlugin } from 'rxdb';
-import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { addRxPlugin, createRxDatabase, type RxDatabase } from 'rxdb';
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
+import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { collections } from './schema';
 
-addRxPlugin(RxDBDevModePlugin);
+export type RyuDatabase = RxDatabase<typeof collections>;
 
-let dbPromise: Promise<any> | null = null;
+let dbPromise: Promise<RyuDatabase> | null = null;
+let devModeRegistered = false;
 
-export async function getDatabase() {
+function registerDevelopmentPlugins() {
+  if (import.meta.env.DEV && !devModeRegistered) {
+    addRxPlugin(RxDBDevModePlugin);
+    devModeRegistered = true;
+  }
+}
+
+async function requestPersistentStorage(): Promise<boolean> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.persist) {
+    return false;
+  }
+
+  try {
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
+}
+
+export async function initializeDatabase(): Promise<RyuDatabase> {
   if (!dbPromise) {
-    dbPromise = createRxDatabase({
-      name: 'ryu',
-      storage: getRxStorageDexie(),
-      multiInstance: true
+    dbPromise = (async () => {
+      registerDevelopmentPlugins();
+      await requestPersistentStorage();
+
+      const db = await createRxDatabase<RyuDatabase>({
+        name: 'ryu',
+        storage: getRxStorageDexie(),
+        multiInstance: true,
+        ignoreDuplicate: import.meta.env.DEV
+      });
+
+      await db.addCollections(collections);
+      return db;
+    })().catch((err) => {
+      dbPromise = null;
+      throw err;
     });
   }
+
   return dbPromise;
+}
+
+export function getDatabase(): Promise<RyuDatabase> {
+  return initializeDatabase();
+}
+
+export async function closeDatabaseForTests(): Promise<void> {
+  if (!dbPromise) return;
+  const db = await dbPromise;
+  await db.close();
+  dbPromise = null;
 }
