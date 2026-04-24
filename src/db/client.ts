@@ -4,7 +4,9 @@ import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import {
   collections,
   type AuthorDoc,
+  type BookWyrmInstanceDoc,
   type EditionDoc,
+  type EntityLinkDoc,
   type EntityResolutionDoc,
   type FetchQueueDoc,
   type ReviewDoc,
@@ -18,6 +20,8 @@ export type RyuCollections = {
   editions: RxCollection<EditionDoc>;
   reviews: RxCollection<ReviewDoc>;
   entityresolutions: RxCollection<EntityResolutionDoc>;
+  entitylinks: RxCollection<EntityLinkDoc>;
+  bookwyrminstances: RxCollection<BookWyrmInstanceDoc>;
   fetchqueue: RxCollection<FetchQueueDoc>;
   writequeue: RxCollection<WriteQueueDoc>;
 };
@@ -25,17 +29,29 @@ export type RyuCollections = {
 export type RyuDatabase = RxDatabase<RyuCollections>;
 
 let dbPromise: Promise<RyuDatabase> | null = null;
+let devModePluginRegistered = false;
+
+function registerDevelopmentPlugins(): void {
+  if (!import.meta.env.DEV || devModePluginRegistered) return;
+  addRxPlugin(RxDBDevModePlugin);
+  devModePluginRegistered = true;
+}
+
+async function requestPersistentStorage(): Promise<void> {
+  if (typeof navigator === 'undefined' || !navigator.storage?.persist) return;
+  try {
+    await navigator.storage.persist();
+  } catch {
+    // Persistence is best-effort. IndexedDB remains usable even when browsers
+    // deny persistent storage; callers should not fail because of this request.
+  }
+}
 
 export async function initializeDatabase(): Promise<RyuDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
-      if (import.meta.env.DEV) {
-        addRxPlugin(RxDBDevModePlugin);
-      }
-
-      if (navigator.storage?.persist) {
-        try { await navigator.storage.persist(); } catch {}
-      }
+      registerDevelopmentPlugins();
+      await requestPersistentStorage();
 
       const db = await createRxDatabase<RyuCollections>({
         name: 'ryu',
@@ -53,4 +69,8 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
   }
 
   return dbPromise;
+}
+
+export function getDatabase(): Promise<RyuDatabase> {
+  return initializeDatabase();
 }
