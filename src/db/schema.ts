@@ -1,5 +1,5 @@
 export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
-export type ExternalEntitySource = 'wikidata' | 'dbpedia';
+export type ExternalEntitySource = 'wikidata' | 'dbpedia' | 'google_books' | 'open_library';
 
 type MigrationDoc = Record<string, unknown> | null;
 
@@ -119,7 +119,7 @@ const entityTypeField = {
 };
 const externalEntitySourceField = {
   type: 'string',
-  enum: ['wikidata', 'dbpedia']
+  enum: ['wikidata', 'dbpedia', 'google_books', 'open_library']
 };
 
 function identityMigration(doc: MigrationDoc): MigrationDoc {
