@@ -9,6 +9,8 @@ export type KnowledgeEntityCandidate = {
   kind: KnowledgeEntityKind;
   label: string;
   authorLabels?: string[];
+  isbn10?: string;
+  isbn13?: string;
   description?: string;
 };
 
@@ -32,6 +34,16 @@ type WikidataSearchResponse = {
   }>;
 };
 
+type WikidataSparqlResponse = {
+  results?: {
+    bindings?: Array<{
+      item?: { value?: string };
+      itemLabel?: { value?: string };
+      itemDescription?: { value?: string };
+    }>;
+  };
+};
+
 type DBpediaLookupResponse = {
   docs?: Array<{
     resource?: string[];
@@ -39,6 +51,8 @@ type DBpediaLookupResponse = {
     comment?: string[];
   }>;
 };
+
+const ENRICHMENT_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 const queue = new FetchQueue({
   concurrency: 2,
@@ -62,6 +76,12 @@ function normalizeText(value: string): string {
     .trim();
 }
 
+function normalizeIsbn(value?: string): string | undefined {
+  const normalized = value?.replace(/[^0-9Xx]/g, '').toUpperCase();
+  if (!normalized) return undefined;
+  return normalized.length === 10 || normalized.length === 13 ? normalized : undefined;
+}
+
 function boundedQuery(candidate: KnowledgeEntityCandidate): string | null {
   const label = candidate.label.trim();
   if (!label || label.length > 256) return null;
@@ -69,6 +89,27 @@ function boundedQuery(candidate: KnowledgeEntityCandidate): string | null {
   const authorContext = candidate.authorLabels?.filter(Boolean).slice(0, 2).join(' ');
   const query = [label, authorContext].filter(Boolean).join(' ').trim();
   return query.length > 256 ? query.slice(0, 256) : query;
+}
+
+async function shouldRefreshEntityLinks(entityId: string): Promise<boolean> {
+  try {
+    const db = await initializeDatabase();
+    const existing = await db.entitylinks
+      .find({ selector: { entityId } })
+      .exec();
+
+    if (existing.length === 0) return true;
+
+    const newestCheckedAt = existing
+      .map((doc: any) => Date.parse(doc.toJSON().checkedAt))
+      .filter((timestamp: number) => Number.isFinite(timestamp))
+      .sort((a: number, b: number) => b - a)[0];
+
+    if (!newestCheckedAt) return true;
+    return Date.now() - newestCheckedAt > ENRICHMENT_TTL_MS;
+  } catch {
+    return true;
+  }
 }
 
 async function fetchJson<T>(url: string, host: string): Promise<T> {
@@ -119,6 +160,10 @@ function labelConfidence(queryLabel: string, candidateLabel?: string, sourceScor
   return Math.round(score * 100) / 100;
 }
 
+function wikidataEntityIdFromUri(uri: string): string | undefined {
+  return uri.match(/Q\d+$/)?.[0];
+}
+
 async function queryWikidata(candidate: KnowledgeEntityCandidate, query: string): Promise<ExternalLinkCandidate[]> {
   const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(query)}&language=en&format=json&limit=5&origin=*`;
   const response = await fetchJson<WikidataSearchResponse>(url, 'www.wikidata.org');
@@ -135,6 +180,42 @@ async function queryWikidata(candidate: KnowledgeEntityCandidate, query: string)
       confidence: labelConfidence(candidate.label, item.label, item.score),
       query
     }));
+}
+
+async function queryWikidataByIsbn(candidate: KnowledgeEntityCandidate): Promise<ExternalLinkCandidate[]> {
+  const isbn13 = normalizeIsbn(candidate.isbn13);
+  const isbn10 = normalizeIsbn(candidate.isbn10);
+  const isbnValues = [isbn13, isbn10].filter((isbn): isbn is string => Boolean(isbn));
+  if (candidate.kind !== 'edition' || isbnValues.length === 0) return [];
+
+  const valueFilters = isbnValues.map((isbn) => `\"${isbn}\"`).join(' ');
+  const sparql = `
+    SELECT ?item ?itemLabel ?itemDescription WHERE {
+      VALUES ?isbn { ${valueFilters} }
+      { ?item wdt:P212 ?isbn. } UNION { ?item wdt:P957 ?isbn. }
+      SERVICE wikibase:label { bd:serviceParam wikibase:language \"en\". }
+    }
+    LIMIT 5
+  `;
+
+  const url = `https://query.wikidata.org/sparql?query=${encodeURIComponent(sparql)}&format=json`;
+  const response = await fetchJson<WikidataSparqlResponse>(url, 'query.wikidata.org');
+  const bindings = response.results?.bindings ?? [];
+
+  return bindings
+    .filter((binding) => binding.item?.value)
+    .map((binding) => {
+      const externalUri = binding.item!.value!;
+      return {
+        source: 'wikidata' as const,
+        externalId: wikidataEntityIdFromUri(externalUri) ?? externalUri,
+        externalUri,
+        label: binding.itemLabel?.value,
+        description: binding.itemDescription?.value,
+        confidence: 0.99,
+        query: isbnValues.join(' ')
+      };
+    });
 }
 
 async function queryDBpedia(candidate: KnowledgeEntityCandidate, query: string): Promise<ExternalLinkCandidate[]> {
@@ -176,12 +257,16 @@ export async function enrichKnowledgeEntity(candidate: KnowledgeEntityCandidate)
   const query = boundedQuery(candidate);
   if (!query) return;
 
-  const [wikidata, dbpedia] = await Promise.allSettled([
+  if (!(await shouldRefreshEntityLinks(candidate.id))) return;
+
+  const [isbnMatches, wikidata, dbpedia] = await Promise.allSettled([
+    queryWikidataByIsbn(candidate),
     queryWikidata(candidate, query),
     queryDBpedia(candidate, query)
   ]);
 
   const candidates = dedupeCandidates([
+    ...(isbnMatches.status === 'fulfilled' ? isbnMatches.value : []),
     ...(wikidata.status === 'fulfilled' ? wikidata.value : []),
     ...(dbpedia.status === 'fulfilled' ? dbpedia.value : [])
   ]);
