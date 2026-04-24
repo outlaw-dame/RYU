@@ -1,3 +1,5 @@
+import { persistFetchQueueStatus } from '../db/fetch-queue-persistence';
+
 type InFlightMap = Map<string, Promise<unknown>>;
 
 export interface FetchQueueOptions {
@@ -59,19 +61,48 @@ export class FetchQueue {
     });
 
     this.inFlight.set(key, promise);
+
+    const host = options.host ?? 'unknown';
+
+    void persistFetchQueueStatus({
+      id: key,
+      url: key,
+      host,
+      status: 'pending',
+      attempts: 0
+    });
+
     this.queue.push({
       key,
-      host: options.host,
+      host,
       run: async () => {
         try {
-          const result = await this.executeWithRetry(task, options);
+          const result = await this.executeWithRetry(key, task, options);
+
+          void persistFetchQueueStatus({
+            id: key,
+            url: key,
+            host,
+            status: 'completed',
+            attempts: 1
+          });
+
           resolvePromise(result);
         } catch (error) {
+          void persistFetchQueueStatus({
+            id: key,
+            url: key,
+            host,
+            status: 'failed',
+            attempts: 1,
+            error: error instanceof Error ? error.message : String(error)
+          });
+
           rejectPromise(error);
         } finally {
           this.active--;
-          if (options.host) {
-            this.releaseHost(options.host);
+          if (host) {
+            this.releaseHost(host);
           }
           this.inFlight.delete(key);
           this.next();
@@ -96,7 +127,7 @@ export class FetchQueue {
     }
   }
 
-  private async executeWithRetry<T>(task: (signal: AbortSignal) => Promise<T>, options: FetchRunOptions): Promise<T> {
+  private async executeWithRetry<T>(key: string, task: (signal: AbortSignal) => Promise<T>, options: FetchRunOptions): Promise<T> {
     const retries = options.retries ?? this.options.retries;
     const timeoutMs = options.timeoutMs ?? this.options.timeoutMs;
     const backoffMultiplier = options.backoffMultiplier ?? this.options.backoffMultiplier;
@@ -107,10 +138,31 @@ export class FetchQueue {
       const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        void persistFetchQueueStatus({
+          id: key,
+          url: key,
+          host: options.host ?? 'unknown',
+          status: 'processing',
+          attempts: attempt + 1,
+          lastAttemptAt: new Date().toISOString()
+        });
+
         return await task(controller.signal);
       } catch (error) {
         const shouldRetry = attempt < retries && isRetryableError(error);
         if (!shouldRetry) throw error;
+
+        const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+
+        void persistFetchQueueStatus({
+          id: key,
+          url: key,
+          host: options.host ?? 'unknown',
+          status: 'pending',
+          attempts: attempt + 1,
+          lastAttemptAt: new Date().toISOString(),
+          nextAttemptAt
+        });
 
         const jitter = Math.floor(Math.random() * this.options.jitterMs);
         await wait(delayMs + jitter);
