@@ -9,11 +9,16 @@ let singleton: Promise<DatabaseHandle> | null = null;
 
 export function initializeDatabase(): Promise<DatabaseHandle> {
   singleton ??= (async () => {
-    if (navigator.storage?.persist) {
-      try { await navigator.storage.persist(); } catch { /* non-fatal */ }
+    try {
+      if (navigator.storage?.persist) {
+        try { await navigator.storage.persist(); } catch { /* non-fatal */ }
+      }
+      await runMigrations();
+      return { ready: true, storage: "opfs" };
+    } catch (error) {
+      singleton = null;
+      throw error;
     }
-    await runMigrations();
-    return { ready: true, storage: "opfs" };
   })();
   return singleton;
 }

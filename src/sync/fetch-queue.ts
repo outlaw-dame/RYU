@@ -28,9 +28,9 @@ export class FetchQueue {
     while (this.active < this.concurrency && this.queued.length > 0) {
       const task = this.queued.shift()!;
       this.active += 1;
-      task.run()
-        .then(task.resolve)
-        .catch(task.reject)
+      Promise.resolve()
+        .then(() => task.run())
+        .then(task.resolve, task.reject)
         .finally(() => { this.active -= 1; this.drain(); });
     }
   }
