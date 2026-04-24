@@ -72,6 +72,20 @@ export interface EntityLinkDoc {
   updatedAt: string;
 }
 
+export interface BookWyrmInstanceDoc {
+  id: string;
+  domain: string;
+  url: string;
+  name: string;
+  description?: string;
+  users?: number;
+  version?: string;
+  registrationStatus: 'open' | 'invite' | 'closed' | 'unknown';
+  source: 'joinbookwyrm';
+  fetchedAt: string;
+  updatedAt: string;
+}
+
 export interface FetchQueueDoc {
   id: string;
   url: string;
@@ -120,6 +134,10 @@ const entityTypeField = {
 const externalEntitySourceField = {
   type: 'string',
   enum: ['wikidata', 'dbpedia', 'google_books', 'open_library']
+};
+const registrationStatusField = {
+  type: 'string',
+  enum: ['open', 'invite', 'closed', 'unknown']
 };
 
 function identityMigration(doc: MigrationDoc): MigrationDoc {
@@ -314,6 +332,31 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'entityId', 'entityType', 'source', 'externalId', 'externalUri', 'confidence', 'query', 'checkedAt', 'updatedAt']
+    },
+    migrationStrategies: { 1: identityMigration }
+  },
+  bookwyrminstances: {
+    schema: {
+      title: 'bookwyrm instances schema',
+      version: SCHEMA_VERSION,
+      type: 'object',
+      primaryKey: 'id',
+      additionalProperties: false,
+      indexes: ['domain', 'registrationStatus', 'users', 'updatedAt'],
+      properties: {
+        id: idField,
+        domain: shortTextField,
+        url: urlField,
+        name: mediumTextField,
+        description: longTextField,
+        users: { type: 'number', minimum: 0, maximum: 100000000 },
+        version: shortTextField,
+        registrationStatus: registrationStatusField,
+        source: { type: 'string', enum: ['joinbookwyrm'] },
+        fetchedAt: timestampField,
+        updatedAt: timestampField
+      },
+      required: ['id', 'domain', 'url', 'name', 'registrationStatus', 'source', 'fetchedAt', 'updatedAt']
     },
     migrationStrategies: { 1: identityMigration }
   },
