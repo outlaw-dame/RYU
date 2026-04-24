@@ -1,25 +1,67 @@
 import type { RankedSearchResult, SearchDocument } from './types';
 
-function lexicalScore(doc: SearchDocument): number {
+function normalize(text: string): string {
+  return text.toLowerCase();
+}
+
+function includes(text: string, query: string): boolean {
+  return normalize(text).includes(normalize(query));
+}
+
+function scoreField(text: string, query: string, weight: number): number {
+  if (!text) return 0;
+  if (includes(text, query)) return weight;
+  return 0;
+}
+
+function computeScore(doc: SearchDocument, query: string): { score: number; reasons: string[] } {
   let score = 0;
+  const reasons: string[] = [];
 
-  if (doc.title) score += 5;
-  if (doc.description) score += 2;
+  // Title (highest weight)
+  const titleScore = scoreField(doc.title, query, 10);
+  if (titleScore) reasons.push('title');
+  score += titleScore;
 
+  // Author
+  const authorScore = scoreField(doc.authorText, query, 6);
+  if (authorScore) reasons.push('author');
+  score += authorScore;
+
+  // Description
+  const descScore = scoreField(doc.description, query, 3);
+  if (descScore) reasons.push('description');
+  score += descScore;
+
+  // ISBN exact-ish
+  const isbnScore = scoreField(doc.isbnText, query, 12);
+  if (isbnScore) reasons.push('isbn');
+  score += isbnScore;
+
+  // Enrichment (lowest weight)
+  const enrichScore = scoreField(doc.enrichmentText, query, 2);
+  if (enrichScore) reasons.push('enrichment');
+  score += enrichScore;
+
+  // Type bias
   if (doc.type === 'edition') score += 3;
   if (doc.type === 'work') score += 2;
   if (doc.type === 'author') score += 1;
 
-  return score;
+  return { score, reasons };
 }
 
-export function rankLexical(docs: SearchDocument[]): RankedSearchResult[] {
+export function rankLexical(docs: SearchDocument[], query: string): RankedSearchResult[] {
   return docs
-    .map(doc => ({
-      ...doc,
-      score: lexicalScore(doc),
-      lexicalScore: lexicalScore(doc)
-    }))
+    .map(doc => {
+      const { score, reasons } = computeScore(doc, query);
+      return {
+        ...doc,
+        score,
+        lexicalScore: score,
+        reasons
+      };
+    })
     .sort((a, b) => b.score - a.score);
 }
 
