@@ -1,24 +1,78 @@
-import { create, insertMultiple, search as oramaSearch } from '@orama/orama';
+import { create, insert, search as oramaSearch } from '@orama/orama';
 import { initializeDatabase } from '@/db/client';
+import { rankLexical, dedupe } from './ranking';
+import type { SearchDocument } from './types';
 
 let orama: any;
+let initialized = false;
 
-function rank(doc: any): number {
-  let score = 0;
-  if (doc.title) score += 5;
-  if (doc.description) score += 2;
-  if (doc.type === 'edition') score += 3;
-  if (doc.type === 'work') score += 2;
-  if (doc.type === 'author') score += 1;
-  return score;
+function mapEdition(d: any): SearchDocument {
+  return {
+    id: d.id,
+    type: 'edition',
+    title: d.title,
+    description: d.description || '',
+    authorText: '',
+    source: 'local',
+    updatedAt: d.updatedAt
+  };
 }
 
-function dedupe(results: any[]) {
-  const seen = new Set();
-  return results.filter(r => {
-    if (seen.has(r.id)) return false;
-    seen.add(r.id);
-    return true;
+function mapWork(w: any): SearchDocument {
+  return {
+    id: w.id,
+    type: 'work',
+    title: w.title,
+    description: w.summary || '',
+    authorText: '',
+    source: 'local',
+    updatedAt: w.updatedAt
+  };
+}
+
+function mapAuthor(a: any): SearchDocument {
+  return {
+    id: a.id,
+    type: 'author',
+    title: a.name,
+    description: '',
+    authorText: a.name,
+    source: 'local',
+    updatedAt: a.updatedAt
+  };
+}
+
+async function buildIndex() {
+  const db = await initializeDatabase();
+
+  const editions = await db.editions.find().exec();
+  const works = await db.works.find().exec();
+  const authors = await db.authors.find().exec();
+
+  for (const d of editions) await insert(orama, mapEdition(d));
+  for (const w of works) await insert(orama, mapWork(w));
+  for (const a of authors) await insert(orama, mapAuthor(a));
+}
+
+async function setupReactiveIndex() {
+  const db = await initializeDatabase();
+
+  db.editions.$.subscribe(async (change: any) => {
+    if (change.operation === 'INSERT') {
+      await insert(orama, mapEdition(change.documentData));
+    }
+  });
+
+  db.works.$.subscribe(async (change: any) => {
+    if (change.operation === 'INSERT') {
+      await insert(orama, mapWork(change.documentData));
+    }
+  });
+
+  db.authors.$.subscribe(async (change: any) => {
+    if (change.operation === 'INSERT') {
+      await insert(orama, mapAuthor(change.documentData));
+    }
   });
 }
 
@@ -34,31 +88,27 @@ export async function getOrama() {
     }
   });
 
-  const db = await initializeDatabase();
+  await buildIndex();
 
-  const editions = await db.editions.find().exec();
-  const works = await db.works.find().exec();
-  const authors = await db.authors.find().exec();
-
-  const docs = [
-    ...editions.map((d: any) => ({ id: d.id, type: 'edition', title: d.title, description: d.description || '' })),
-    ...works.map((w: any) => ({ id: w.id, type: 'work', title: w.title, description: w.summary || '' })),
-    ...authors.map((a: any) => ({ id: a.id, type: 'author', title: a.name, description: '' }))
-  ];
-
-  await insertMultiple(orama, docs);
+  if (!initialized) {
+    initialized = true;
+    setupReactiveIndex().catch(() => {});
+  }
 
   return orama;
 }
 
 export async function searchOrama(query: string) {
+  if (!query || query.length < 2) return [];
+
   const db = await getOrama();
 
-  const res = await oramaSearch(db, { term: query, limit: 20 });
+  const res = await oramaSearch(db, {
+    term: query,
+    limit: 20
+  });
 
-  const ranked = res.hits
-    .map((h: any) => ({ ...h.document, score: rank(h.document) }))
-    .sort((a: any, b: any) => b.score - a.score);
+  const docs = res.hits.map((h: any) => h.document);
 
-  return dedupe(ranked);
+  return dedupe(rankLexical(docs));
 }
