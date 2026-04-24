@@ -27,7 +27,7 @@ async function requestPersistentStorage(): Promise<boolean> {
   }
 }
 
-export async function getDatabase(): Promise<RyuDatabase> {
+export async function initializeDatabase(): Promise<RyuDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
       registerDevelopmentPlugins();
@@ -42,10 +42,17 @@ export async function getDatabase(): Promise<RyuDatabase> {
 
       await db.addCollections(collections);
       return db;
-    })();
+    })().catch((err) => {
+      dbPromise = null;
+      throw err;
+    });
   }
 
   return dbPromise;
+}
+
+export function getDatabase(): Promise<RyuDatabase> {
+  return initializeDatabase();
 }
 
 export async function closeDatabaseForTests(): Promise<void> {
