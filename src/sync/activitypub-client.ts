@@ -93,8 +93,9 @@ export class ActivityPubClient {
     const maxDepth = options.maxDepth ?? 2;
     const root = await this.fetchEntity(input);
     const entities = new Map<string, CanonicalApEntity>([[root.id, root]]);
+    const visited = new Set<string>([root.id]);
 
-    await this.resolveRelatedEntities(root, entities, 0, maxDepth);
+    await this.resolveRelatedEntities(root, entities, visited, 0, maxDepth);
 
     return {
       rootId: root.id,
@@ -123,12 +124,17 @@ export class ActivityPubClient {
   private async resolveRelatedEntities(
     entity: CanonicalApEntity,
     entities: Map<string, CanonicalApEntity>,
+    visited: Set<string>,
     depth: number,
     maxDepth: number
   ): Promise<void> {
     if (depth >= maxDepth) return;
 
-    const relatedIds = getRelatedEntityIds(entity).filter((id) => !entities.has(id));
+    const relatedIds = getRelatedEntityIds(entity).filter((id) => {
+      if (visited.has(id)) return false;
+      visited.add(id);
+      return true;
+    });
     const relatedEntities = await Promise.all(relatedIds.map((id) => this.fetchEntity(id)));
 
     for (const relatedEntity of relatedEntities) {
@@ -136,7 +142,7 @@ export class ActivityPubClient {
     }
 
     await Promise.all(
-      relatedEntities.map((relatedEntity) => this.resolveRelatedEntities(relatedEntity, entities, depth + 1, maxDepth))
+      relatedEntities.map((relatedEntity) => this.resolveRelatedEntities(relatedEntity, entities, visited, depth + 1, maxDepth))
     );
   }
 }
@@ -146,12 +152,16 @@ export function getRelatedEntityIds(entity: CanonicalApEntity): string[] {
     case "author":
       return [];
     case "work":
-      return entity.authorIds;
+      return uniqueIds(entity.authorIds);
     case "edition":
-      return [...entity.authorIds, ...(entity.workId ? [entity.workId] : [])];
+      return uniqueIds([...entity.authorIds, ...(entity.workId ? [entity.workId] : [])]);
     case "review":
-      return [entity.editionId, entity.accountId];
+      return uniqueIds([entity.editionId, entity.accountId]);
   }
+}
+
+function uniqueIds(ids: string[]): string[] {
+  return Array.from(new Set(ids));
 }
 
 export function normalizeApObject(payload: unknown, sourceUrl: string): CanonicalApEntity {
