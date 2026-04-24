@@ -1,4 +1,5 @@
 export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
+export type ExternalEntitySource = 'wikidata' | 'dbpedia';
 
 type MigrationDoc = Record<string, unknown> | null;
 
@@ -56,6 +57,21 @@ export interface EntityResolutionDoc {
   resolvedAt: string;
 }
 
+export interface EntityLinkDoc {
+  id: string;
+  entityId: string;
+  entityType: 'author' | 'work' | 'edition' | 'review';
+  source: ExternalEntitySource;
+  externalId: string;
+  externalUri: string;
+  label?: string;
+  description?: string;
+  confidence: number;
+  query: string;
+  checkedAt: string;
+  updatedAt: string;
+}
+
 export interface FetchQueueDoc {
   id: string;
   url: string;
@@ -96,6 +112,14 @@ const stringArrayField = {
 const queueStatusField = {
   type: 'string',
   enum: ['pending', 'processing', 'completed', 'failed']
+};
+const entityTypeField = {
+  type: 'string',
+  enum: ['author', 'work', 'edition', 'review']
+};
+const externalEntitySourceField = {
+  type: 'string',
+  enum: ['wikidata', 'dbpedia']
 };
 
 function identityMigration(doc: MigrationDoc): MigrationDoc {
@@ -259,11 +283,37 @@ export const collections = {
       properties: {
         id: idField,
         canonicalUri: urlField,
-        entityType: shortTextField,
+        entityType: entityTypeField,
         entityId: idField,
         resolvedAt: timestampField
       },
       required: ['id', 'canonicalUri', 'entityType', 'entityId', 'resolvedAt']
+    },
+    migrationStrategies: { 1: identityMigration }
+  },
+  entitylinks: {
+    schema: {
+      title: 'external entity links schema',
+      version: SCHEMA_VERSION,
+      type: 'object',
+      primaryKey: 'id',
+      additionalProperties: false,
+      indexes: ['entityId', 'entityType', 'source', 'externalUri', 'checkedAt'],
+      properties: {
+        id: idField,
+        entityId: idField,
+        entityType: entityTypeField,
+        source: externalEntitySourceField,
+        externalId: shortTextField,
+        externalUri: urlField,
+        label: mediumTextField,
+        description: longTextField,
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        query: mediumTextField,
+        checkedAt: timestampField,
+        updatedAt: timestampField
+      },
+      required: ['id', 'entityId', 'entityType', 'source', 'externalId', 'externalUri', 'confidence', 'query', 'checkedAt', 'updatedAt']
     },
     migrationStrategies: { 1: identityMigration }
   },
