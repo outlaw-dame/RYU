@@ -1,9 +1,14 @@
 export const SCHEMA_VERSION = 1;
 
+const canonicalIdCheck = "CHECK (id LIKE 'https://%' OR id LIKE 'http://%')";
+const canonicalUriCheck = "CHECK (uri LIKE 'https://%' OR uri LIKE 'http://%')";
+const canonicalReferenceCheck = "CHECK (%COLUMN% LIKE 'https://%' OR %COLUMN% LIKE 'http://%')";
+const optionalCanonicalReferenceCheck = "CHECK (%COLUMN% IS NULL OR %COLUMN% LIKE 'https://%' OR %COLUMN% LIKE 'http://%')";
+
 export const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS accounts (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY ${canonicalIdCheck},
     username TEXT NOT NULL,
     display_name TEXT,
     avatar_url TEXT,
@@ -17,7 +22,7 @@ export const schemaStatements = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS works (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY ${canonicalIdCheck},
     title TEXT NOT NULL,
     sort_title TEXT,
     subtitle TEXT,
@@ -34,8 +39,8 @@ export const schemaStatements = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS editions (
-    id TEXT PRIMARY KEY,
-    work_id TEXT,
+    id TEXT PRIMARY KEY ${canonicalIdCheck},
+    work_id TEXT ${optionalCanonicalReferenceCheck.replaceAll("%COLUMN%", "work_id")},
     title TEXT NOT NULL,
     subtitle TEXT,
     description TEXT,
@@ -58,7 +63,7 @@ export const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_editions_work ON editions(work_id)`,
   `CREATE INDEX IF NOT EXISTS idx_editions_isbn13 ON editions(isbn_13)`,
   `CREATE TABLE IF NOT EXISTS authors (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY ${canonicalIdCheck},
     name TEXT NOT NULL,
     sort_name TEXT,
     bio TEXT,
@@ -73,8 +78,8 @@ export const schemaStatements = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS edition_authors (
-    edition_id TEXT NOT NULL,
-    author_id TEXT NOT NULL,
+    edition_id TEXT NOT NULL ${canonicalReferenceCheck.replaceAll("%COLUMN%", "edition_id")},
+    author_id TEXT NOT NULL ${canonicalReferenceCheck.replaceAll("%COLUMN%", "author_id")},
     role TEXT DEFAULT 'author',
     sort_order INTEGER DEFAULT 0,
     PRIMARY KEY (edition_id, author_id, role)
@@ -92,7 +97,7 @@ export const schemaStatements = [
   )`,
   `CREATE TABLE IF NOT EXISTS shelf_books (
     shelf_id TEXT NOT NULL,
-    edition_id TEXT NOT NULL,
+    edition_id TEXT NOT NULL ${canonicalReferenceCheck.replaceAll("%COLUMN%", "edition_id")},
     added_date TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (shelf_id, edition_id)
   )`,
@@ -107,10 +112,10 @@ export const schemaStatements = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`,
   `CREATE TABLE IF NOT EXISTS statuses (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY ${canonicalIdCheck},
     type TEXT NOT NULL,
     account_id TEXT NOT NULL,
-    edition_id TEXT,
+    edition_id TEXT ${optionalCanonicalReferenceCheck.replaceAll("%COLUMN%", "edition_id")},
     title TEXT,
     content TEXT,
     content_text TEXT,
@@ -134,7 +139,15 @@ export const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_statuses_account ON statuses(account_id, published DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_statuses_edition ON statuses(edition_id, published DESC)`,
-  `CREATE TABLE IF NOT EXISTS timeline_entries (id TEXT PRIMARY KEY, timeline_type TEXT NOT NULL, status_id TEXT NOT NULL, activity_type TEXT NOT NULL, boosted_by TEXT, position TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')))`,
+  `CREATE TABLE IF NOT EXISTS timeline_entries (
+    id TEXT PRIMARY KEY,
+    timeline_type TEXT NOT NULL,
+    status_id TEXT NOT NULL ${canonicalReferenceCheck.replaceAll("%COLUMN%", "status_id")},
+    activity_type TEXT NOT NULL,
+    boosted_by TEXT,
+    position TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
   `CREATE INDEX IF NOT EXISTS idx_timeline_type ON timeline_entries(timeline_type, position DESC)`,
   `CREATE TABLE IF NOT EXISTS write_queue (
     id TEXT PRIMARY KEY,
@@ -148,7 +161,7 @@ export const schemaStatements = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_write_queue_status ON write_queue(status, created_at)`,
   `CREATE TABLE IF NOT EXISTS entity_resolution (
-    uri TEXT PRIMARY KEY,
+    uri TEXT PRIMARY KEY ${canonicalUriCheck},
     entity_type TEXT NOT NULL,
     state TEXT DEFAULT 'stub',
     unresolved TEXT,
