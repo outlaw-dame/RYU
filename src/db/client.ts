@@ -1,19 +1,18 @@
-import { runMigrations } from "./migrations";
+import { createRxDatabase, addRxPlugin } from 'rxdb';
+import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 
-export type DatabaseHandle = {
-  ready: boolean;
-  storage: "opfs" | "indexeddb" | "memory";
-};
+addRxPlugin(RxDBDevModePlugin);
 
-let singleton: Promise<DatabaseHandle> | null = null;
+let dbPromise: Promise<any> | null = null;
 
-export function initializeDatabase(): Promise<DatabaseHandle> {
-  singleton ??= (async () => {
-    if (navigator.storage?.persist) {
-      try { await navigator.storage.persist(); } catch { /* non-fatal */ }
-    }
-    await runMigrations();
-    return { ready: true, storage: "opfs" };
-  })();
-  return singleton;
+export async function getDatabase() {
+  if (!dbPromise) {
+    dbPromise = createRxDatabase({
+      name: 'ryu',
+      storage: getRxStorageDexie(),
+      multiInstance: true
+    });
+  }
+  return dbPromise;
 }
