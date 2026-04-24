@@ -1,3 +1,5 @@
 export async function runMigrations() {
-  // RxDB schema upgrades are defined per collection once versioned migrations exist.
+  // RxDB runs collection migrationStrategies during database initialization.
+  const { initializeDatabase } = await import('./client');
+  await initializeDatabase();
 }
