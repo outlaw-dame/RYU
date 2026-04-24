@@ -1,5 +1,6 @@
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
+import { enrichEntityLinks } from "./entity-enrichment";
 
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
@@ -20,6 +21,17 @@ async function safeUpsert(collection: any, doc: any) {
   }
 }
 
+async function writeEntityResolution(db: RyuDatabase, entity: CanonicalApEntity) {
+  const timestamp = nowIso();
+  await safeUpsert(db.entityresolutions, {
+    id: entity.id,
+    canonicalUri: entity.id,
+    entityType: entity.kind,
+    entityId: entity.id,
+    resolvedAt: timestamp
+  });
+}
+
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
   return {
     async upsertAuthor(entity) {
@@ -32,6 +44,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         importedAt: timestamp,
         updatedAt: timestamp
       });
+      await writeEntityResolution(db, entity);
+      void enrichEntityLinks(entity);
     },
     async upsertWork(entity) {
       const timestamp = nowIso();
@@ -44,6 +58,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         importedAt: timestamp,
         updatedAt: timestamp
       });
+      await writeEntityResolution(db, entity);
+      void enrichEntityLinks(entity);
     },
     async upsertEdition(entity) {
       const timestamp = nowIso();
@@ -61,6 +77,8 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         importedAt: timestamp,
         updatedAt: timestamp
       });
+      await writeEntityResolution(db, entity);
+      void enrichEntityLinks(entity);
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
@@ -75,6 +93,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         importedAt: timestamp,
         updatedAt: timestamp
       });
+      await writeEntityResolution(db, entity);
     }
   };
 }
