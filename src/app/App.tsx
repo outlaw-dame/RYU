@@ -80,6 +80,11 @@ export function App() {
   const resolver = useMemo(() => new ActivityPubResolver(), []);
 
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
+  const currentlyReadingBooks = featuredBooks.slice(0, 3);
+  const currentBookIds = new Set(currentlyReadingBooks.map((book) => book.id));
+  const recentlyAddedBooks = featuredBooks
+    .filter((book) => !currentBookIds.has(book.id))
+    .slice(0, 6);
 
   const importBook = useCallback(async () => {
     if (!importUrl.trim()) return;
@@ -117,10 +122,14 @@ export function App() {
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="My Library" />
                   <SectionHeader title="Currently Reading" actionLabel="See All" />
-                  {state === "ready" && !importedBooksLoading ? <CoverGrid books={featuredBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
-                  <div style={{ height: "var(--space-8)" }} />
-                  <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
-                  <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} />
+                  {state === "ready" && !importedBooksLoading ? <CoverGrid books={currentlyReadingBooks} /> : <SkeletonCoverGrid count={3} />}
+                  {recentlyAddedBooks.length > 0 ? (
+                    <>
+                      <div style={{ height: "var(--space-8)" }} />
+                      <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
+                      <CoverGrid books={recentlyAddedBooks} />
+                    </>
+                  ) : null}
                 </TabPanel>
               )}
               {activeTab === "search" && (

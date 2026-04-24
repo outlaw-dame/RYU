@@ -67,8 +67,8 @@ export class ActivityPubResolver {
     const normalizedUri = normalizeRemoteUri(uri);
     const edition = apEditionSchema.parse(await this.fetchJson(normalizedUri));
     const importedAt = new Date().toISOString();
-    const authors = await this.resolveAuthors(edition.authors);
-    const work = await this.resolveWork(edition.work, authors);
+    const authors = await this.resolveAuthors(edition.authors, importedAt);
+    const work = await this.resolveWork(edition.work, authors, importedAt);
     const editionDoc = toEditionDoc(edition, normalizedUri, authors, work, importedAt);
     const resolutions = createResolutions(editionDoc, authors, work, importedAt);
     const db = await getDatabase();
@@ -89,7 +89,7 @@ export class ActivityPubResolver {
     };
   }
 
-  private async resolveAuthors(references: APReference[]): Promise<AuthorDoc[]> {
+  private async resolveAuthors(references: APReference[], importedAt: string): Promise<AuthorDoc[]> {
     const authors = await Promise.all(references.map(async (reference) => {
       const inlineName = extractReferenceName(reference);
       if (inlineName) {
@@ -97,20 +97,19 @@ export class ActivityPubResolver {
           id: extractReferenceId(reference),
           name: inlineName,
           url: typeof reference === "string" ? undefined : reference.url
-        }, new Date().toISOString());
+        }, importedAt);
       }
 
       const payload = apAuthorSchema.parse(await this.fetchJson(extractReferenceId(reference)));
-      return toAuthorDoc(payload, new Date().toISOString());
+      return toAuthorDoc(payload, importedAt);
     }));
 
     return dedupeById(authors);
   }
 
-  private async resolveWork(reference: APEdition["work"], authors: AuthorDoc[]): Promise<WorkDoc | undefined> {
+  private async resolveWork(reference: APEdition["work"], authors: AuthorDoc[], importedAt: string): Promise<WorkDoc | undefined> {
     if (!reference) return undefined;
 
-    const importedAt = new Date().toISOString();
     const inlineName = extractReferenceName(reference);
     if (inlineName) {
       return toWorkDoc({
@@ -189,8 +188,6 @@ function toWorkDoc(payload: Pick<APWork, "id" | "title" | "name" | "summary" | "
 }
 
 function toEditionDoc(payload: APEdition, sourceUrl: string, authors: AuthorDoc[], work: WorkDoc | undefined, importedAt: string): EditionDoc {
-  void work;
-
   return {
     id: payload.id,
     apId: payload.id,
@@ -198,6 +195,7 @@ function toEditionDoc(payload: APEdition, sourceUrl: string, authors: AuthorDoc[
     subtitle: payload.subtitle,
     description: payload.description,
     authorIds: authors.map((author) => author.id),
+    workId: work?.id,
     coverUrl: extractCoverUrl(payload.cover),
     isbn10: payload.isbn10,
     isbn13: payload.isbn13,

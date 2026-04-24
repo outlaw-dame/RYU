@@ -48,6 +48,7 @@ export interface EditionDoc {
   subtitle?: string;
   description?: string;
   authorIds: string[];
+  workId?: string;
   coverUrl?: string;
   isbn10?: string;
   isbn13?: string;
@@ -120,6 +121,11 @@ const shortTextField = { type: 'string', maxLength: 512 };
 const mediumTextField = { type: 'string', maxLength: 4096 };
 const longTextField = { type: 'string', maxLength: 20000 };
 const timestampField = { type: 'string', minLength: 20, maxLength: 40 };
+const queueStatusField = {
+  type: 'string',
+  enum: ['pending', 'processing', 'completed', 'failed'],
+  maxLength: 32
+};
 const stringArrayField = {
   type: 'array',
   items: { type: 'string', maxLength: 2048 },
@@ -195,7 +201,7 @@ export const collections = {
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
-      indexes: ['apId', 'sourceUrl', 'importedAt'],
+      indexes: ['apId', 'sourceUrl', 'workId', 'importedAt'],
       properties: {
         id: idField,
         apId: urlField,
@@ -203,6 +209,7 @@ export const collections = {
         subtitle: mediumTextField,
         description: longTextField,
         authorIds: stringArrayField,
+        workId: idField,
         coverUrl: urlField,
         isbn10: shortTextField,
         isbn13: shortTextField,
@@ -319,7 +326,7 @@ export const collections = {
         id: idField,
         url: urlField,
         host: shortTextField,
-        status: shortTextField,
+        status: queueStatusField,
         attempts: { type: 'number', minimum: 0, maximum: 1000 },
         lastAttemptAt: timestampField,
         nextAttemptAt: timestampField,
@@ -342,7 +349,7 @@ export const collections = {
         entityType: shortTextField,
         entityId: idField,
         payload: longTextField,
-        status: shortTextField,
+        status: queueStatusField,
         attempts: { type: 'number', minimum: 0, maximum: 1000 },
         enqueuedAt: timestampField,
         updatedAt: timestampField,

@@ -149,7 +149,7 @@ function isRetryableError(error: unknown): boolean {
     return Boolean((error as { retryable?: boolean }).retryable);
   }
 
-  return true;
+  return error instanceof TypeError;
 }
 
 function wait(durationMs: number): Promise<void> {
