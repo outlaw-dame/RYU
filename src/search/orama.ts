@@ -1,6 +1,7 @@
 import { create, insert, search as oramaSearch } from '@orama/orama';
 import { initializeDatabase } from '@/db/client';
 import { rankLexical, dedupe } from './ranking';
+import { indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
 
 let orama: any;
@@ -55,9 +56,23 @@ async function buildIndex() {
   const works = await db.works.find().exec();
   const authors = await db.authors.find().exec();
 
-  for (const d of editions) await insert(orama, mapEdition(d));
-  for (const w of works) await insert(orama, mapWork(w));
-  for (const a of authors) await insert(orama, mapAuthor(a));
+  for (const d of editions) {
+    const doc = mapEdition(d);
+    await insert(orama, doc);
+    indexDocument(doc);
+  }
+
+  for (const w of works) {
+    const doc = mapWork(w);
+    await insert(orama, doc);
+    indexDocument(doc);
+  }
+
+  for (const a of authors) {
+    const doc = mapAuthor(a);
+    await insert(orama, doc);
+    indexDocument(doc);
+  }
 }
 
 async function setupReactiveIndex() {
@@ -65,19 +80,25 @@ async function setupReactiveIndex() {
 
   db.editions.$.subscribe(async (change: any) => {
     if (change.operation === 'INSERT') {
-      await insert(orama, mapEdition(change.documentData));
+      const doc = mapEdition(change.documentData);
+      await insert(orama, doc);
+      indexDocument(doc);
     }
   });
 
   db.works.$.subscribe(async (change: any) => {
     if (change.operation === 'INSERT') {
-      await insert(orama, mapWork(change.documentData));
+      const doc = mapWork(change.documentData);
+      await insert(orama, doc);
+      indexDocument(doc);
     }
   });
 
   db.authors.$.subscribe(async (change: any) => {
     if (change.operation === 'INSERT') {
-      await insert(orama, mapAuthor(change.documentData));
+      const doc = mapAuthor(change.documentData);
+      await insert(orama, doc);
+      indexDocument(doc);
     }
   });
 }
