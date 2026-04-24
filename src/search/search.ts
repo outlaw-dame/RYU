@@ -1,13 +1,17 @@
 import { searchOrama } from './orama';
 import { groupResults } from './group';
-import { dedupe } from './ranking';
+import { dedupe, fuseResults } from './ranking';
+import { semanticSearchLocal } from './vector-index';
 
 export async function searchAll(query: string) {
   if (!query || query.length < 2) return null;
 
-  const results = await searchOrama(query);
+  const lexical = await searchOrama(query);
+  const semantic = semanticSearchLocal(query);
 
-  const cleaned = dedupe(results);
+  const fused = fuseResults(lexical, semantic);
+
+  const cleaned = dedupe(fused);
 
   return groupResults(cleaned);
 }
