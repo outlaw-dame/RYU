@@ -1,4 +1,5 @@
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
+import { initializeDatabase, type RyuDatabase } from "./client";
 
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
@@ -6,6 +7,82 @@ export type ActivityPubEntityStore = {
   upsertEdition(entity: Extract<CanonicalApEntity, { kind: "edition" }>): Promise<void>;
   upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
 };
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+async function safeUpsert(collection: any, doc: any) {
+  if (typeof collection.incrementalUpsert === "function") {
+    await collection.incrementalUpsert(doc);
+  } else {
+    await collection.upsert(doc);
+  }
+}
+
+export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
+  return {
+    async upsertAuthor(entity) {
+      const timestamp = nowIso();
+      await safeUpsert(db.authors, {
+        id: entity.id,
+        name: entity.name,
+        summary: entity.summary,
+        url: entity.url,
+        importedAt: timestamp,
+        updatedAt: timestamp
+      });
+    },
+    async upsertWork(entity) {
+      const timestamp = nowIso();
+      await safeUpsert(db.works, {
+        id: entity.id,
+        title: entity.title,
+        summary: entity.summary,
+        authorIds: entity.authorIds,
+        url: entity.url,
+        importedAt: timestamp,
+        updatedAt: timestamp
+      });
+    },
+    async upsertEdition(entity) {
+      const timestamp = nowIso();
+      await safeUpsert(db.editions, {
+        id: entity.id,
+        title: entity.title,
+        subtitle: entity.subtitle,
+        description: entity.description,
+        authorIds: entity.authorIds,
+        workId: entity.workId,
+        coverUrl: entity.coverUrl,
+        isbn10: entity.isbn10,
+        isbn13: entity.isbn13,
+        sourceUrl: entity.sourceUrl,
+        importedAt: timestamp,
+        updatedAt: timestamp
+      });
+    },
+    async upsertReview(entity) {
+      const timestamp = nowIso();
+      await safeUpsert(db.reviews, {
+        id: entity.id,
+        title: entity.title,
+        content: entity.content,
+        editionId: entity.editionId,
+        accountId: entity.accountId,
+        rating: entity.rating,
+        published: entity.published,
+        importedAt: timestamp,
+        updatedAt: timestamp
+      });
+    }
+  };
+}
+
+export async function getRxDBActivityPubStore(): Promise<ActivityPubEntityStore> {
+  const db = await initializeDatabase();
+  return createRxDBActivityPubStore(db);
+}
 
 export async function ingestActivityPubGraph(graph: CanonicalApGraph, store: ActivityPubEntityStore): Promise<void> {
   const entities = topoSortForRelations(graph.entities);
@@ -34,7 +111,7 @@ function topoSortForRelations(entities: CanonicalApEntity[]): CanonicalApEntity[
     work: 1,
     edition: 2,
     review: 3
-  } satisfies Record<CanonicalApEntity["kind"], number>;
+  } as const;
 
-  return [...entities].sort((left, right) => rank[left.kind] - rank[right.kind]);
+  return [...entities].sort((a, b) => rank[a.kind] - rank[b.kind]);
 }
