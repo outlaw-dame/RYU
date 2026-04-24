@@ -54,6 +54,15 @@ export type CanonicalApEntity =
       published: string;
     };
 
+export type CanonicalApGraph = {
+  rootId: string;
+  entities: CanonicalApEntity[];
+};
+
+export type GraphFetchOptions = {
+  maxDepth?: number;
+};
+
 export class ActivityPubResponseError extends Error {
   readonly retryable: boolean;
 
@@ -80,6 +89,19 @@ export class ActivityPubClient {
     return normalizeApObject(payload, url.toString());
   }
 
+  async fetchGraph(input: string, options: GraphFetchOptions = {}): Promise<CanonicalApGraph> {
+    const maxDepth = options.maxDepth ?? 2;
+    const root = await this.fetchEntity(input);
+    const entities = new Map<string, CanonicalApEntity>([[root.id, root]]);
+
+    await this.resolveRelatedEntities(root, entities, 0, maxDepth);
+
+    return {
+      rootId: root.id,
+      entities: Array.from(entities.values())
+    };
+  }
+
   private async fetchJson(url: URL, signal: AbortSignal): Promise<unknown> {
     const response = await fetch(url, {
       signal,
@@ -96,6 +118,39 @@ export class ActivityPubClient {
     }
 
     return response.json() as Promise<unknown>;
+  }
+
+  private async resolveRelatedEntities(
+    entity: CanonicalApEntity,
+    entities: Map<string, CanonicalApEntity>,
+    depth: number,
+    maxDepth: number
+  ): Promise<void> {
+    if (depth >= maxDepth) return;
+
+    const relatedIds = getRelatedEntityIds(entity).filter((id) => !entities.has(id));
+    const relatedEntities = await Promise.all(relatedIds.map((id) => this.fetchEntity(id)));
+
+    for (const relatedEntity of relatedEntities) {
+      entities.set(relatedEntity.id, relatedEntity);
+    }
+
+    await Promise.all(
+      relatedEntities.map((relatedEntity) => this.resolveRelatedEntities(relatedEntity, entities, depth + 1, maxDepth))
+    );
+  }
+}
+
+export function getRelatedEntityIds(entity: CanonicalApEntity): string[] {
+  switch (entity.kind) {
+    case "author":
+      return [];
+    case "work":
+      return entity.authorIds;
+    case "edition":
+      return [...entity.authorIds, ...(entity.workId ? [entity.workId] : [])];
+    case "review":
+      return [entity.editionId, entity.accountId];
   }
 }
 
