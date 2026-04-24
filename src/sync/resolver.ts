@@ -1,29 +1,7 @@
+import { ingestActivityPubGraph, type ActivityPubEntityStore } from "../db/activitypub-ingest";
 import { getDatabase } from "../db/client";
-import type { AuthorDoc, EditionDoc, EntityResolutionDoc, WorkDoc } from "../db/schema";
-import {
-  apAuthorSchema,
-  apEditionSchema,
-  apWorkSchema,
-  extractCoverUrl,
-  extractReferenceId,
-  extractReferenceName,
-  type APAuthor,
-  type APEdition,
-  type APReference,
-  type APWork
-} from "../types/activitypub";
-import { FetchQueue } from "./fetch-queue";
-
-const ACCEPT_HEADER = "application/activity+json, application/ld+json, application/json";
-
-class HttpResponseError extends Error {
-  readonly retryable: boolean;
-
-  constructor(readonly uri: string, readonly status: number) {
-    super(`Failed to fetch ${uri}: ${status}`);
-    this.retryable = status === 408 || status === 425 || status === 429 || status >= 500;
-  }
-}
+import type { AuthorDoc, EditionDoc, EntityResolutionDoc, StatusDoc, WorkDoc } from "../db/schema";
+import { ActivityPubClient, type CanonicalApEntity, type CanonicalApGraph } from "./activitypub-client";
 
 export type ImportedEdition = {
   id: string;
@@ -34,213 +12,123 @@ export type ImportedEdition = {
 };
 
 export class ActivityPubResolver {
-  private readonly queue = new FetchQueue({
-    concurrency: 4,
-    perHostConcurrency: 2,
-    retries: 2,
-    timeoutMs: 8_000
-  });
+  private readonly client = new ActivityPubClient();
 
-  async fetchJson(uri: string): Promise<unknown> {
-    const normalizedUri = normalizeRemoteUri(uri);
-    const url = new URL(normalizedUri);
-
-    return this.queue.run(normalizedUri, async (signal) => {
-      const response = await fetch(normalizedUri, {
-        signal,
-        headers: { Accept: ACCEPT_HEADER }
-      });
-
-      if (!response.ok) {
-        throw new HttpResponseError(normalizedUri, response.status);
-      }
-
-      return response.json() as Promise<unknown>;
-    }, {
-      host: url.host,
-      retries: 2,
-      timeoutMs: 8_000
-    });
+  async fetchGraph(uri: string): Promise<CanonicalApGraph> {
+    return this.client.fetchGraph(uri);
   }
 
   async importEditionFromUrl(uri: string): Promise<ImportedEdition> {
-    const normalizedUri = normalizeRemoteUri(uri);
-    const edition = apEditionSchema.parse(await this.fetchJson(normalizedUri));
-    const importedAt = new Date().toISOString();
-    const authors = await this.resolveAuthors(edition.authors);
-    const work = await this.resolveWork(edition.work, authors);
-    const editionDoc = toEditionDoc(edition, normalizedUri, authors, work, importedAt);
-    const resolutions = createResolutions(editionDoc, authors, work, importedAt);
-    const db = await getDatabase();
+    const graph = await this.client.fetchGraph(uri);
+    const edition = graph.entities.find((entity): entity is Extract<CanonicalApEntity, { kind: "edition" }> => {
+      return entity.kind === "edition" && entity.id === graph.rootId;
+    });
 
-    await Promise.all(authors.map((author) => db.authors.upsert(author)));
-    if (work) {
-      await db.works.upsert(work);
+    if (!edition) {
+      throw new Error("ActivityPub URL did not resolve to an Edition");
     }
-    await db.editions.upsert(editionDoc);
-    await Promise.all(resolutions.map((resolution) => db.entityresolutions.upsert(resolution)));
+
+    const importedAt = new Date().toISOString();
+    const db = await getDatabase();
+    const store = createRxActivityPubStore(db, importedAt);
+    await ingestActivityPubGraph(graph, store);
+
+    const authors = graph.entities.filter((entity): entity is Extract<CanonicalApEntity, { kind: "author" }> => {
+      return entity.kind === "author" && edition.authorIds.includes(entity.id);
+    });
 
     return {
-      id: editionDoc.id,
-      title: editionDoc.title,
+      id: edition.id,
+      title: edition.title,
       author: authors.map((author) => author.name).join(", ") || undefined,
-      coverUrl: editionDoc.coverUrl,
-      sourceUrl: editionDoc.sourceUrl
+      coverUrl: edition.coverUrl,
+      sourceUrl: edition.sourceUrl
     };
   }
+}
 
-  private async resolveAuthors(references: APReference[]): Promise<AuthorDoc[]> {
-    const authors = await Promise.all(references.map(async (reference) => {
-      const inlineName = extractReferenceName(reference);
-      if (inlineName) {
-        return toAuthorDoc({
-          id: extractReferenceId(reference),
-          name: inlineName,
-          url: typeof reference === "string" ? undefined : reference.url
-        }, new Date().toISOString());
-      }
+function createRxActivityPubStore(db: Awaited<ReturnType<typeof getDatabase>>, importedAt: string): ActivityPubEntityStore {
+  return {
+    async upsertAuthor(entity) {
+      const doc: AuthorDoc = {
+        id: entity.id,
+        apId: entity.id,
+        name: entity.name,
+        summary: entity.summary,
+        url: entity.url,
+        importedAt,
+        updatedAt: importedAt
+      };
 
-      const payload = apAuthorSchema.parse(await this.fetchJson(extractReferenceId(reference)));
-      return toAuthorDoc(payload, new Date().toISOString());
-    }));
+      await db.authors.upsert(doc);
+      await db.entityresolutions.upsert(toResolution("author", entity.id, entity.id, importedAt));
+    },
 
-    return dedupeById(authors);
-  }
+    async upsertWork(entity) {
+      const doc: WorkDoc = {
+        id: entity.id,
+        apId: entity.id,
+        title: entity.title,
+        summary: entity.summary,
+        url: entity.url,
+        authorIds: entity.authorIds,
+        importedAt,
+        updatedAt: importedAt
+      };
 
-  private async resolveWork(reference: APEdition["work"], authors: AuthorDoc[]): Promise<WorkDoc | undefined> {
-    if (!reference) return undefined;
+      await db.works.upsert(doc);
+      await db.entityresolutions.upsert(toResolution("work", entity.id, entity.id, importedAt));
+    },
 
-    const importedAt = new Date().toISOString();
-    const inlineName = extractReferenceName(reference);
-    if (inlineName) {
-      return toWorkDoc({
-        id: extractReferenceId(reference),
-        title: inlineName,
-        authors: authors.map((author) => author.apId)
-      }, authors, importedAt);
+    async upsertEdition(entity) {
+      const doc: EditionDoc = {
+        id: entity.id,
+        apId: entity.id,
+        title: entity.title,
+        subtitle: entity.subtitle,
+        description: entity.description,
+        authorIds: entity.authorIds,
+        workId: entity.workId,
+        coverUrl: entity.coverUrl,
+        isbn10: entity.isbn10,
+        isbn13: entity.isbn13,
+        sourceUrl: entity.sourceUrl,
+        importedAt,
+        updatedAt: importedAt
+      };
+
+      await db.editions.upsert(doc);
+      await db.entityresolutions.upsert(toResolution("edition", entity.id, entity.id, importedAt));
+    },
+
+    async upsertReview(entity) {
+      const doc: StatusDoc = {
+        id: entity.id,
+        accountId: entity.accountId,
+        editionId: entity.editionId,
+        type: "Review",
+        content: entity.content,
+        publishedAt: entity.published,
+        updatedAt: importedAt
+      };
+
+      await db.statuses.upsert(doc);
+      await db.entityresolutions.upsert(toResolution("status", entity.id, entity.id, importedAt));
     }
-
-    const payload = apWorkSchema.parse(await this.fetchJson(extractReferenceId(reference)));
-    return toWorkDoc(payload, authors, importedAt);
-  }
-}
-
-function normalizeRemoteUri(input: string): string {
-  const url = new URL(input.trim());
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Only http and https ActivityPub URLs are supported");
-  }
-
-  assertAllowedHost(url.hostname);
-  url.hash = "";
-  return url.toString();
-}
-
-function assertAllowedHost(hostname: string): void {
-  const normalizedHost = hostname.trim().toLowerCase();
-  if (!normalizedHost) {
-    throw new Error("URL is missing a host");
-  }
-
-  if (
-    normalizedHost === "localhost" ||
-    normalizedHost.endsWith(".local") ||
-    normalizedHost === "127.0.0.1" ||
-    normalizedHost === "::1" ||
-    normalizedHost.startsWith("10.") ||
-    normalizedHost.startsWith("192.168.") ||
-    normalizedHost.startsWith("169.254.") ||
-    /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalizedHost) ||
-    normalizedHost.startsWith("fc") ||
-    normalizedHost.startsWith("fd") ||
-    normalizedHost.startsWith("fe80:")
-  ) {
-    throw new Error("Private or local network hosts are not allowed");
-  }
-}
-
-function toAuthorDoc(payload: Pick<APAuthor, "id" | "name" | "preferredUsername" | "summary" | "url">, importedAt: string): AuthorDoc {
-  return {
-    id: payload.id,
-    apId: payload.id,
-    name: payload.name ?? payload.preferredUsername ?? payload.id,
-    summary: payload.summary,
-    url: payload.url,
-    importedAt,
-    updatedAt: importedAt
   };
 }
 
-function toWorkDoc(payload: Pick<APWork, "id" | "title" | "name" | "summary" | "url"> & { authors?: APWork["authors"] }, authors: AuthorDoc[], importedAt: string): WorkDoc {
-  const authorIds = payload.authors?.length
-    ? payload.authors.map((author) => extractReferenceId(author))
-    : authors.map((author) => author.id);
-
+function toResolution(
+  entityType: EntityResolutionDoc["entityType"],
+  canonicalUri: string,
+  entityId: string,
+  resolvedAt: string
+): EntityResolutionDoc {
   return {
-    id: payload.id,
-    apId: payload.id,
-    title: payload.title ?? payload.name ?? payload.id,
-    summary: payload.summary,
-    url: payload.url,
-    authorIds,
-    importedAt,
-    updatedAt: importedAt
+    id: `${entityType}:${canonicalUri}`,
+    canonicalUri,
+    entityType,
+    entityId,
+    resolvedAt
   };
-}
-
-function toEditionDoc(payload: APEdition, sourceUrl: string, authors: AuthorDoc[], work: WorkDoc | undefined, importedAt: string): EditionDoc {
-  void work;
-
-  return {
-    id: payload.id,
-    apId: payload.id,
-    title: payload.title ?? payload.name ?? payload.id,
-    subtitle: payload.subtitle,
-    description: payload.description,
-    authorIds: authors.map((author) => author.id),
-    coverUrl: extractCoverUrl(payload.cover),
-    isbn10: payload.isbn10,
-    isbn13: payload.isbn13,
-    sourceUrl,
-    importedAt,
-    updatedAt: importedAt
-  };
-}
-
-function createResolutions(edition: EditionDoc, authors: AuthorDoc[], work: WorkDoc | undefined, importedAt: string): EntityResolutionDoc[] {
-  const records: EntityResolutionDoc[] = [
-    {
-      id: `edition:${edition.apId}`,
-      canonicalUri: edition.apId,
-      entityType: "edition",
-      entityId: edition.id,
-      resolvedAt: importedAt
-    }
-  ];
-
-  if (work) {
-    records.push({
-      id: `work:${work.apId}`,
-      canonicalUri: work.apId,
-      entityType: "work",
-      entityId: work.id,
-      resolvedAt: importedAt
-    });
-  }
-
-  for (const author of authors) {
-    records.push({
-      id: `author:${author.apId}`,
-      canonicalUri: author.apId,
-      entityType: "author",
-      entityId: author.id,
-      resolvedAt: importedAt
-    });
-  }
-
-  return records;
-}
-
-function dedupeById<T extends { id: string }>(items: T[]): T[] {
-  return Array.from(new Map(items.map((item) => [item.id, item])).values());
 }

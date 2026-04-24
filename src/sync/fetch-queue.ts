@@ -16,6 +16,7 @@ export interface FetchRunOptions {
   retryDelayMs?: number;
   backoffMultiplier?: number;
   timeoutMs?: number;
+  jitterMs?: number;
 }
 
 type QueueEntry = {
@@ -145,11 +146,15 @@ function isRetryableError(error: unknown): boolean {
     return true;
   }
 
+  if (error instanceof TypeError) {
+    return true;
+  }
+
   if (error instanceof Error && 'retryable' in error) {
     return Boolean((error as { retryable?: boolean }).retryable);
   }
 
-  return true;
+  return false;
 }
 
 function wait(durationMs: number): Promise<void> {

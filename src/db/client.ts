@@ -1,4 +1,4 @@
-import { addRxPlugin, createRxDatabase, removeRxDatabase, type RxCollection, type RxDatabase, type RxStorage } from 'rxdb';
+import { addRxPlugin, createRxDatabase, type RxCollection, type RxDatabase, type RxStorage } from 'rxdb';
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv';
@@ -33,7 +33,7 @@ export type RyuCollections = {
 
 export type RyuDatabase = RxDatabase<RyuCollections>;
 
-const DATABASE_NAME = 'ryu-phase2';
+const DATABASE_NAME = 'ryu';
 
 let dbPromise: Promise<RyuDatabase> | null = null;
 let devModeRegistered = false;
@@ -67,16 +67,7 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
         ? wrappedValidateAjvStorage({ storage: getRxStorageDexie() })
         : getRxStorageDexie();
 
-      try {
-        return await createDatabaseInstance(storage);
-      } catch (error) {
-        if (import.meta.env.DEV && isSchemaMismatchError(error)) {
-          await removeRxDatabase(DATABASE_NAME, storage, true);
-          return createDatabaseInstance(storage);
-        }
-
-        throw error;
-      }
+      return createDatabaseInstance(storage);
     })().catch((err) => {
       dbPromise = null;
       throw err;
@@ -107,8 +98,4 @@ async function createDatabaseInstance(storage: RxStorage<any, any>): Promise<Ryu
 
   await db.addCollections(collections);
   return db;
-}
-
-function isSchemaMismatchError(error: unknown): boolean {
-  return error instanceof Error && error.message.includes('Error code: DB6');
 }

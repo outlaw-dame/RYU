@@ -1,4 +1,5 @@
 export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
+type MigrationDoc = Record<string, unknown> | null;
 
 export interface InstanceDoc {
   id: string;
@@ -48,6 +49,7 @@ export interface EditionDoc {
   subtitle?: string;
   description?: string;
   authorIds: string[];
+  workId?: string;
   coverUrl?: string;
   isbn10?: string;
   isbn13?: string;
@@ -120,17 +122,49 @@ const shortTextField = { type: 'string', maxLength: 512 };
 const mediumTextField = { type: 'string', maxLength: 4096 };
 const longTextField = { type: 'string', maxLength: 20000 };
 const timestampField = { type: 'string', minLength: 20, maxLength: 40 };
+const SCHEMA_VERSION = 1;
+const queueStatusField = {
+  type: 'string',
+  enum: ['pending', 'processing', 'completed', 'failed'],
+  maxLength: 32
+};
 const stringArrayField = {
   type: 'array',
   items: { type: 'string', maxLength: 2048 },
   default: []
 };
 
+function identityMigration(doc: MigrationDoc): MigrationDoc {
+  return doc;
+}
+
+function ensureStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function migrateWorkV1(doc: MigrationDoc): MigrationDoc {
+  if (!doc) return doc;
+  return {
+    ...doc,
+    authorIds: ensureStringArray(doc.authorIds)
+  };
+}
+
+function migrateEditionV1(doc: MigrationDoc): MigrationDoc {
+  if (!doc) return doc;
+  const workId = typeof doc.workId === 'string' ? doc.workId : undefined;
+  return {
+    ...doc,
+    authorIds: ensureStringArray(doc.authorIds),
+    ...(workId ? { workId } : {})
+  };
+}
+
 export const collections = {
   instances: {
     schema: {
       title: 'instances schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -144,12 +178,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'url', 'createdAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   accounts: {
     schema: {
       title: 'accounts schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -165,12 +202,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'handle', 'apId', 'instanceId', 'createdAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   works: {
     schema: {
       title: 'works schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -186,16 +226,19 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'apId', 'title', 'authorIds', 'importedAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: migrateWorkV1
     }
   },
   editions: {
     schema: {
       title: 'editions schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
-      indexes: ['apId', 'sourceUrl', 'importedAt'],
+      indexes: ['apId', 'sourceUrl', 'workId', 'importedAt'],
       properties: {
         id: idField,
         apId: urlField,
@@ -203,6 +246,7 @@ export const collections = {
         subtitle: mediumTextField,
         description: longTextField,
         authorIds: stringArrayField,
+        workId: idField,
         coverUrl: urlField,
         isbn10: shortTextField,
         isbn13: shortTextField,
@@ -211,12 +255,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'apId', 'title', 'authorIds', 'sourceUrl', 'importedAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: migrateEditionV1
     }
   },
   authors: {
     schema: {
       title: 'authors schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -231,12 +278,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'apId', 'name', 'importedAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   statuses: {
     schema: {
       title: 'statuses schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -251,12 +301,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'accountId', 'type', 'publishedAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   shelves: {
     schema: {
       title: 'shelves schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -270,12 +323,15 @@ export const collections = {
         updatedAt: timestampField
       },
       required: ['id', 'accountId', 'name', 'createdAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   shelfbooks: {
     schema: {
       title: 'shelfbooks schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -287,12 +343,15 @@ export const collections = {
         addedAt: timestampField
       },
       required: ['id', 'shelfId', 'editionId', 'addedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   entityresolutions: {
     schema: {
       title: 'entity resolutions schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -305,12 +364,15 @@ export const collections = {
         resolvedAt: timestampField
       },
       required: ['id', 'canonicalUri', 'entityType', 'entityId', 'resolvedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   fetchqueue: {
     schema: {
       title: 'fetch queue schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -319,19 +381,22 @@ export const collections = {
         id: idField,
         url: urlField,
         host: shortTextField,
-        status: shortTextField,
+        status: queueStatusField,
         attempts: { type: 'number', minimum: 0, maximum: 1000 },
         lastAttemptAt: timestampField,
         nextAttemptAt: timestampField,
         error: longTextField
       },
       required: ['id', 'url', 'host', 'status', 'attempts']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   },
   writequeue: {
     schema: {
       title: 'write queue schema',
-      version: 0,
+      version: SCHEMA_VERSION,
       type: 'object',
       primaryKey: 'id',
       additionalProperties: false,
@@ -342,13 +407,16 @@ export const collections = {
         entityType: shortTextField,
         entityId: idField,
         payload: longTextField,
-        status: shortTextField,
+        status: queueStatusField,
         attempts: { type: 'number', minimum: 0, maximum: 1000 },
         enqueuedAt: timestampField,
         updatedAt: timestampField,
         error: longTextField
       },
       required: ['id', 'operation', 'entityType', 'entityId', 'payload', 'status', 'attempts', 'enqueuedAt', 'updatedAt']
+    },
+    migrationStrategies: {
+      1: identityMigration
     }
   }
 } as const;
