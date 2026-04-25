@@ -1,4 +1,5 @@
 import type { RankedSearchResult, SearchContext } from './types';
+import { getBoostForDoc } from './feedback';
 
 export function applyContextBoosts(
   results: RankedSearchResult[],
@@ -23,6 +24,12 @@ export function applyContextBoosts(
     if (context.preferOwnedLibrary && result.source === 'local') {
       boost += 2;
       reasons.push('context-owned');
+    }
+
+    const feedbackBoost = getBoostForDoc(context.surface ?? '', result.id);
+    if (feedbackBoost > 0) {
+      boost += feedbackBoost;
+      reasons.push('feedback-boost');
     }
 
     return {
