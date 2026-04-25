@@ -1,4 +1,5 @@
 import { getDatabase } from '@/db/client';
+import type { BookWyrmInstanceDoc } from '@/db/schema';
 
 const SOURCE_URL = 'https://joinbookwyrm.com/instances/';
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24h
@@ -23,12 +24,12 @@ function extractDomain(url: string): string {
   }
 }
 
-function parseHtml(html: string) {
+function parseHtml(html: string): BookWyrmInstanceDoc[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, 'text/html');
 
   const links = Array.from(doc.querySelectorAll('a[href]'));
-  const instances = new Map<string, any>();
+  const instances = new Map<string, BookWyrmInstanceDoc>();
 
   for (const link of links) {
     const href = (link as HTMLAnchorElement).href;
@@ -41,6 +42,7 @@ function parseHtml(html: string) {
     if (instances.has(domain)) continue;
 
     const text = link.textContent || domain;
+    const timestamp = now();
 
     instances.set(domain, {
       id: domain,
@@ -49,8 +51,8 @@ function parseHtml(html: string) {
       name: text.trim(),
       registrationStatus: parseRegistration(text),
       source: 'joinbookwyrm',
-      fetchedAt: now(),
-      updatedAt: now()
+      fetchedAt: timestamp,
+      updatedAt: timestamp
     });
   }
 
@@ -84,11 +86,7 @@ export async function fetchBookWyrmInstances(force = false) {
   const html = await res.text();
   const parsed = parseHtml(html);
 
-  const bulk = parsed.map((doc) => ({
-    document: doc
-  }));
-
-  await db.bookwyrminstances.bulkUpsert(bulk);
+  await db.bookwyrminstances.bulkUpsert(parsed);
 
   return parsed;
 }
