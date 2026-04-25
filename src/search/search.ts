@@ -8,6 +8,7 @@ import { getRerankerProvider } from './reranker-provider';
 import { classifyQueryIntent } from './intent';
 import { refineIntentWithLLM } from './intent-llm';
 import { applyContextBoosts } from './context-ranking';
+import { attachExplanations } from './explain';
 import type { SearchOptions } from './types';
 
 export async function searchAll(query: string, options: SearchOptions = {}) {
@@ -39,5 +40,5 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   const provider = getRerankerProvider();
   const finalResults = provider ? await provider.rerank(query, reranked) : reranked;
 
-  return groupResults(finalResults);
+  return groupResults(attachExplanations(finalResults, intent, options.context));
 }
