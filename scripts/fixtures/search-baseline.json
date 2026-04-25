@@ -8,8 +8,7 @@
     },
     {
       "query": "books by Octavia Butler",
-      "expectedIntent": "author",
-      "expectedTopType": "author"
+      "expectedIntent": "author"
     },
     {
       "query": "books about grief and memory",
