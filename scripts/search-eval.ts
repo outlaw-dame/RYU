@@ -1,3 +1,4 @@
+import baseline from './fixtures/search-baseline.json';
 import { classifyQueryIntent } from '../src/search/intent';
 import { rankLexical, dedupe, fuseResults } from '../src/search/ranking';
 import { rerankResults } from '../src/search/rerank';
@@ -46,21 +47,29 @@ const docs: SearchDocument[] = [
   }
 ];
 
-function testIntentClassifier(): void {
-  assert(classifyQueryIntent('9780439708180').intent === 'isbn', 'ISBN query should classify as isbn');
-  assert(classifyQueryIntent('books by Octavia Butler').intent === 'author', 'Author query should classify as author');
-  assert(classifyQueryIntent('books about grief and memory').intent === 'semantic', 'Thematic query should classify as semantic');
-  assert(classifyQueryIntent('harry potter audiobook').intent === 'format', 'Format query should classify as format');
+function testBaselineFixture(): void {
+  for (const testCase of baseline.cases) {
+    const intent = classifyQueryIntent(testCase.query);
+    assert(intent.intent === testCase.expectedIntent, `Intent mismatch for ${testCase.query}`);
+
+    const ranked = rankLexical(docs, testCase.query);
+
+    if ('expectedTopId' in testCase) {
+      assert(ranked[0]?.id === testCase.expectedTopId, `Top id mismatch for ${testCase.query}`);
+    }
+
+    if ('expectedTopType' in testCase) {
+      assert(ranked[0]?.type === testCase.expectedTopType, `Top type mismatch for ${testCase.query}`);
+    }
+
+    if ('expectedReason' in testCase) {
+      assert(ranked[0]?.reasons?.includes(testCase.expectedReason) === true, `Missing reason for ${testCase.query}`);
+    }
+  }
 }
 
-function testLexicalRanking(): RankedSearchResult[] {
+function testFusionAndDedupe(): void {
   const ranked = rankLexical(docs, '9780439708180');
-  assert(ranked[0]?.id === 'edition:hp1', 'ISBN match should rank the matching edition first');
-  assert(ranked[0]?.reasons?.includes('isbn') === true, 'ISBN match should explain isbn reason');
-  return ranked;
-}
-
-function testFusionAndDedupe(ranked: RankedSearchResult[]): void {
   const semantic: RankedSearchResult[] = [
     { ...ranked[0], semanticScore: 0.95, score: 0.95 },
     { ...ranked[0], semanticScore: 0.90, score: 0.90 }
@@ -71,7 +80,8 @@ function testFusionAndDedupe(ranked: RankedSearchResult[]): void {
   assert(cleaned.filter((result) => result.id === ranked[0].id).length === 1, 'Dedupe should collapse duplicate ids');
 }
 
-function testContextAndRerank(ranked: RankedSearchResult[]): void {
+function testContextAndRerank(): void {
+  const ranked = rankLexical(docs, '9780439708180');
   const contexted = applyContextBoosts(ranked, { surface: 'library', preferOwnedLibrary: true });
   assert(contexted[0].score >= ranked[0].score, 'Context boosts should not reduce score');
 
@@ -80,10 +90,9 @@ function testContextAndRerank(ranked: RankedSearchResult[]): void {
 }
 
 function main(): void {
-  testIntentClassifier();
-  const ranked = testLexicalRanking();
-  testFusionAndDedupe(ranked);
-  testContextAndRerank(ranked);
+  testBaselineFixture();
+  testFusionAndDedupe();
+  testContextAndRerank();
   console.log('Search evaluation guardrails passed.');
 }
 
