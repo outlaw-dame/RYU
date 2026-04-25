@@ -7,7 +7,7 @@ export async function searchAll(query: string) {
   if (!query || query.length < 2) return null;
 
   const lexical = await searchOrama(query);
-  const semantic = semanticSearchLocal(query);
+  const semantic = await semanticSearchLocal(query);
 
   const fused = fuseResults(lexical, semantic);
 
