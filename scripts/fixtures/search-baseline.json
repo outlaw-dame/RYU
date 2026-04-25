@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "query": "9780439708180",
+      "expectedIntent": "isbn",
+      "expectedTopId": "edition:hp1",
+      "expectedReason": "isbn"
+    },
+    {
+      "query": "books by Octavia Butler",
+      "expectedIntent": "author",
+      "expectedTopType": "author"
+    },
+    {
+      "query": "books about grief and memory",
+      "expectedIntent": "semantic"
+    },
+    {
+      "query": "harry potter audiobook",
+      "expectedIntent": "format"
+    }
+  ]
+}
