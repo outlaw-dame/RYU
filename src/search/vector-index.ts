@@ -1,6 +1,6 @@
 import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
-import { initializeDatabase } from '@/db/client';
+import { initializeDatabase } from '../db/client';
 import { getEmbeddingProvider } from './embedding-provider';
 
 const vectorStore = new Map<string, { vector: number[]; doc: SearchDocument }>();
