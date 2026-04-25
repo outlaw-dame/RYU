@@ -2,6 +2,7 @@ import { searchOrama } from './orama';
 import { groupResults } from './group';
 import { dedupe, fuseResults } from './ranking';
 import { semanticSearchLocal } from './vector-index';
+import { rerankResults } from './rerank';
 
 export async function searchAll(query: string) {
   if (!query || query.length < 2) return null;
@@ -13,5 +14,7 @@ export async function searchAll(query: string) {
 
   const cleaned = dedupe(fused);
 
-  return groupResults(cleaned);
+  const reranked = rerankResults(cleaned);
+
+  return groupResults(reranked);
 }
