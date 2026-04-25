@@ -24,57 +24,68 @@ export async function indexDocument(doc: SearchDocument) {
 
   let vector: number[];
 
-  if (
-    existing &&
-    existing.model === MODEL &&
-    existing.textHash === textHash
-  ) {
+  if (existing && existing.model === MODEL && existing.textHash === textHash) {
     vector = existing.vector;
   } else {
     vector = embedText(text);
 
-    await db.searchvectors
-      .upsert({
-        id: doc.id,
-        entityId: doc.id,
-        entityType: doc.type,
-        model: MODEL,
-        dimensions: vector.length,
-        textHash,
-        vector,
-        indexedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      })
-      .catch(() => {});
+    await db.searchvectors.upsert({
+      id: doc.id,
+      entityId: doc.id,
+      entityType: doc.type,
+      model: MODEL,
+      dimensions: vector.length,
+      textHash,
+      vector,
+      indexedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }).catch(() => {});
   }
 
   vectorStore.set(doc.id, { vector, doc });
 }
 
-export function removeDocument(id: string) {
-  vectorStore.delete(id);
-}
-
-export async function rebuildVectorIndex() {
+export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
   const db = await initializeDatabase();
   const all = await db.searchvectors.find().exec();
 
   for (const entry of all) {
-    vectorStore.set(entry.id, {
+    const doc = getDoc(entry.entityId);
+    if (!doc) continue;
+
+    vectorStore.set(entry.entityId, {
       vector: entry.vector,
-      doc: null as any
+      doc
     });
   }
+}
+
+function selectTopKCandidates(queryVector: number[], k = 200) {
+  const scored: Array<{ id: string; score: number }> = [];
+
+  for (const [id, { vector }] of vectorStore.entries()) {
+    const score = cosineSimilarity(queryVector, vector);
+    if (score > 0) scored.push({ id, score });
+  }
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k)
+    .map((x) => x.id);
 }
 
 export function semanticSearchLocal(query: string, limit = 20): RankedSearchResult[] {
   const queryVector = embedText(query);
 
+  const candidates = selectTopKCandidates(queryVector, 200);
+
   const results: RankedSearchResult[] = [];
 
-  for (const { vector, doc } of vectorStore.values()) {
-    if (!doc) continue;
+  for (const id of candidates) {
+    const entry = vectorStore.get(id);
+    if (!entry) continue;
 
+    const { vector, doc } = entry;
     const score = cosineSimilarity(queryVector, vector);
 
     if (score > 0.1) {
