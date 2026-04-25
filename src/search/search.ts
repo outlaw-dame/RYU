@@ -9,6 +9,8 @@ import { classifyQueryIntent } from './intent';
 import { refineIntentWithLLM } from './intent-llm';
 import { applyContextBoosts } from './context-ranking';
 import { attachExplanations } from './explain';
+import { getAdaptiveAlpha } from './weights';
+import { applyExploration } from './exploration';
 import type { SearchOptions } from './types';
 
 export async function searchAll(query: string, options: SearchOptions = {}) {
@@ -17,10 +19,12 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   let intent = classifyQueryIntent(query);
   intent = await refineIntentWithLLM(query, intent);
 
+  const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
+
   const lexical = await searchOrama(query);
   const semantic = await semanticSearchLocal(query);
 
-  const fused = fuseResults(lexical, semantic, intent.alpha);
+  const fused = fuseResults(lexical, semantic, adaptiveAlpha);
 
   const cleaned = dedupe(fused);
 
@@ -37,8 +41,10 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
     preferredTypes: mergedPreferences
   });
 
-  const provider = getRerankerProvider();
-  const finalResults = provider ? await provider.rerank(query, reranked) : reranked;
+  const explored = applyExploration(reranked);
 
-  return groupResults(attachExplanations(finalResults, intent, options.context));
+  const provider = getRerankerProvider();
+  const finalResults = provider ? await provider.rerank(query, explored) : explored;
+
+  return groupResults(attachExplanations(finalResults, { ...intent, alpha: adaptiveAlpha }, options.context));
 }
