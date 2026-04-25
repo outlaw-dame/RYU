@@ -11,6 +11,7 @@ import { applyContextBoosts } from './context-ranking';
 import { attachExplanations } from './explain';
 import { getAdaptiveAlpha } from './weights';
 import { applyExploration } from './exploration';
+import { applyFeedbackBoosts } from './feedback-ranking';
 import type { SearchOptions } from './types';
 
 export async function searchAll(query: string, options: SearchOptions = {}) {
@@ -30,6 +31,8 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
 
   const withContext = applyContextBoosts(cleaned, options.context);
 
+  const withFeedback = applyFeedbackBoosts(query, withContext);
+
   const prefs = getSearchPreferences();
 
   const mergedPreferences = {
@@ -37,7 +40,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
     ...prefs.preferredTypes
   };
 
-  const reranked = rerankResults(withContext, {
+  const reranked = rerankResults(withFeedback, {
     preferredTypes: mergedPreferences
   });
 
