@@ -6,13 +6,26 @@ export type RerankerProvider = {
 };
 
 let activeProvider: RerankerProvider | null = null;
+let qwenTokenizer: any = null;
+let qwenModel: any = null;
 
 export function registerRerankerProvider(provider: RerankerProvider) {
   activeProvider = provider;
 }
 
+export function clearRerankerProvider() {
+  activeProvider = null;
+}
+
 export function getRerankerProvider(): RerankerProvider | null {
   return activeProvider;
+}
+
+function docText(doc: RankedSearchResult): string {
+  return [doc.title, doc.authorText, doc.description, doc.enrichmentText]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 4096);
 }
 
 // SAFE Jina adapter (expects proxy, not direct key usage)
@@ -27,7 +40,7 @@ export function createJinaReranker(apiUrl: string): RerankerProvider {
           body: JSON.stringify({
             model: 'jina-reranker-m0',
             query,
-            documents: docs.map(d => ({ text: d.title + ' ' + d.description }))
+            documents: docs.map((d) => ({ text: docText(d) }))
           })
         });
 
@@ -39,6 +52,83 @@ export function createJinaReranker(apiUrl: string): RerankerProvider {
         return docs
           .map((doc, i) => ({ ...doc, score: doc.score + (scores[i]?.relevance_score ?? 0) }))
           .sort((a, b) => b.score - a.score);
+      } catch {
+        return docs;
+      }
+    }
+  };
+}
+
+async function getQwenRuntime() {
+  if (!qwenTokenizer || !qwenModel) {
+    const { AutoTokenizer, AutoModelForCausalLM } = await import('@huggingface/transformers');
+    const modelId = 'huggingworld/Qwen3-Reranker-0.6B-ONNX';
+
+    qwenTokenizer = await AutoTokenizer.from_pretrained(modelId);
+    qwenModel = await AutoModelForCausalLM.from_pretrained(modelId, {
+      dtype: 'q4',
+      device: 'webgpu'
+    });
+  }
+
+  return { tokenizer: qwenTokenizer, model: qwenModel };
+}
+
+function formatQwenPrompt(query: string, document: string): string {
+  return [
+    'Judge whether the Document is relevant to the Query for a book search app.',
+    `<Query>: ${query.slice(0, 1024)}`,
+    `<Document>: ${document.slice(0, 4096)}`,
+    'Answer only yes or no.'
+  ].join('\n');
+}
+
+async function scoreWithQwen(query: string, doc: RankedSearchResult): Promise<number> {
+  const { tokenizer, model } = await getQwenRuntime();
+  const prompt = formatQwenPrompt(query, docText(doc));
+  const inputs = tokenizer(prompt, { return_tensors: 'pt', truncation: true, max_length: 4096 });
+  const output = await model(inputs);
+
+  // Transformers.js model output shapes may vary by backend. Keep this defensive:
+  // if logits are unavailable, do not alter the existing score.
+  const logits = output?.logits?.data;
+  if (!logits) return 0;
+
+  const yesId = tokenizer.convert_tokens_to_ids('yes');
+  const noId = tokenizer.convert_tokens_to_ids('no');
+  const yes = Number(logits[yesId] ?? 0);
+  const no = Number(logits[noId] ?? 0);
+  const max = Math.max(yes, no);
+  const yesExp = Math.exp(yes - max);
+  const noExp = Math.exp(no - max);
+
+  return yesExp / (yesExp + noExp);
+}
+
+export function createQwen3Reranker(): RerankerProvider {
+  return {
+    id: 'qwen3-reranker-0.6b',
+    rerank: async (query, docs) => {
+      try {
+        const candidates = docs.slice(0, 12);
+        const rest = docs.slice(12);
+
+        const scored = await Promise.allSettled(
+          candidates.map(async (doc) => {
+            const relevance = await scoreWithQwen(query, doc);
+            return {
+              ...doc,
+              score: doc.score + relevance * 5,
+              reasons: [...(doc.reasons ?? []), 'qwen-rerank']
+            };
+          })
+        );
+
+        const reranked = scored.map((result, index) =>
+          result.status === 'fulfilled' ? result.value : candidates[index]
+        );
+
+        return [...reranked.sort((a, b) => b.score - a.score), ...rest];
       } catch {
         return docs;
       }
