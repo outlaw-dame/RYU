@@ -3,6 +3,8 @@ import { groupResults } from './group';
 import { dedupe, fuseResults } from './ranking';
 import { semanticSearchLocal } from './vector-index';
 import { rerankResults } from './rerank';
+import { getSearchPreferences } from './preferences';
+import { getRerankerProvider } from './reranker-provider';
 
 export async function searchAll(query: string) {
   if (!query || query.length < 2) return null;
@@ -14,7 +16,11 @@ export async function searchAll(query: string) {
 
   const cleaned = dedupe(fused);
 
-  const reranked = rerankResults(cleaned);
+  const prefs = getSearchPreferences();
+  const reranked = rerankResults(cleaned, { preferredTypes: prefs.preferredTypes });
 
-  return groupResults(reranked);
+  const provider = getRerankerProvider();
+  const finalResults = provider ? await provider.rerank(query, reranked) : reranked;
+
+  return groupResults(finalResults);
 }
