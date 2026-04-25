@@ -6,11 +6,15 @@ import { rerankResults } from './rerank';
 import { getSearchPreferences } from './preferences';
 import { getRerankerProvider } from './reranker-provider';
 import { classifyQueryIntent } from './intent';
+import { refineIntentWithLLM } from './intent-llm';
+import { applyContextBoosts } from './context-ranking';
+import type { SearchOptions } from './types';
 
-export async function searchAll(query: string) {
+export async function searchAll(query: string, options: SearchOptions = {}) {
   if (!query || query.length < 2) return null;
 
-  const intent = classifyQueryIntent(query);
+  let intent = classifyQueryIntent(query);
+  intent = await refineIntentWithLLM(query, intent);
 
   const lexical = await searchOrama(query);
   const semantic = await semanticSearchLocal(query);
@@ -19,6 +23,8 @@ export async function searchAll(query: string) {
 
   const cleaned = dedupe(fused);
 
+  const withContext = applyContextBoosts(cleaned, options.context);
+
   const prefs = getSearchPreferences();
 
   const mergedPreferences = {
@@ -26,7 +32,7 @@ export async function searchAll(query: string) {
     ...prefs.preferredTypes
   };
 
-  const reranked = rerankResults(cleaned, {
+  const reranked = rerankResults(withContext, {
     preferredTypes: mergedPreferences
   });
 
