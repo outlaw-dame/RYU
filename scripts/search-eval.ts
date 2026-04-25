@@ -9,6 +9,7 @@ import { getAdaptiveAlpha, resetAdaptiveWeights } from '../src/search/weights';
 import { applyExploration } from '../src/search/exploration';
 import { attachExplanations } from '../src/search/explain';
 import { groupResults } from '../src/search/group';
+import { getSearchRuntimeSettings, resetSearchRuntimeSettings, setSearchRuntimeSettings } from '../src/search/runtime-settings';
 import type { RankedSearchResult, SearchDocument } from '../src/search/types';
 
 function installLocalStorageMock(): void {
@@ -162,6 +163,19 @@ function testExplanationAndGrouping(): void {
   assert(grouped.editions[0]?.explanation?.stages.fused === grouped.editions[0]?.score, 'Explanation should preserve fused score');
 }
 
+function testRuntimeSettings(): void {
+  resetSearchRuntimeSettings();
+  const defaults = getSearchRuntimeSettings();
+  assert(defaults.embeddingRuntime === 'deterministic', 'Default embedding runtime should be deterministic');
+  assert(defaults.rerankerRuntime === 'off', 'Default reranker should be off');
+  assert(defaults.webLLMIntentRefinement === false, 'WebLLM intent refinement should default off');
+
+  const updated = setSearchRuntimeSettings({ embeddingRuntime: 'minilm', rerankerRuntime: 'jina', jinaRerankerUrl: '/api/rerank' });
+  assert(updated.embeddingRuntime === 'minilm', 'MiniLM setting should persist');
+  assert(updated.rerankerRuntime === 'jina', 'Jina setting should persist');
+  assert(updated.jinaRerankerUrl?.endsWith('/api/rerank') === true, 'Jina URL should be sanitized and persisted');
+}
+
 function main(): void {
   testBaselineFixture();
   testFusionAndDedupe();
@@ -170,6 +184,7 @@ function main(): void {
   testFeedbackBoostUsesActualQuery();
   testExplorationGuardrails();
   testExplanationAndGrouping();
+  testRuntimeSettings();
   console.log('Search evaluation guardrails passed.');
 }
 
