@@ -1,13 +1,23 @@
 import type { EmbeddingProvider } from './embedding-provider';
 
-let pipeline: any;
+const pipelines = new Map<string, Promise<any>>();
 
 async function getPipeline(model: string) {
-  if (!pipeline) {
-    const { pipeline: hfPipeline } = await import('@huggingface/transformers');
-    pipeline = await hfPipeline('feature-extraction', model);
+  let existing = pipelines.get(model);
+
+  if (!existing) {
+    existing = import('@huggingface/transformers').then(async ({ pipeline }) => {
+      return pipeline('feature-extraction', model);
+    });
+    pipelines.set(model, existing);
   }
-  return pipeline;
+
+  return existing;
+}
+
+function toNumberArray(output: any): number[] {
+  const data = output?.data ?? output;
+  return Array.from(data).map((value) => Number(value)).filter((value) => Number.isFinite(value));
 }
 
 export function createMiniLMProvider(): EmbeddingProvider {
@@ -15,13 +25,15 @@ export function createMiniLMProvider(): EmbeddingProvider {
     id: 'minilm-l6-v2',
     dimensions: 384,
     embed: async (text: string) => {
-      try {
-        const pipe = await getPipeline('Xenova/all-MiniLM-L6-v2');
-        const output = await pipe(text, { pooling: 'mean', normalize: true });
-        return Array.from(output.data || output);
-      } catch {
-        throw new Error('MiniLM embedding failed');
+      const pipe = await getPipeline('Xenova/all-MiniLM-L6-v2');
+      const output = await pipe(text, { pooling: 'mean', normalize: true });
+      const vector = toNumberArray(output);
+
+      if (vector.length !== 384) {
+        throw new Error(`MiniLM produced invalid vector length: ${vector.length}`);
       }
+
+      return vector;
     }
   };
 }
@@ -31,13 +43,15 @@ export function createEmbeddingGemmaProvider(): EmbeddingProvider {
     id: 'embeddinggemma-v1',
     dimensions: 768,
     embed: async (text: string) => {
-      try {
-        const pipe = await getPipeline('google/embeddinggemma-300m');
-        const output = await pipe(text, { pooling: 'mean', normalize: true });
-        return Array.from(output.data || output);
-      } catch {
-        throw new Error('EmbeddingGemma unavailable or gated');
+      const pipe = await getPipeline('google/embeddinggemma-300m');
+      const output = await pipe(text, { pooling: 'mean', normalize: true });
+      const vector = toNumberArray(output);
+
+      if (vector.length <= 0) {
+        throw new Error('EmbeddingGemma produced an empty vector');
       }
+
+      return vector;
     }
   };
 }
