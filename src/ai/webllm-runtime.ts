@@ -4,7 +4,7 @@ export async function initializeWebLLM(model: string): Promise<boolean> {
   try {
     const { CreateMLCEngine } = await import('@mlc-ai/web-llm');
 
-    engine = await CreateMLCEngine({ model });
+    engine = await CreateMLCEngine(model);
 
     return true;
   } catch (err) {
