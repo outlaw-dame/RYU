@@ -10,6 +10,7 @@ import {
   type EntityResolutionDoc,
   type FetchQueueDoc,
   type ReviewDoc,
+  type SearchVectorDoc,
   type WorkDoc,
   type WriteQueueDoc
 } from './schema';
@@ -22,6 +23,7 @@ export type RyuCollections = {
   entityresolutions: RxCollection<EntityResolutionDoc>;
   entitylinks: RxCollection<EntityLinkDoc>;
   bookwyrminstances: RxCollection<BookWyrmInstanceDoc>;
+  searchvectors: RxCollection<SearchVectorDoc>;
   fetchqueue: RxCollection<FetchQueueDoc>;
   writequeue: RxCollection<WriteQueueDoc>;
 };
