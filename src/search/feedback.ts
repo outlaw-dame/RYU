@@ -1,3 +1,5 @@
+import { recordAlphaFeedback } from './weights';
+
 type FeedbackEvent = {
   query: string;
   docId: string;
@@ -8,15 +10,20 @@ type FeedbackEvent = {
 const KEY = 'ryu.search.feedback.v1';
 
 function load(): FeedbackEvent[] {
+  if (typeof localStorage === 'undefined') return [];
+
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
 function save(events: FeedbackEvent[]) {
+  if (typeof localStorage === 'undefined') return;
+
   try {
     localStorage.setItem(KEY, JSON.stringify(events.slice(-500)));
   } catch {
@@ -24,10 +31,14 @@ function save(events: FeedbackEvent[]) {
   }
 }
 
-export function recordClick(query: string, docId: string) {
+export function recordClick(query: string, docId: string, intent?: string, alpha?: number) {
   const events = load();
   events.push({ query, docId, reward: 1, timestamp: Date.now() });
   save(events);
+
+  if (intent && typeof alpha === 'number') {
+    recordAlphaFeedback(intent, alpha);
+  }
 }
 
 export function getBoostForDoc(query: string, docId: string): number {
