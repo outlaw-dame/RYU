@@ -1,5 +1,5 @@
 import { create, insert, search as oramaSearch } from '@orama/orama';
-import { initializeDatabase } from '@/db/client';
+import { initializeDatabase } from '../db/client';
 import { rankLexical, dedupe } from './ranking';
 import { indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
