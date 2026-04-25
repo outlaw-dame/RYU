@@ -1,3 +1,4 @@
+import { loadQwenRerankerRuntime } from './qwen-reranker-runtime';
 import type { RankedSearchResult } from './types';
 
 export type RerankerProvider = {
@@ -28,7 +29,6 @@ function docText(doc: RankedSearchResult): string {
     .slice(0, 4096);
 }
 
-// SAFE Jina adapter (expects proxy, not direct key usage)
 export function createJinaReranker(apiUrl: string): RerankerProvider {
   return {
     id: 'jina-reranker-m0',
@@ -61,14 +61,9 @@ export function createJinaReranker(apiUrl: string): RerankerProvider {
 
 async function getQwenRuntime() {
   if (!qwenTokenizer || !qwenModel) {
-    const { AutoTokenizer, AutoModelForCausalLM } = await import('@huggingface/transformers');
-    const modelId = 'huggingworld/Qwen3-Reranker-0.6B-ONNX';
-
-    qwenTokenizer = await AutoTokenizer.from_pretrained(modelId);
-    qwenModel = await AutoModelForCausalLM.from_pretrained(modelId, {
-      dtype: 'q4',
-      device: 'webgpu'
-    });
+    const runtime = await loadQwenRerankerRuntime();
+    qwenTokenizer = runtime.tokenizer;
+    qwenModel = runtime.model;
   }
 
   return { tokenizer: qwenTokenizer, model: qwenModel };
@@ -86,16 +81,16 @@ function formatQwenPrompt(query: string, document: string): string {
 async function scoreWithQwen(query: string, doc: RankedSearchResult): Promise<number> {
   const { tokenizer, model } = await getQwenRuntime();
   const prompt = formatQwenPrompt(query, docText(doc));
-  const inputs = tokenizer(prompt, { return_tensors: 'pt', truncation: true, max_length: 4096 });
+  const inputs = tokenizer(prompt, { truncation: true, max_length: 4096 });
   const output = await model(inputs);
 
-  // Transformers.js model output shapes may vary by backend. Keep this defensive:
-  // if logits are unavailable, do not alter the existing score.
   const logits = output?.logits?.data;
   if (!logits) return 0;
 
-  const yesId = tokenizer.convert_tokens_to_ids('yes');
-  const noId = tokenizer.convert_tokens_to_ids('no');
+  const yesId = tokenizer.convert_tokens_to_ids?.('yes');
+  const noId = tokenizer.convert_tokens_to_ids?.('no');
+  if (typeof yesId !== 'number' || typeof noId !== 'number') return 0;
+
   const yes = Number(logits[yesId] ?? 0);
   const no = Number(logits[noId] ?? 0);
   const max = Math.max(yes, no);
