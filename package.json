@@ -5,31 +5,22 @@
   "type": "module",
   "description": "A local-first iOS-style Progressive Web App client for BookWyrm.",
   "license": "AGPL-3.0-or-later",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/outlaw-dame/RYU.git"
-  },
-  "keywords": [
-    "bookwyrm",
-    "activitypub",
-    "pwa",
-    "ios",
-    "local-first",
-    "rxdb",
-    "indexeddb",
-    "books"
-  ],
-  "engines": {
-    "node": ">=20.0.0"
-  },
+  "repository": { "type": "git", "url": "https://github.com/outlaw-dame/RYU.git" },
+  "keywords": ["bookwyrm","activitypub","pwa","ios","local-first","rxdb","indexeddb","books"],
+  "engines": { "node": ">=20.0.0" },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "search:eval": "tsx scripts/search-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.7.2",
+    "@litertjs/core": "^0.1.0",
+    "@mlc-ai/web-llm": "^0.2.79",
+    "@orama/orama": "^2.0.0",
     "@tanstack/react-query": "^5.62.7",
     "dexie": "^4.0.10",
     "dompurify": "^3.2.3",
@@ -44,6 +35,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
   }
