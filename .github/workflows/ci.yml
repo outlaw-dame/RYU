@@ -38,3 +38,5 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      # Keep this final comment as a harmless place to retrigger CI when needed.
