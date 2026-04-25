@@ -1,9 +1,9 @@
-import { embedText, cosineSimilarity, searchableText } from './embeddings';
+import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase } from '@/db/client';
+import { getEmbeddingProvider } from './embedding-provider';
 
 const vectorStore = new Map<string, { vector: number[]; doc: SearchDocument }>();
-const MODEL = 'deterministic-v1';
 
 function hashText(text: string): string {
   let hash = 0;
@@ -16,6 +16,7 @@ function hashText(text: string): string {
 
 export async function indexDocument(doc: SearchDocument) {
   const db = await initializeDatabase();
+  const provider = getEmbeddingProvider();
 
   const text = searchableText(doc);
   const textHash = hashText(text);
@@ -24,16 +25,16 @@ export async function indexDocument(doc: SearchDocument) {
 
   let vector: number[];
 
-  if (existing && existing.model === MODEL && existing.textHash === textHash) {
+  if (existing && existing.model === provider.id && existing.textHash === textHash) {
     vector = existing.vector;
   } else {
-    vector = embedText(text);
+    vector = await provider.embed(text);
 
     await db.searchvectors.upsert({
       id: doc.id,
       entityId: doc.id,
       entityType: doc.type,
-      model: MODEL,
+      model: provider.id,
       dimensions: vector.length,
       textHash,
       vector,
@@ -74,8 +75,9 @@ function selectTopKCandidates(queryVector: number[], k = 200) {
     .map((x) => x.id);
 }
 
-export function semanticSearchLocal(query: string, limit = 20): RankedSearchResult[] {
-  const queryVector = embedText(query);
+export async function semanticSearchLocal(query: string, limit = 20): Promise<RankedSearchResult[]> {
+  const provider = getEmbeddingProvider();
+  const queryVector = await provider.embed(query);
 
   const candidates = selectTopKCandidates(queryVector, 200);
 
