@@ -12,18 +12,20 @@ import { attachExplanations } from './explain';
 import { getAdaptiveAlpha } from './weights';
 import { applyExploration } from './exploration';
 import { applyFeedbackBoosts } from './feedback-ranking';
+import { normalizeSearchQuery } from './query-normalize';
 import type { SearchOptions } from './types';
 
 export async function searchAll(query: string, options: SearchOptions = {}) {
-  if (!query || query.length < 2) return null;
+  const normalizedQuery = normalizeSearchQuery(query);
+  if (normalizedQuery.length < 2) return null;
 
-  let intent = classifyQueryIntent(query);
-  intent = await refineIntentWithLLM(query, intent);
+  let intent = classifyQueryIntent(normalizedQuery);
+  intent = await refineIntentWithLLM(normalizedQuery, intent);
 
   const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
-  const lexical = await searchOrama(query);
-  const semantic = await semanticSearchLocal(query);
+  const lexical = await searchOrama(normalizedQuery);
+  const semantic = await semanticSearchLocal(normalizedQuery);
 
   const fused = fuseResults(lexical, semantic, adaptiveAlpha);
 
@@ -31,7 +33,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
 
   const withContext = applyContextBoosts(cleaned, options.context);
 
-  const withFeedback = applyFeedbackBoosts(query, withContext);
+  const withFeedback = applyFeedbackBoosts(normalizedQuery, withContext);
 
   const prefs = getSearchPreferences();
 
@@ -47,7 +49,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   const explored = applyExploration(reranked);
 
   const provider = getRerankerProvider();
-  const finalResults = provider ? await provider.rerank(query, explored) : explored;
+  const finalResults = provider ? await provider.rerank(normalizedQuery, explored) : explored;
 
   return groupResults(attachExplanations(finalResults, { ...intent, alpha: adaptiveAlpha }, options.context));
 }
