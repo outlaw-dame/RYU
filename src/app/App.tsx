@@ -15,6 +15,7 @@ import { searchAll } from "../search/search";
 import { classifyQueryIntent } from "../search/intent";
 import { getAdaptiveAlpha } from "../search/weights";
 import { recordClick } from "../search/feedback";
+import { normalizeSearchQuery } from "../search/query-normalize";
 import type { GroupedSearchResults } from "../search/group";
 import type { RankedSearchResult } from "../search/types";
 import type { SearchExplanation } from "../search/explain";
@@ -89,21 +90,31 @@ function SearchResultRow({
   query: string;
   onSelect: (result: ExplainedSearchResult) => void;
 }) {
+  const select = () => onSelect(result);
+
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(result)}
+    <article
+      role="button"
+      tabIndex={0}
+      onClick={select}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      }}
       style={{
         width: "100%",
         textAlign: "left",
-        border: 0,
         borderRadius: "var(--radius-lg)",
         background: "var(--color-bg-secondary)",
         color: "var(--color-text)",
         padding: "var(--space-4)",
         boxShadow: "var(--shadow-card)",
         display: "grid",
-        gap: "var(--space-2)"
+        gap: "var(--space-2)",
+        cursor: "pointer",
+        outlineOffset: "3px"
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)" }}>
@@ -127,7 +138,7 @@ function SearchResultRow({
           </pre>
         </details>
       ) : null}
-    </button>
+    </article>
   );
 }
 
@@ -171,7 +182,7 @@ export function App() {
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
 
   useEffect(() => {
-    const query = searchQuery.trim();
+    const query = normalizeSearchQuery(searchQuery);
 
     if (query.length < 2 || state !== "ready") {
       setSearchResults(null);
@@ -207,7 +218,7 @@ export function App() {
   }, [searchQuery, state]);
 
   const handleSearchResultSelect = useCallback((result: ExplainedSearchResult) => {
-    const query = searchQuery.trim();
+    const query = normalizeSearchQuery(searchQuery);
     if (!query) return;
 
     const intent = classifyQueryIntent(query);
@@ -332,11 +343,11 @@ export function App() {
                   {isSearching ? <SkeletonCoverGrid count={3} /> : null}
                   {searchResults && searchResults.all.length > 0 ? (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-                      <SearchResultsSection title="Editions" query={searchQuery} results={searchResults.editions} onSelect={handleSearchResultSelect} />
-                      <SearchResultsSection title="Works" query={searchQuery} results={searchResults.works} onSelect={handleSearchResultSelect} />
-                      <SearchResultsSection title="Authors" query={searchQuery} results={searchResults.authors} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title="Editions" query={normalizeSearchQuery(searchQuery)} results={searchResults.editions} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title="Works" query={normalizeSearchQuery(searchQuery)} results={searchResults.works} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title="Authors" query={normalizeSearchQuery(searchQuery)} results={searchResults.authors} onSelect={handleSearchResultSelect} />
                     </div>
-                  ) : searchQuery.trim().length >= 2 && !isSearching ? (
+                  ) : normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
                     <EmptyState title="No results" description="Try another title, author, ISBN, or theme." />
                   ) : importedBooks.length > 0 ? (
                     <>
