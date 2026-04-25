@@ -3,7 +3,29 @@ import { classifyQueryIntent } from '../src/search/intent';
 import { rankLexical, dedupe, fuseResults } from '../src/search/ranking';
 import { rerankResults } from '../src/search/rerank';
 import { applyContextBoosts } from '../src/search/context-ranking';
+import { applyFeedbackBoosts } from '../src/search/feedback-ranking';
+import { recordClick, getBoostForDoc } from '../src/search/feedback';
+import { getAdaptiveAlpha, resetAdaptiveWeights } from '../src/search/weights';
+import { applyExploration } from '../src/search/exploration';
+import { attachExplanations } from '../src/search/explain';
+import { groupResults } from '../src/search/group';
 import type { RankedSearchResult, SearchDocument } from '../src/search/types';
+
+function installLocalStorageMock(): void {
+  const store = new Map<string, string>();
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); }
+    },
+    configurable: true
+  });
+}
+
+installLocalStorageMock();
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -68,7 +90,7 @@ function testBaselineFixture(): void {
   }
 }
 
-function testFusionAndDedupe(): void {
+function testFusionAndDedupe(): RankedSearchResult[] {
   const ranked = rankLexical(docs, '9780439708180');
   const semantic: RankedSearchResult[] = [
     { ...ranked[0], semanticScore: 0.95, score: 0.95 },
@@ -78,6 +100,7 @@ function testFusionAndDedupe(): void {
   const fused = fuseResults(ranked, semantic, 0.5);
   const cleaned = dedupe(fused);
   assert(cleaned.filter((result) => result.id === ranked[0].id).length === 1, 'Dedupe should collapse duplicate ids');
+  return cleaned;
 }
 
 function testContextAndRerank(): void {
@@ -89,10 +112,64 @@ function testContextAndRerank(): void {
   assert(reranked[0]?.type === 'edition', 'Edition preference should preserve/boost editions');
 }
 
+function testAdaptiveAlpha(): void {
+  resetAdaptiveWeights();
+  const base = getAdaptiveAlpha(0.75, 'semantic');
+  assert(base === 0.75, 'Adaptive alpha should use base alpha before enough samples');
+
+  recordClick('query-a', 'work:dune', 'semantic', 0.95);
+  recordClick('query-b', 'work:dune', 'semantic', 1.2);
+  assert(getAdaptiveAlpha(0.75, 'semantic') === 0.75, 'Adaptive alpha should not activate before 3 samples');
+
+  recordClick('query-c', 'work:dune', 'semantic', 0.95);
+  const learned = getAdaptiveAlpha(0.75, 'semantic');
+  assert(learned <= 0.9 && learned >= 0.1, 'Adaptive alpha should remain clamped');
+  assert(learned > 0.75, 'Adaptive alpha should move after enough high-alpha feedback');
+}
+
+function testFeedbackBoostUsesActualQuery(): void {
+  const ranked = rankLexical(docs, 'dune');
+  const target = ranked.find((result) => result.id === 'work:dune');
+  assert(!!target, 'Dune work should be present in lexical results');
+
+  recordClick('dune', 'work:dune', 'title', 0.3);
+  assert(getBoostForDoc('library', 'work:dune') === 0, 'Feedback boost should not use UI surface as query key');
+  assert(getBoostForDoc('dune', 'work:dune') > 0, 'Feedback boost should use actual query key');
+
+  const boosted = applyFeedbackBoosts('dune', ranked);
+  const boostedTarget = boosted.find((result) => result.id === 'work:dune');
+  assert(boostedTarget?.reasons?.includes('feedback-boost') === true, 'Feedback boost should add reason');
+}
+
+function testExplorationGuardrails(): void {
+  const ranked = rankLexical(docs, 'dune');
+  const none = applyExploration(ranked, 0);
+  assert(none.length === ranked.length, 'Exploration should never change result count');
+  assert(none[0]?.id === ranked[0]?.id, 'Zero exploration should preserve ordering');
+
+  const explored = applyExploration(ranked, 1);
+  assert(explored.length === ranked.length, 'Exploration should preserve result count');
+  assert(explored.slice(0, Math.min(5, explored.length)).every((result) => result.reasons?.includes('exploration')), 'Explored head should be explainable');
+}
+
+function testExplanationAndGrouping(): void {
+  const ranked = rankLexical(docs, '9780439708180');
+  const intent = classifyQueryIntent('9780439708180');
+  const explained = attachExplanations(ranked, intent, { surface: 'global' });
+  const grouped = groupResults(explained);
+
+  assert(grouped.all[0]?.explanation?.intent.intent === 'isbn', 'Grouped results should preserve explanations');
+  assert(grouped.editions[0]?.explanation?.stages.fused === grouped.editions[0]?.score, 'Explanation should preserve fused score');
+}
+
 function main(): void {
   testBaselineFixture();
   testFusionAndDedupe();
   testContextAndRerank();
+  testAdaptiveAlpha();
+  testFeedbackBoostUsesActualQuery();
+  testExplorationGuardrails();
+  testExplanationAndGrouping();
   console.log('Search evaluation guardrails passed.');
 }
 
