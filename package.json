@@ -16,6 +16,7 @@
     "clean": "rm -rf dist .vite node_modules/.vite"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.7.2",
     "@orama/orama": "^2.0.0",
     "@tanstack/react-query": "^5.62.7",
     "dexie": "^4.0.10",
