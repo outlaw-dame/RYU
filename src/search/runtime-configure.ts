@@ -53,6 +53,7 @@ export function applySearchRuntimeSettings(settings: SearchRuntimeSettings = get
     activeRerankerProvider,
     deviceTier,
     lastFallbackReason: fallbackReason,
-    lastError: undefined
+    lastError: undefined,
+    lastAppliedAt: new Date().toISOString()
   });
 }
