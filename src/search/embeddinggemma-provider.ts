@@ -1,5 +1,6 @@
 import type { EmbeddingProvider } from './embedding-provider';
 import { embedText } from './embeddings';
+import { updateSearchRuntimeStatus } from './runtime-status';
 
 let extractorPromise: Promise<any> | null = null;
 
@@ -35,6 +36,17 @@ function coerceVector(output: any): number[] {
   return normalizeVector(Array.from(data as Iterable<number>, Number));
 }
 
+function fallback(text: string, reason: string, error?: unknown): number[] {
+  updateSearchRuntimeStatus({
+    activeEmbeddingProvider: 'deterministic-fallback',
+    lastFallbackReason: reason,
+    lastError: error instanceof Error ? error.message : undefined
+  });
+
+  const vector = embedText(text, 768);
+  return vector.length === 768 ? vector : new Array(768).fill(0);
+}
+
 export function createEmbeddingGemmaProvider(): EmbeddingProvider {
   return {
     id: 'embeddinggemma-300m-q8-with-deterministic-fallback',
@@ -48,13 +60,19 @@ export function createEmbeddingGemmaProvider(): EmbeddingProvider {
         });
         const vector = coerceVector(output);
 
-        if (vector.length === 768) return vector;
-      } catch {
-        // Enhanced semantic search should degrade to deterministic search, not fail the query.
-      }
+        if (vector.length === 768) {
+          updateSearchRuntimeStatus({
+            activeEmbeddingProvider: 'embeddinggemma',
+            lastFallbackReason: undefined,
+            lastError: undefined
+          });
+          return vector;
+        }
 
-      const fallback = embedText(text, 768);
-      return fallback.length === 768 ? fallback : new Array(768).fill(0);
+        return fallback(text, 'EmbeddingGemma returned invalid vector dimensions.');
+      } catch (error) {
+        return fallback(text, 'EmbeddingGemma failed to load or execute.', error);
+      }
     }
   };
 }

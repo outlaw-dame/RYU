@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useSearchRuntimeStatus } from '../../hooks/useSearchRuntimeStatus';
 import { applySearchRuntimeSettings } from '../../search/runtime-configure';
 import {
   getSearchRuntimeSettings,
@@ -33,8 +34,23 @@ const controlStyle = {
   fontSize: 'var(--text-body)'
 } as const;
 
+function labelEmbeddingProvider(provider: string): string {
+  switch (provider) {
+    case 'embeddinggemma':
+      return 'EmbeddingGemma';
+    case 'minilm':
+      return 'MiniLM';
+    case 'deterministic-fallback':
+      return 'Basic fallback';
+    case 'deterministic':
+    default:
+      return 'Basic deterministic';
+  }
+}
+
 export function SearchRuntimeSettingsPanel() {
   const [settings, setSettingsState] = useState<SearchRuntimeSettings>(() => getSearchRuntimeSettings());
+  const status = useSearchRuntimeStatus();
 
   const update = useCallback((patch: Partial<SearchRuntimeSettings>) => {
     const next = setSearchRuntimeSettings(patch);
@@ -59,6 +75,31 @@ export function SearchRuntimeSettingsPanel() {
           <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--color-text-secondary)', fontSize: 'var(--text-footnote)', lineHeight: 1.35 }}>
             Auto uses the best local semantic model this device can handle, then falls back safely.
           </p>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gap: 'var(--space-2)',
+          padding: 'var(--space-3)',
+          borderRadius: 'var(--radius-md)',
+          background: 'var(--color-bg)'
+        }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--text-subhead)', fontWeight: 700 }}>
+            Current search mode
+          </span>
+          <span style={{ color: 'var(--color-text-secondary)', fontSize: 'var(--text-footnote)', lineHeight: 1.35 }}>
+            {labelEmbeddingProvider(status.activeEmbeddingProvider)} · device tier: {status.deviceTier}
+          </span>
+          {status.lastFallbackReason ? (
+            <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--text-caption1)', lineHeight: 1.35 }}>
+              {status.lastFallbackReason}
+            </span>
+          ) : null}
+          {import.meta.env.DEV && status.lastError ? (
+            <span style={{ color: '#c23b3b', fontSize: 'var(--text-caption1)', lineHeight: 1.35 }}>
+              {status.lastError}
+            </span>
+          ) : null}
         </div>
 
         <Field
