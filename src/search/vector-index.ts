@@ -29,7 +29,14 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
     .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
     .exec();
 
-  await Promise.all(docs.map((doc: any) => doc.remove().catch(() => undefined)));
+  await Promise.all(docs.map((doc: any) => doc.remove().catch((error: unknown) => {
+    console.error('Failed to remove persisted search vector', {
+      id: doc.id,
+      model: provider.id,
+      dimensions: provider.dimensions,
+      error
+    });
+  })));
 
   for (const [id, entry] of vectorStore.entries()) {
     if (entry.model === provider.id && entry.dimensions === provider.dimensions) {
@@ -56,6 +63,12 @@ export async function indexDocument(doc: SearchDocument) {
     vector = await provider.embed(text);
 
     if (vector.length !== provider.dimensions) {
+      console.warn('Skipping search vector with invalid dimensions', {
+        entityId: doc.id,
+        model: provider.id,
+        expectedDimensions: provider.dimensions,
+        actualDimensions: vector.length
+      });
       return;
     }
 
@@ -69,7 +82,16 @@ export async function indexDocument(doc: SearchDocument) {
       vector,
       indexedAt: existing?.indexedAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    }).catch(() => {});
+    }).catch((error: unknown) => {
+      console.error('Failed to persist search vector', {
+        id,
+        entityId: doc.id,
+        entityType: doc.type,
+        model: provider.id,
+        dimensions: provider.dimensions,
+        error
+      });
+    });
   }
 
   vectorStore.set(doc.id, { vector, doc, model: provider.id, dimensions: provider.dimensions });
