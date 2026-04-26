@@ -1,0 +1,59 @@
+import type { DeviceCapabilityTier } from './device-capabilities';
+import type { EmbeddingRuntime, RerankerRuntime } from './runtime-settings';
+
+export type ActiveEmbeddingProviderId =
+  | 'embeddinggemma'
+  | 'minilm'
+  | 'deterministic'
+  | 'deterministic-fallback';
+
+export type SearchRuntimeStatus = {
+  configuredEmbeddingRuntime: EmbeddingRuntime;
+  configuredRerankerRuntime: RerankerRuntime;
+  activeEmbeddingProvider: ActiveEmbeddingProviderId;
+  activeRerankerProvider: RerankerRuntime;
+  deviceTier: DeviceCapabilityTier;
+  lastAppliedAt: string;
+  lastFallbackReason?: string;
+  lastError?: string;
+};
+
+const DEFAULT_STATUS: SearchRuntimeStatus = {
+  configuredEmbeddingRuntime: 'auto',
+  configuredRerankerRuntime: 'off',
+  activeEmbeddingProvider: 'deterministic',
+  activeRerankerProvider: 'off',
+  deviceTier: 'standard',
+  lastAppliedAt: new Date(0).toISOString()
+};
+
+let status = DEFAULT_STATUS;
+const listeners = new Set<() => void>();
+
+function emit(): void {
+  for (const listener of listeners) listener();
+}
+
+export function getSearchRuntimeStatus(): SearchRuntimeStatus {
+  return status;
+}
+
+export function subscribeSearchRuntimeStatus(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+export function updateSearchRuntimeStatus(patch: Partial<SearchRuntimeStatus>): SearchRuntimeStatus {
+  status = {
+    ...status,
+    ...patch,
+    lastAppliedAt: patch.lastAppliedAt ?? new Date().toISOString()
+  };
+  emit();
+  return status;
+}
+
+export function resetSearchRuntimeStatus(): void {
+  status = DEFAULT_STATUS;
+  emit();
+}
