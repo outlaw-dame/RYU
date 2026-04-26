@@ -166,7 +166,7 @@ function testExplanationAndGrouping(): void {
 function testRuntimeSettings(): void {
   resetSearchRuntimeSettings();
   const defaults = getSearchRuntimeSettings();
-  assert(defaults.embeddingRuntime === 'deterministic', 'Default embedding runtime should be deterministic');
+  assert(defaults.embeddingRuntime === 'auto', 'Default embedding runtime should be auto enhanced search');
   assert(defaults.rerankerRuntime === 'off', 'Default reranker should be off');
   assert(defaults.webLLMIntentRefinement === false, 'WebLLM intent refinement should default off');
 
