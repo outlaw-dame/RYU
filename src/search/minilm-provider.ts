@@ -1,4 +1,5 @@
 import type { EmbeddingProvider } from './embedding-provider';
+import { embedText } from './embeddings';
 
 let extractorPromise: Promise<any> | null = null;
 
@@ -36,18 +37,21 @@ function coerceVector(output: any): number[] {
 
 export function createMiniLMEmbeddingProvider(): EmbeddingProvider {
   return {
-    id: 'minilm-l6-v2-q8',
+    id: 'minilm-l6-v2-q8-with-deterministic-fallback',
     dimensions: 384,
     embed: async (text: string) => {
-      const extractor = await getExtractor();
-      const output = await extractor(text, { pooling: 'mean', normalize: true });
-      const vector = coerceVector(output);
+      try {
+        const extractor = await getExtractor();
+        const output = await extractor(text, { pooling: 'mean', normalize: true });
+        const vector = coerceVector(output);
 
-      if (vector.length !== 384) {
-        throw new Error('MiniLM embedding returned invalid dimensions');
+        if (vector.length === 384) return vector;
+      } catch {
+        // Enhanced semantic search should degrade to deterministic search, not fail the query.
       }
 
-      return vector;
+      const fallback = embedText(text, 384);
+      return fallback.length === 384 ? fallback : new Array(384).fill(0);
     }
   };
 }
