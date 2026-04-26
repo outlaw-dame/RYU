@@ -23,16 +23,10 @@ async function getExtractor(): Promise<any> {
   return extractorPromise;
 }
 
-function normalizeVector(values: number[]): number[] {
-  const magnitude = Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
-  if (!Number.isFinite(magnitude) || magnitude === 0) return values;
-  return values.map((value) => value / magnitude);
-}
-
 function coerceVector(output: any): number[] {
   const data = output?.data ?? output;
   if (!data || typeof data[Symbol.iterator] !== 'function') return [];
-  return normalizeVector(Array.from(data as Iterable<number>, Number));
+  return Array.from(data as Iterable<number>, Number);
 }
 
 export function createMiniLMEmbeddingProvider(): EmbeddingProvider {
