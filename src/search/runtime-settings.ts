@@ -1,7 +1,11 @@
-export type EmbeddingRuntime = 'deterministic' | 'minilm';
+export type EmbeddingRuntime = 'auto' | 'deterministic' | 'minilm';
 export type RerankerRuntime = 'off' | 'qwen3' | 'jina';
 
 export type SearchRuntimeSettings = {
+  /**
+   * "auto" is the product default: use MiniLM when the browser/runtime can support it,
+   * and fall back to deterministic embeddings without blocking search.
+   */
   embeddingRuntime: EmbeddingRuntime;
   rerankerRuntime: RerankerRuntime;
   webLLMIntentRefinement: boolean;
@@ -11,13 +15,13 @@ export type SearchRuntimeSettings = {
 const STORAGE_KEY = 'ryu.search.runtime-settings.v1';
 
 export const DEFAULT_SEARCH_RUNTIME_SETTINGS: SearchRuntimeSettings = {
-  embeddingRuntime: 'deterministic',
+  embeddingRuntime: 'auto',
   rerankerRuntime: 'off',
   webLLMIntentRefinement: false
 };
 
 function isEmbeddingRuntime(value: unknown): value is EmbeddingRuntime {
-  return value === 'deterministic' || value === 'minilm';
+  return value === 'auto' || value === 'deterministic' || value === 'minilm';
 }
 
 function isRerankerRuntime(value: unknown): value is RerankerRuntime {
