@@ -1,10 +1,10 @@
-export type EmbeddingRuntime = 'auto' | 'deterministic' | 'minilm';
+export type EmbeddingRuntime = 'auto' | 'deterministic' | 'minilm' | 'embeddinggemma';
 export type RerankerRuntime = 'off' | 'qwen3' | 'jina';
 
 export type SearchRuntimeSettings = {
   /**
-   * "auto" is the product default: use MiniLM when the browser/runtime can support it,
-   * and fall back to deterministic embeddings without blocking search.
+   * "auto" is the product default: use EmbeddingGemma on capable devices,
+   * fall back to MiniLM where appropriate, then deterministic embeddings.
    */
   embeddingRuntime: EmbeddingRuntime;
   rerankerRuntime: RerankerRuntime;
@@ -21,7 +21,7 @@ export const DEFAULT_SEARCH_RUNTIME_SETTINGS: SearchRuntimeSettings = {
 };
 
 function isEmbeddingRuntime(value: unknown): value is EmbeddingRuntime {
-  return value === 'auto' || value === 'deterministic' || value === 'minilm';
+  return value === 'auto' || value === 'deterministic' || value === 'minilm' || value === 'embeddinggemma';
 }
 
 function isRerankerRuntime(value: unknown): value is RerankerRuntime {
