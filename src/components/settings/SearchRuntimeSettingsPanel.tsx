@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { scheduleSearchVectorRebuild } from '../../search/index-lifecycle';
 import { applySearchRuntimeSettings } from '../../search/runtime-configure';
 import {
   getSearchRuntimeSettings,
@@ -41,9 +42,14 @@ export function SearchRuntimeSettingsPanel() {
   const [settings, setSettingsState] = useState<SearchRuntimeSettings>(() => getSearchRuntimeSettings());
 
   const update = useCallback((patch: Partial<SearchRuntimeSettings>) => {
+    const previous = getSearchRuntimeSettings();
     const next = setSearchRuntimeSettings(patch);
     applySearchRuntimeSettings(next);
     setSettingsState(next);
+
+    if (previous.embeddingRuntime !== next.embeddingRuntime) {
+      scheduleSearchVectorRebuild();
+    }
   }, []);
 
   return (
