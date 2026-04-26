@@ -7,6 +7,7 @@ import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { SkeletonCoverGrid } from "../components/common/Skeleton";
+import { SettingsScreen } from "../components/settings/SettingsScreen";
 import { getRxDBActivityPubStore } from "../db/activitypub-ingest";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
@@ -373,8 +374,8 @@ export function App() {
               )}
               {activeTab === "profile" && (
                 <TabPanel id="profile" activeTab={activeTab}>
-                  <ScreenTitle title="Profile" />
-                  <EmptyState title="Connect BookWyrm" description="Authentication is planned for Phase 3 after the API compatibility audit." />
+                  <ScreenTitle title="Settings" />
+                  <SettingsScreen />
                 </TabPanel>
               )}
             </AnimatePresence>
