@@ -1,10 +1,20 @@
 export type DeviceCapabilityTier = 'low' | 'standard' | 'enhanced';
 
-export function getDeviceCapabilityTier(): DeviceCapabilityTier {
-  if (typeof navigator === 'undefined') return 'standard';
+type NavigatorWithDeviceMemory = Navigator & {
+  deviceMemory?: number;
+};
 
-  const deviceMemory = typeof navigator.deviceMemory === 'number' ? navigator.deviceMemory : undefined;
-  const cores = typeof navigator.hardwareConcurrency === 'number' ? navigator.hardwareConcurrency : undefined;
+function getNavigator(): NavigatorWithDeviceMemory | null {
+  if (typeof navigator === 'undefined') return null;
+  return navigator as NavigatorWithDeviceMemory;
+}
+
+export function getDeviceCapabilityTier(): DeviceCapabilityTier {
+  const nav = getNavigator();
+  if (!nav) return 'standard';
+
+  const deviceMemory = typeof nav.deviceMemory === 'number' ? nav.deviceMemory : undefined;
+  const cores = typeof nav.hardwareConcurrency === 'number' ? nav.hardwareConcurrency : undefined;
 
   if ((deviceMemory !== undefined && deviceMemory < 4) || (cores !== undefined && cores < 4)) {
     return 'low';
