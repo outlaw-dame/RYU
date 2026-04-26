@@ -34,6 +34,14 @@ function emit(): void {
   for (const listener of listeners) listener();
 }
 
+function hasStatusChanges(patch: Partial<SearchRuntimeStatus>): boolean {
+  return Object.keys(patch).some((key) => {
+    if (key === 'lastAppliedAt') return false;
+    const statusKey = key as keyof SearchRuntimeStatus;
+    return status[statusKey] !== patch[statusKey];
+  });
+}
+
 export function getSearchRuntimeStatus(): SearchRuntimeStatus {
   return status;
 }
@@ -44,11 +52,13 @@ export function subscribeSearchRuntimeStatus(listener: () => void): () => void {
 }
 
 export function updateSearchRuntimeStatus(patch: Partial<SearchRuntimeStatus>): SearchRuntimeStatus {
+  if (!hasStatusChanges(patch)) return status;
+
   status = {
     ...status,
-    ...patch,
-    lastAppliedAt: patch.lastAppliedAt ?? new Date().toISOString()
+    ...patch
   };
+
   emit();
   return status;
 }
