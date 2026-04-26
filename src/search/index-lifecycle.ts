@@ -1,10 +1,12 @@
 import { initializeDatabase } from '../db/client';
+import type { AuthorDoc, EditionDoc, WorkDoc } from '../db/schema';
 import { clearInMemoryVectorIndex, indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
 
+const REINDEX_CONCURRENCY = 4;
 let reindexPromise: Promise<void> | null = null;
 
-function mapEdition(d: any): SearchDocument {
+function mapEdition(d: EditionDoc): SearchDocument {
   return {
     id: d.id,
     type: 'edition',
@@ -18,7 +20,7 @@ function mapEdition(d: any): SearchDocument {
   };
 }
 
-function mapWork(w: any): SearchDocument {
+function mapWork(w: WorkDoc): SearchDocument {
   return {
     id: w.id,
     type: 'work',
@@ -32,7 +34,7 @@ function mapWork(w: any): SearchDocument {
   };
 }
 
-function mapAuthor(a: any): SearchDocument {
+function mapAuthor(a: AuthorDoc): SearchDocument {
   return {
     id: a.id,
     type: 'author',
@@ -44,6 +46,23 @@ function mapAuthor(a: any): SearchDocument {
     source: 'local',
     updatedAt: a.updatedAt
   };
+}
+
+async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
+  for (let offset = 0; offset < docs.length; offset += REINDEX_CONCURRENCY) {
+    const batch = docs.slice(offset, offset + REINDEX_CONCURRENCY);
+    const results = await Promise.allSettled(batch.map((doc) => indexDocument(doc)));
+
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        console.error('Failed to rebuild search vector', {
+          entityId: batch[index].id,
+          entityType: batch[index].type,
+          error: result.reason
+        });
+      }
+    });
+  }
 }
 
 export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
@@ -59,18 +78,17 @@ export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
       db.authors.find().exec()
     ]);
 
-    for (const edition of editions) {
-      await indexDocument(mapEdition(edition));
-    }
+    const docs: SearchDocument[] = [
+      ...editions.map((edition: EditionDoc) => mapEdition(edition)),
+      ...works.map((work: WorkDoc) => mapWork(work)),
+      ...authors.map((author: AuthorDoc) => mapAuthor(author))
+    ];
 
-    for (const work of works) {
-      await indexDocument(mapWork(work));
-    }
-
-    for (const author of authors) {
-      await indexDocument(mapAuthor(author));
-    }
-  })().finally(() => {
+    await indexDocumentsWithLimit(docs);
+  })().catch((error) => {
+    console.error('Search vector rebuild failed', { error });
+    throw error;
+  }).finally(() => {
     reindexPromise = null;
   });
 
@@ -79,6 +97,8 @@ export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
 
 export function scheduleSearchVectorRebuild(): void {
   window.setTimeout(() => {
-    rebuildSearchVectorsForCurrentProvider().catch(() => undefined);
+    rebuildSearchVectorsForCurrentProvider().catch((error) => {
+      console.error('Scheduled search vector rebuild failed', { error });
+    });
   }, 0);
 }
