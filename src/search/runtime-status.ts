@@ -36,6 +36,7 @@ function emit(): void {
 
 function hasStatusChanges(patch: Partial<SearchRuntimeStatus>): boolean {
   return Object.keys(patch).some((key) => {
+    if (key === 'lastAppliedAt') return false;
     const statusKey = key as keyof SearchRuntimeStatus;
     return status[statusKey] !== patch[statusKey];
   });
