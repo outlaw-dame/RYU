@@ -13,6 +13,11 @@ const authorId = 'https://books.example/author/ursula';
 const otherAuthorId = 'https://books.example/author/octavia';
 
 type RuntimeCollectionConfig = Parameters<RyuDatabase['addCollections']>[0];
+const selectorCollections = {
+  authors: collections.authors,
+  works: collections.works,
+  editions: collections.editions
+} as unknown as RuntimeCollectionConfig;
 
 async function main(): Promise<void> {
   const db = await createRxDatabase<RyuCollections>({
@@ -22,7 +27,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    await db.addCollections(collections as unknown as RuntimeCollectionConfig);
+    await db.addCollections(selectorCollections);
 
     assert(db.works.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'works collection should initialize with runtime schema version');
     assert(db.editions.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'editions collection should initialize with runtime schema version');
