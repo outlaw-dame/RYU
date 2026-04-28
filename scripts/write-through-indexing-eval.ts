@@ -19,11 +19,18 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function matchesAuthorSelector(selector: unknown, authorId: string): boolean {
+  const authorIds = (selector as { authorIds?: { $in?: unknown[] } })?.authorIds;
+  return Array.isArray(authorIds?.$in) && authorIds.$in.length === 1 && authorIds.$in[0] === authorId;
+}
+
 function createFakeDb(authorNames: Record<string, string>, records: { works?: WorkDoc[]; editions?: EditionDoc[] } = {}) {
   const lookups: string[] = [];
+  const selectors: unknown[] = [];
 
   return {
     lookups,
+    selectors,
     authors: {
       findOne: (id: string) => ({
         exec: async () => {
@@ -34,10 +41,22 @@ function createFakeDb(authorNames: Record<string, string>, records: { works?: Wo
       })
     },
     works: {
-      find: () => ({ exec: async () => records.works ?? [] })
+      find: (query?: { selector?: unknown }) => ({
+        exec: async () => {
+          selectors.push(query?.selector);
+          if (!query?.selector) throw new Error('works.find must use an authorIds selector');
+          return (records.works ?? []).filter((work) => matchesAuthorSelector(query.selector, work.authorIds[0]) || work.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
+        }
+      })
     },
     editions: {
-      find: () => ({ exec: async () => records.editions ?? [] })
+      find: (query?: { selector?: unknown }) => ({
+        exec: async () => {
+          selectors.push(query?.selector);
+          if (!query?.selector) throw new Error('editions.find must use an authorIds selector');
+          return (records.editions ?? []).filter((edition) => edition.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
+        }
+      })
     }
   } as any;
 }
@@ -188,6 +207,8 @@ async function testAuthorDependencyLookupFindsOnlyAffectedRecords(): Promise<voi
   assert(ids.includes(edition.id), 'Author dependency lookup should include affected edition');
   assert(ids.includes(unrelatedWorkDoc.id) === false, 'Author dependency lookup should skip unrelated works');
   assert(ids.includes(unrelatedEditionDoc.id) === false, 'Author dependency lookup should skip unrelated editions');
+  assert(db.selectors.length === 2, 'Author dependency lookup should use selector-backed queries for works and editions');
+  assert(db.selectors.every((selector: unknown) => matchesAuthorSelector(selector, author.id)), 'Author dependency selectors should filter by authorIds');
 }
 
 async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
