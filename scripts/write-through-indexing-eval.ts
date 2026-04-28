@@ -1,4 +1,12 @@
-import { createSearchIndexQueue, resolveAuthorNames, toSearchDocument } from '../src/search/write-through-indexing';
+import {
+  authorDocToSearchDocument,
+  canonicalEntityToSearchDocument,
+  editionDocToSearchDocument,
+  resolveAuthorNames,
+  workDocToSearchDocument
+} from '../src/search/search-document-projection';
+import { createSearchIndexQueue } from '../src/search/write-through-indexing';
+import type { AuthorDoc, EditionDoc, WorkDoc } from '../src/db/schema';
 import type { CanonicalApEntity } from '../src/sync/activitypub-client';
 import type { SearchDocument } from '../src/search/types';
 
@@ -26,6 +34,8 @@ function createFakeDb(authorNames: Record<string, string>) {
     }
   } as any;
 }
+
+const timestamp = '2026-01-01T00:00:00.000Z';
 
 const author: CanonicalApEntity = {
   kind: 'author',
@@ -59,7 +69,36 @@ const review: CanonicalApEntity = {
   content: 'Great book.',
   editionId: edition.id,
   accountId: 'https://books.example/user/alice',
-  published: '2026-01-01T00:00:00.000Z'
+  published: timestamp
+};
+
+const authorDoc: AuthorDoc = {
+  id: author.id,
+  name: author.name,
+  summary: author.summary,
+  importedAt: timestamp,
+  updatedAt: timestamp
+};
+
+const workDoc: WorkDoc = {
+  id: work.id,
+  title: work.title,
+  summary: work.summary,
+  authorIds: work.authorIds,
+  importedAt: timestamp,
+  updatedAt: timestamp
+};
+
+const editionDoc: EditionDoc = {
+  id: edition.id,
+  title: edition.title,
+  subtitle: edition.subtitle,
+  description: edition.description,
+  authorIds: edition.authorIds,
+  isbn13: edition.isbn13,
+  sourceUrl: edition.sourceUrl,
+  importedAt: timestamp,
+  updatedAt: timestamp
 };
 
 async function testAuthorNameResolutionDedupesLookups(): Promise<void> {
@@ -70,12 +109,37 @@ async function testAuthorNameResolutionDedupesLookups(): Promise<void> {
   assert(db.lookups.length === 1, 'Duplicate author IDs should be looked up once');
 }
 
-async function testSearchDocumentUsesAuthorNames(): Promise<void> {
+async function testCanonicalEntitySearchDocumentUsesAuthorNames(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
-  const doc = await toSearchDocument(db, work, '2026-01-01T00:00:00.000Z');
+  const doc = await canonicalEntityToSearchDocument(db, work, timestamp);
 
   assert(doc?.authorText === author.name, 'Work search document should use author names');
   assert(doc?.authorText.includes('http') === false, 'Work search document should not embed author URI text when name exists');
+}
+
+async function testLocalDocProjectionMatchesCanonicalProjection(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+
+  const canonicalAuthor = await canonicalEntityToSearchDocument(db, author, timestamp);
+  const canonicalWork = await canonicalEntityToSearchDocument(db, work, timestamp);
+  const canonicalEdition = await canonicalEntityToSearchDocument(db, edition, timestamp);
+
+  const localAuthor = authorDocToSearchDocument(authorDoc);
+  const localWork = await workDocToSearchDocument(db, workDoc);
+  const localEdition = await editionDocToSearchDocument(db, editionDoc);
+
+  assert(JSON.stringify(localAuthor) === JSON.stringify(canonicalAuthor), 'Author projection should match across write-through and rebuild paths');
+  assert(JSON.stringify(localWork) === JSON.stringify(canonicalWork), 'Work projection should match across write-through and rebuild paths');
+  assert(JSON.stringify(localEdition) === JSON.stringify(canonicalEdition), 'Edition projection should match across write-through and rebuild paths');
+  assert(localWork.authorText === author.name, 'Rebuild work projection should include author names');
+  assert(localEdition.authorText === author.name, 'Rebuild edition projection should include author names');
+}
+
+async function testMissingAuthorsFallbackSafely(): Promise<void> {
+  const db = createFakeDb({});
+  const doc = await workDocToSearchDocument(db, workDoc);
+
+  assert(doc.authorText === author.id, 'Missing author names should fall back to stable author IDs');
 }
 
 async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
@@ -97,10 +161,10 @@ async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
     logger: { error: () => undefined, warn: () => undefined }
   });
 
-  queue.enqueue(db, author, '2026-01-01T00:00:00.000Z');
-  queue.enqueue(db, work, '2026-01-01T00:00:00.000Z');
-  queue.enqueue(db, edition, '2026-01-01T00:00:00.000Z');
-  queue.enqueue(db, review, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, author, timestamp);
+  queue.enqueue(db, work, timestamp);
+  queue.enqueue(db, edition, timestamp);
+  queue.enqueue(db, review, timestamp);
 
   await delay(80);
 
@@ -126,7 +190,7 @@ async function testQueueDedupesPendingJobs(): Promise<void> {
   const workV1: CanonicalApEntity = { ...work, summary: 'Old summary.' };
   const workV2: CanonicalApEntity = { ...work, summary: 'New summary.' };
 
-  queue.enqueue(db, author, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, author, timestamp);
   queue.enqueue(db, workV1, '2026-01-01T00:00:01.000Z');
   queue.enqueue(db, workV2, '2026-01-01T00:00:02.000Z');
 
@@ -148,9 +212,9 @@ async function testQueueAppliesCapacityLimit(): Promise<void> {
     logger: { error: () => undefined, warn: (...args: unknown[]) => { warnings.push(args); } }
   });
 
-  queue.enqueue(db, { ...author, id: 'author:1' }, '2026-01-01T00:00:00.000Z');
-  queue.enqueue(db, { ...author, id: 'author:2' }, '2026-01-01T00:00:00.000Z');
-  queue.enqueue(db, { ...author, id: 'author:3' }, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, { ...author, id: 'author:1' }, timestamp);
+  queue.enqueue(db, { ...author, id: 'author:2' }, timestamp);
+  queue.enqueue(db, { ...author, id: 'author:3' }, timestamp);
 
   assert(queue.pending() === 2, 'Queue should enforce max pending size');
   assert(warnings.length === 1, 'Queue should warn when dropping oldest pending job');
@@ -158,11 +222,13 @@ async function testQueueAppliesCapacityLimit(): Promise<void> {
 
 async function main(): Promise<void> {
   await testAuthorNameResolutionDedupesLookups();
-  await testSearchDocumentUsesAuthorNames();
+  await testCanonicalEntitySearchDocumentUsesAuthorNames();
+  await testLocalDocProjectionMatchesCanonicalProjection();
+  await testMissingAuthorsFallbackSafely();
   await testQueueLimitsConcurrencyAndSkipsReviews();
   await testQueueDedupesPendingJobs();
   await testQueueAppliesCapacityLimit();
-  console.log('Write-through indexing guardrails passed.');
+  console.log('Write-through indexing and projection guardrails passed.');
 }
 
 await main();
