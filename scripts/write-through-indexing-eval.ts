@@ -7,7 +7,7 @@ import {
 } from '../src/search/search-document-projection';
 import { findSearchDependentsForAuthor } from '../src/search/search-index-dependencies';
 import { createSearchIndexQueue } from '../src/search/write-through-indexing';
-import type { AuthorDoc, EditionDoc, WorkDoc } from '../src/db/schema';
+import type { AuthorDoc, EditionDoc, SearchIndexDependencyDoc, WorkDoc } from '../src/db/schema';
 import type { CanonicalApEntity } from '../src/sync/activitypub-client';
 import type { SearchDocument } from '../src/search/types';
 
@@ -19,14 +19,25 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function matchesAuthorSelector(selector: unknown, authorId: string): boolean {
-  const authorIds = (selector as { authorIds?: { $in?: unknown[] } })?.authorIds;
-  return Array.isArray(authorIds?.$in) && authorIds.$in.length === 1 && authorIds.$in[0] === authorId;
+function dependencyRows(records: { works?: WorkDoc[]; editions?: EditionDoc[] }): SearchIndexDependencyDoc[] {
+  const rows: SearchIndexDependencyDoc[] = [];
+  for (const work of records.works ?? []) {
+    for (const authorId of new Set(work.authorIds)) {
+      rows.push({ id: `work:${authorId}:${work.id}`, authorId, entityId: work.id, entityType: 'work', updatedAt: work.updatedAt });
+    }
+  }
+  for (const edition of records.editions ?? []) {
+    for (const authorId of new Set(edition.authorIds)) {
+      rows.push({ id: `edition:${authorId}:${edition.id}`, authorId, entityId: edition.id, entityType: 'edition', updatedAt: edition.updatedAt });
+    }
+  }
+  return rows;
 }
 
 function createFakeDb(authorNames: Record<string, string>, records: { works?: WorkDoc[]; editions?: EditionDoc[] } = {}) {
   const lookups: string[] = [];
   const selectors: unknown[] = [];
+  const dependencies = dependencyRows(records);
 
   return {
     lookups,
@@ -41,20 +52,22 @@ function createFakeDb(authorNames: Record<string, string>, records: { works?: Wo
       })
     },
     works: {
-      find: (query?: { selector?: unknown }) => ({
-        exec: async () => {
-          selectors.push(query?.selector);
-          if (!query?.selector) throw new Error('works.find must use an authorIds selector');
-          return (records.works ?? []).filter((work) => matchesAuthorSelector(query.selector, work.authorIds[0]) || work.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
-        }
-      })
+      findOne: (id: string) => ({ exec: async () => (records.works ?? []).find((work) => work.id === id) ?? null })
     },
     editions: {
-      find: (query?: { selector?: unknown }) => ({
+      findOne: (id: string) => ({ exec: async () => (records.editions ?? []).find((edition) => edition.id === id) ?? null })
+    },
+    searchindexdependencies: {
+      find: (query?: { selector?: Partial<SearchIndexDependencyDoc> }) => ({
         exec: async () => {
           selectors.push(query?.selector);
-          if (!query?.selector) throw new Error('editions.find must use an authorIds selector');
-          return (records.editions ?? []).filter((edition) => edition.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
+          const selector = query?.selector ?? {};
+          return dependencies.filter((row) => {
+            if (selector.authorId && row.authorId !== selector.authorId) return false;
+            if (selector.entityId && row.entityId !== selector.entityId) return false;
+            if (selector.entityType && row.entityType !== selector.entityType) return false;
+            return true;
+          }).map((row) => ({ ...row, remove: async () => undefined }));
         }
       })
     }
@@ -104,58 +117,15 @@ const review: CanonicalApEntity = {
   published: timestamp
 };
 
-const authorDoc: AuthorDoc = {
-  id: author.id,
-  name: author.name,
-  summary: author.summary,
-  importedAt: timestamp,
-  updatedAt: timestamp
-};
-
-const workDoc: WorkDoc = {
-  id: work.id,
-  title: work.title,
-  summary: work.summary,
-  authorIds: work.authorIds,
-  importedAt: timestamp,
-  updatedAt: timestamp
-};
-
-const unrelatedWorkDoc: WorkDoc = {
-  id: 'https://books.example/work/kindred',
-  title: 'Kindred',
-  summary: 'A time-travel novel.',
-  authorIds: [otherAuthor.id],
-  importedAt: timestamp,
-  updatedAt: timestamp
-};
-
-const editionDoc: EditionDoc = {
-  id: edition.id,
-  title: edition.title,
-  subtitle: edition.subtitle,
-  description: edition.description,
-  authorIds: edition.authorIds,
-  isbn13: edition.isbn13,
-  sourceUrl: edition.sourceUrl,
-  importedAt: timestamp,
-  updatedAt: timestamp
-};
-
-const unrelatedEditionDoc: EditionDoc = {
-  id: 'https://books.example/edition/kindred-paperback',
-  title: 'Kindred',
-  description: 'Paperback edition.',
-  authorIds: [otherAuthor.id],
-  sourceUrl: 'https://books.example/edition/kindred-paperback',
-  importedAt: timestamp,
-  updatedAt: timestamp
-};
+const authorDoc: AuthorDoc = { id: author.id, name: author.name, summary: author.summary, importedAt: timestamp, updatedAt: timestamp };
+const workDoc: WorkDoc = { id: work.id, title: work.title, summary: work.summary, authorIds: work.authorIds, importedAt: timestamp, updatedAt: timestamp };
+const unrelatedWorkDoc: WorkDoc = { id: 'https://books.example/work/kindred', title: 'Kindred', summary: 'A time-travel novel.', authorIds: [otherAuthor.id], importedAt: timestamp, updatedAt: timestamp };
+const editionDoc: EditionDoc = { id: edition.id, title: edition.title, subtitle: edition.subtitle, description: edition.description, authorIds: edition.authorIds, isbn13: edition.isbn13, sourceUrl: edition.sourceUrl, importedAt: timestamp, updatedAt: timestamp };
+const unrelatedEditionDoc: EditionDoc = { id: 'https://books.example/edition/kindred-paperback', title: 'Kindred', description: 'Paperback edition.', authorIds: [otherAuthor.id], sourceUrl: 'https://books.example/edition/kindred-paperback', importedAt: timestamp, updatedAt: timestamp };
 
 async function testAuthorNameResolutionDedupesLookups(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
   const names = await resolveAuthorNames(db, [author.id, author.id]);
-
   assert(names === author.name, 'Author names should resolve from DB names, not URI text');
   assert(db.lookups.length === 1, 'Duplicate author IDs should be looked up once');
 }
@@ -163,18 +133,15 @@ async function testAuthorNameResolutionDedupesLookups(): Promise<void> {
 async function testCanonicalEntitySearchDocumentUsesAuthorNames(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
   const doc = await canonicalEntityToSearchDocument(db, work, timestamp);
-
   assert(doc?.authorText === author.name, 'Work search document should use author names');
   assert(doc?.authorText.includes('http') === false, 'Work search document should not embed author URI text when name exists');
 }
 
 async function testLocalDocProjectionMatchesCanonicalProjection(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
-
   const canonicalAuthor = await canonicalEntityToSearchDocument(db, author, timestamp);
   const canonicalWork = await canonicalEntityToSearchDocument(db, work, timestamp);
   const canonicalEdition = await canonicalEntityToSearchDocument(db, edition, timestamp);
-
   const localAuthor = authorDocToSearchDocument(authorDoc);
   const localWork = await workDocToSearchDocument(db, workDoc);
   const localEdition = await editionDocToSearchDocument(db, editionDoc);
@@ -189,7 +156,6 @@ async function testLocalDocProjectionMatchesCanonicalProjection(): Promise<void>
 async function testMissingAuthorsFallbackSafely(): Promise<void> {
   const db = createFakeDb({});
   const doc = await workDocToSearchDocument(db, workDoc);
-
   assert(doc.authorText === author.id, 'Missing author names should fall back to stable author IDs');
 }
 
@@ -198,7 +164,6 @@ async function testAuthorDependencyLookupFindsOnlyAffectedRecords(): Promise<voi
     { [author.id]: author.name, [otherAuthor.id]: otherAuthor.name },
     { works: [workDoc, unrelatedWorkDoc], editions: [editionDoc, unrelatedEditionDoc] }
   );
-
   const dependents = await findSearchDependentsForAuthor(db, author.id);
   const ids = dependents.map((entity) => entity.id).sort();
 
@@ -207,8 +172,8 @@ async function testAuthorDependencyLookupFindsOnlyAffectedRecords(): Promise<voi
   assert(ids.includes(edition.id), 'Author dependency lookup should include affected edition');
   assert(ids.includes(unrelatedWorkDoc.id) === false, 'Author dependency lookup should skip unrelated works');
   assert(ids.includes(unrelatedEditionDoc.id) === false, 'Author dependency lookup should skip unrelated editions');
-  assert(db.selectors.length === 2, 'Author dependency lookup should use selector-backed queries for works and editions');
-  assert(db.selectors.every((selector: unknown) => matchesAuthorSelector(selector, author.id)), 'Author dependency selectors should filter by authorIds');
+  assert(db.selectors.length === 1, 'Author dependency lookup should use one scalar dependency-index query');
+  assert((db.selectors[0] as { authorId?: string }).authorId === author.id, 'Author dependency selector should filter by authorId');
 }
 
 async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
@@ -216,25 +181,18 @@ async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
   let active = 0;
   let maxActive = 0;
   const indexed: SearchDocument[] = [];
-
-  const queue = createSearchIndexQueue({
-    concurrency: 2,
-    maxSize: 10,
-    indexer: async (doc) => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await delay(10);
-      indexed.push(doc);
-      active -= 1;
-    },
-    logger: { error: () => undefined, warn: () => undefined }
-  });
+  const queue = createSearchIndexQueue({ concurrency: 2, maxSize: 10, indexer: async (doc) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await delay(10);
+    indexed.push(doc);
+    active -= 1;
+  }, logger: { error: () => undefined, warn: () => undefined } });
 
   queue.enqueue(db, author, timestamp);
   queue.enqueue(db, work, timestamp);
   queue.enqueue(db, edition, timestamp);
   queue.enqueue(db, review, timestamp);
-
   await delay(80);
 
   assert(indexed.length === 3, 'Queue should index authors, works, and editions only');
@@ -245,24 +203,14 @@ async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
 async function testQueueDedupesPendingJobs(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
   const indexed: SearchDocument[] = [];
-
-  const queue = createSearchIndexQueue({
-    concurrency: 1,
-    maxSize: 10,
-    indexer: async (doc) => {
-      await delay(20);
-      indexed.push(doc);
-    },
-    logger: { error: () => undefined, warn: () => undefined }
-  });
-
-  const workV1: CanonicalApEntity = { ...work, summary: 'Old summary.' };
-  const workV2: CanonicalApEntity = { ...work, summary: 'New summary.' };
+  const queue = createSearchIndexQueue({ concurrency: 1, maxSize: 10, indexer: async (doc) => {
+    await delay(20);
+    indexed.push(doc);
+  }, logger: { error: () => undefined, warn: () => undefined } });
 
   queue.enqueue(db, author, timestamp);
-  queue.enqueue(db, workV1, '2026-01-01T00:00:01.000Z');
-  queue.enqueue(db, workV2, '2026-01-01T00:00:02.000Z');
-
+  queue.enqueue(db, { ...work, summary: 'Old summary.' }, '2026-01-01T00:00:01.000Z');
+  queue.enqueue(db, { ...work, summary: 'New summary.' }, '2026-01-01T00:00:02.000Z');
   await delay(120);
 
   const workDocs = indexed.filter((doc) => doc.id === work.id);
@@ -273,13 +221,7 @@ async function testQueueDedupesPendingJobs(): Promise<void> {
 async function testQueueAppliesCapacityLimit(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
   const warnings: unknown[] = [];
-
-  const queue = createSearchIndexQueue({
-    concurrency: 0,
-    maxSize: 2,
-    indexer: async () => undefined,
-    logger: { error: () => undefined, warn: (...args: unknown[]) => { warnings.push(args); } }
-  });
+  const queue = createSearchIndexQueue({ concurrency: 0, maxSize: 2, indexer: async () => undefined, logger: { error: () => undefined, warn: (...args: unknown[]) => { warnings.push(args); } } });
 
   queue.enqueue(db, { ...author, id: 'author:1' }, timestamp);
   queue.enqueue(db, { ...author, id: 'author:2' }, timestamp);

@@ -36,6 +36,9 @@ jobs:
       - name: Schema migration guardrails
         run: npm run schema:eval
 
+      - name: RxDB schema smoke
+        run: npm run db:schema-smoke
+
       - name: Search evaluation guardrails
         run: npm run search:eval
 

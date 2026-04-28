@@ -38,8 +38,10 @@ function main(): void {
     assertCollectionVersionAndMigration(collectionName);
   }
 
-  assert(indexesOf('works').includes('authorIds'), 'works schema should index authorIds');
-  assert(indexesOf('editions').includes('authorIds'), 'editions schema should index authorIds');
+  assert('searchindexdependencies' in collections, 'schema should include normalized search dependency index collection');
+  assert(indexesOf('searchindexdependencies').includes('authorId'), 'search dependency index should support authorId lookups');
+  assert(indexesOf('searchindexdependencies').includes('entityId'), 'search dependency index should support entity cleanup');
+  assert(indexesOf('searchindexdependencies').includes('entityType'), 'search dependency index should support typed entity lookup');
 
   console.log('Schema migration guardrails passed.');
 }
