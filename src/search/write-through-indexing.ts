@@ -1,5 +1,6 @@
 import type { RyuDatabase } from '../db/client';
 import type { CanonicalApEntity } from '../sync/activitypub-client';
+import { canonicalEntityToSearchDocument } from './search-document-projection';
 import type { SearchDocument } from './types';
 import { indexDocument } from './vector-index';
 
@@ -25,61 +26,6 @@ export type SearchIndexQueue = {
 const DEFAULT_INDEX_QUEUE_CONCURRENCY = 2;
 const DEFAULT_INDEX_QUEUE_MAX_SIZE = 500;
 
-export async function resolveAuthorNames(db: RyuDatabase, authorIds: string[]): Promise<string> {
-  if (authorIds.length === 0) return '';
-
-  const uniqueIds = [...new Set(authorIds)];
-  const names = await Promise.all(uniqueIds.map(async (id) => {
-    const author = await db.authors.findOne(id).exec().catch(() => null);
-    return author?.name || id;
-  }));
-
-  return names.join(' ');
-}
-
-export async function toSearchDocument(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): Promise<SearchDocument | null> {
-  switch (entity.kind) {
-    case 'author':
-      return {
-        id: entity.id,
-        type: 'author',
-        title: entity.name,
-        description: entity.summary || '',
-        authorText: entity.name,
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    case 'work':
-      return {
-        id: entity.id,
-        type: 'work',
-        title: entity.title,
-        description: entity.summary || '',
-        authorText: await resolveAuthorNames(db, entity.authorIds),
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    case 'edition':
-      return {
-        id: entity.id,
-        type: 'edition',
-        title: entity.title,
-        description: entity.description || '',
-        authorText: await resolveAuthorNames(db, entity.authorIds),
-        isbnText: `${entity.isbn10 || ''} ${entity.isbn13 || ''}`.trim(),
-        enrichmentText: entity.subtitle || '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    default:
-      return null;
-  }
-}
-
 function jobKey(job: SearchIndexJob): string {
   return `${job.entity.kind}:${job.entity.id}`;
 }
@@ -93,7 +39,7 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
   let activeJobs = 0;
 
   async function runIndexJob(job: SearchIndexJob): Promise<void> {
-    const doc = await toSearchDocument(job.db, job.entity, job.timestamp);
+    const doc = await canonicalEntityToSearchDocument(job.db, job.entity, job.timestamp);
     if (!doc) return;
 
     await indexer(doc).catch((error) => {
