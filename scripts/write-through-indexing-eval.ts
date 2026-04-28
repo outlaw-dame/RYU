@@ -1,0 +1,168 @@
+import { createSearchIndexQueue, resolveAuthorNames, toSearchDocument } from '../src/search/write-through-indexing';
+import type { CanonicalApEntity } from '../src/sync/activitypub-client';
+import type { SearchDocument } from '../src/search/types';
+
+function assert(condition: boolean, message: string): void {
+  if (!condition) throw new Error(message);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createFakeDb(authorNames: Record<string, string>) {
+  const lookups: string[] = [];
+
+  return {
+    lookups,
+    authors: {
+      findOne: (id: string) => ({
+        exec: async () => {
+          lookups.push(id);
+          const name = authorNames[id];
+          return name ? { id, name } : null;
+        }
+      })
+    }
+  } as any;
+}
+
+const author: CanonicalApEntity = {
+  kind: 'author',
+  id: 'https://books.example/author/ursula',
+  name: 'Ursula K. Le Guin',
+  summary: 'Author of speculative fiction.'
+};
+
+const work: CanonicalApEntity = {
+  kind: 'work',
+  id: 'https://books.example/work/dispossessed',
+  title: 'The Dispossessed',
+  summary: 'An ambiguous utopia.',
+  authorIds: [author.id, author.id]
+};
+
+const edition: CanonicalApEntity = {
+  kind: 'edition',
+  id: 'https://books.example/edition/dispossessed-paperback',
+  title: 'The Dispossessed',
+  subtitle: 'A Novel',
+  description: 'Paperback edition.',
+  authorIds: [author.id],
+  isbn13: '9780061054884',
+  sourceUrl: 'https://books.example/edition/dispossessed-paperback'
+};
+
+const review: CanonicalApEntity = {
+  kind: 'review',
+  id: 'https://books.example/review/1',
+  content: 'Great book.',
+  editionId: edition.id,
+  accountId: 'https://books.example/user/alice',
+  published: '2026-01-01T00:00:00.000Z'
+};
+
+async function testAuthorNameResolutionDedupesLookups(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+  const names = await resolveAuthorNames(db, [author.id, author.id]);
+
+  assert(names === author.name, 'Author names should resolve from DB names, not URI text');
+  assert(db.lookups.length === 1, 'Duplicate author IDs should be looked up once');
+}
+
+async function testSearchDocumentUsesAuthorNames(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+  const doc = await toSearchDocument(db, work, '2026-01-01T00:00:00.000Z');
+
+  assert(doc?.authorText === author.name, 'Work search document should use author names');
+  assert(doc?.authorText.includes('http') === false, 'Work search document should not embed author URI text when name exists');
+}
+
+async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+  let active = 0;
+  let maxActive = 0;
+  const indexed: SearchDocument[] = [];
+
+  const queue = createSearchIndexQueue({
+    concurrency: 2,
+    maxSize: 10,
+    indexer: async (doc) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(10);
+      indexed.push(doc);
+      active -= 1;
+    },
+    logger: { error: () => undefined, warn: () => undefined }
+  });
+
+  queue.enqueue(db, author, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, work, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, edition, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, review, '2026-01-01T00:00:00.000Z');
+
+  await delay(80);
+
+  assert(indexed.length === 3, 'Queue should index authors, works, and editions only');
+  assert(maxActive <= 2, 'Queue should respect configured concurrency');
+  assert(indexed.every((doc) => doc.type !== undefined), 'Indexed documents should be valid search documents');
+}
+
+async function testQueueDedupesPendingJobs(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+  const indexed: SearchDocument[] = [];
+
+  const queue = createSearchIndexQueue({
+    concurrency: 1,
+    maxSize: 10,
+    indexer: async (doc) => {
+      await delay(20);
+      indexed.push(doc);
+    },
+    logger: { error: () => undefined, warn: () => undefined }
+  });
+
+  const workV1: CanonicalApEntity = { ...work, summary: 'Old summary.' };
+  const workV2: CanonicalApEntity = { ...work, summary: 'New summary.' };
+
+  queue.enqueue(db, author, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, workV1, '2026-01-01T00:00:01.000Z');
+  queue.enqueue(db, workV2, '2026-01-01T00:00:02.000Z');
+
+  await delay(120);
+
+  const workDocs = indexed.filter((doc) => doc.id === work.id);
+  assert(workDocs.length === 1, 'Pending duplicate entity jobs should be collapsed');
+  assert(workDocs[0].description === 'New summary.', 'Deduplicated pending job should keep newest entity payload');
+}
+
+async function testQueueAppliesCapacityLimit(): Promise<void> {
+  const db = createFakeDb({ [author.id]: author.name });
+  const warnings: unknown[] = [];
+
+  const queue = createSearchIndexQueue({
+    concurrency: 0,
+    maxSize: 2,
+    indexer: async () => undefined,
+    logger: { error: () => undefined, warn: (...args: unknown[]) => { warnings.push(args); } }
+  });
+
+  queue.enqueue(db, { ...author, id: 'author:1' }, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, { ...author, id: 'author:2' }, '2026-01-01T00:00:00.000Z');
+  queue.enqueue(db, { ...author, id: 'author:3' }, '2026-01-01T00:00:00.000Z');
+
+  assert(queue.pending() === 2, 'Queue should enforce max pending size');
+  assert(warnings.length === 1, 'Queue should warn when dropping oldest pending job');
+}
+
+async function main(): Promise<void> {
+  await testAuthorNameResolutionDedupesLookups();
+  await testSearchDocumentUsesAuthorNames();
+  await testQueueLimitsConcurrencyAndSkipsReviews();
+  await testQueueDedupesPendingJobs();
+  await testQueueAppliesCapacityLimit();
+  console.log('Write-through indexing guardrails passed.');
+}
+
+await main();
