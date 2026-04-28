@@ -20,8 +20,8 @@ function delay(ms: number): Promise<void> {
 }
 
 function matchesAuthorSelector(selector: unknown, authorId: string): boolean {
-  const authorIds = (selector as { authorIds?: { $in?: unknown[] } })?.authorIds;
-  return Array.isArray(authorIds?.$in) && authorIds.$in.length === 1 && authorIds.$in[0] === authorId;
+  const authorIds = (selector as { authorIds?: { $elemMatch?: { $eq?: unknown } } })?.authorIds;
+  return authorIds?.$elemMatch?.$eq === authorId;
 }
 
 function createFakeDb(authorNames: Record<string, string>, records: { works?: WorkDoc[]; editions?: EditionDoc[] } = {}) {
@@ -45,7 +45,7 @@ function createFakeDb(authorNames: Record<string, string>, records: { works?: Wo
         exec: async () => {
           selectors.push(query?.selector);
           if (!query?.selector) throw new Error('works.find must use an authorIds selector');
-          return (records.works ?? []).filter((work) => matchesAuthorSelector(query.selector, work.authorIds[0]) || work.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
+          return (records.works ?? []).filter((work) => work.authorIds.some((authorId) => matchesAuthorSelector(query.selector, authorId)));
         }
       })
     },
