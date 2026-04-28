@@ -1,5 +1,6 @@
 import { createRxDatabase } from 'rxdb';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
+import type { RyuCollections, RyuDatabase } from '../src/db/client';
 import { collections, CURRENT_SCHEMA_VERSION } from '../src/db/runtime-schema';
 import { findSearchDependentsForAuthor } from '../src/search/search-index-dependencies';
 
@@ -11,15 +12,17 @@ const now = new Date('2026-01-01T00:00:00.000Z').toISOString();
 const authorId = 'https://books.example/author/ursula';
 const otherAuthorId = 'https://books.example/author/octavia';
 
+type RuntimeCollectionConfig = Parameters<RyuDatabase['addCollections']>[0];
+
 async function main(): Promise<void> {
-  const db = await createRxDatabase({
+  const db = await createRxDatabase<RyuCollections>({
     name: `ryu_schema_smoke_${Date.now()}`,
     storage: getRxStorageMemory(),
     multiInstance: false
   });
 
   try {
-    await db.addCollections(collections as any);
+    await db.addCollections(collections as unknown as RuntimeCollectionConfig);
 
     assert(db.works.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'works collection should initialize with runtime schema version');
     assert(db.editions.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'editions collection should initialize with runtime schema version');
@@ -85,7 +88,7 @@ async function main(): Promise<void> {
     assert(matchingEditions.length === 1, 'authorIds selector should find exactly one matching edition');
     assert(matchingEditions[0].id === 'https://books.example/edition/dispossessed-paperback', 'authorIds selector should return the matching edition');
 
-    const dependents = await findSearchDependentsForAuthor(db as any, authorId);
+    const dependents = await findSearchDependentsForAuthor(db, authorId);
     const dependentIds = dependents.map((entity) => entity.id).sort();
 
     assert(dependentIds.length === 2, 'dependency lookup should return one work and one edition');
