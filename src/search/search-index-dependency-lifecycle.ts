@@ -31,8 +31,6 @@ type ExpectedDependency = {
 
 type DependencySource = Pick<WorkDoc | EditionDoc, 'id' | 'authorIds' | 'updatedAt'>;
 
-type DependencyCollection = typeof import('../db/client').RyuDatabase.prototype.searchindexdependencies;
-
 async function getDatabase(db?: RyuDatabase): Promise<RyuDatabase> {
   return db ?? initializeDatabase();
 }
@@ -286,14 +284,8 @@ export async function rebuildSearchIndexDependencies(db?: RyuDatabase): Promise<
   return rebuildPromise;
 }
 
-export async function healSearchIndexDependenciesIfNeeded(db?: RyuDatabase): Promise<SearchIndexDependencyHealth> {
-  const database = await getDatabase(db);
-  const health = await inspectSearchIndexDependencyHealth(database);
-  if (!health.healthy) {
-    console.info('Search dependency index health check scheduled rebuild', health);
-    scheduleSearchIndexDependencyBackfill(database);
-  }
-  return health;
+export async function healSearchIndexDependenciesIfNeeded(db?: RyuDatabase): Promise<void> {
+  await rebuildSearchIndexDependencies(db);
 }
 
 export function scheduleSearchIndexDependencyBackfill(db?: RyuDatabase): void {
@@ -320,8 +312,8 @@ export function scheduleSearchIndexDependencyBackfill(db?: RyuDatabase): void {
 
 export function scheduleSearchIndexDependencyHealthCheck(): void {
   const run = () => {
-    healSearchIndexDependenciesIfNeeded().catch((error) => {
-      console.error('Scheduled search dependency index health check failed', { error });
+    rebuildSearchIndexDependencies().catch((error) => {
+      console.error('Scheduled search dependency index maintenance failed', { error });
     });
   };
 
