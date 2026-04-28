@@ -1,5 +1,6 @@
 import { addRxPlugin, createRxDatabase, type RxCollection, type RxDatabase } from 'rxdb';
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
+import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { collections } from './runtime-schema';
 import type {
@@ -32,6 +33,13 @@ export type RyuDatabase = RxDatabase<RyuCollections>;
 
 let dbPromise: Promise<RyuDatabase> | null = null;
 let devModePluginRegistered = false;
+let migrationPluginRegistered = false;
+
+function registerCorePlugins(): void {
+  if (migrationPluginRegistered) return;
+  addRxPlugin(RxDBMigrationSchemaPlugin);
+  migrationPluginRegistered = true;
+}
 
 function registerDevelopmentPlugins(): void {
   if (!import.meta.env.DEV || devModePluginRegistered) return;
@@ -52,6 +60,7 @@ async function requestPersistentStorage(): Promise<void> {
 export async function initializeDatabase(): Promise<RyuDatabase> {
   if (!dbPromise) {
     dbPromise = (async () => {
+      registerCorePlugins();
       registerDevelopmentPlugins();
       await requestPersistentStorage();
 
