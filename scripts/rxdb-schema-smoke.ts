@@ -32,8 +32,9 @@ async function main(): Promise<void> {
     await db.editions.insert({ id: 'https://books.example/edition/dispossessed-paperback', title: 'The Dispossessed', description: 'Paperback edition.', authorIds: [authorId], isbn13: '9780061054884', sourceUrl: 'https://books.example/edition/dispossessed-paperback', importedAt: now, updatedAt: now });
     await db.editions.insert({ id: 'https://books.example/edition/kindred-paperback', title: 'Kindred', description: 'Paperback edition.', authorIds: [otherAuthorId], sourceUrl: 'https://books.example/edition/kindred-paperback', importedAt: now, updatedAt: now });
 
-    const matchingWorks = await db.works.find({ selector: { authorIds: { $in: [authorId] } } }).exec();
-    const matchingEditions = await db.editions.find({ selector: { authorIds: { $in: [authorId] } } }).exec();
+    const membershipSelector = { authorIds: { $elemMatch: { $eq: authorId } } };
+    const matchingWorks = await db.works.find({ selector: membershipSelector }).exec();
+    const matchingEditions = await db.editions.find({ selector: membershipSelector }).exec();
     assert(matchingWorks.length === 1 && matchingWorks[0].id === 'https://books.example/work/dispossessed', 'authorIds selector should return the matching work');
     assert(matchingEditions.length === 1 && matchingEditions[0].id === 'https://books.example/edition/dispossessed-paperback', 'authorIds selector should return the matching edition');
 
