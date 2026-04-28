@@ -14,7 +14,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "schema:eval": "tsx scripts/schema-eval.ts",
-    "db:schema-smoke": "tsx scripts/rxdb-schema-smoke.ts",
+    "db:schema-smoke": "tsx scripts/rxdb-authorids-smoke.ts",
     "search:eval": "tsx scripts/search-eval.ts",
     "search:indexing-eval": "tsx scripts/write-through-indexing-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
