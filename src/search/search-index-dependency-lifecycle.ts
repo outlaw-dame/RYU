@@ -1,6 +1,6 @@
 import { initializeDatabase, type RyuDatabase } from '../db/client';
 import type { EditionDoc, SearchIndexDependencyDoc, SearchIndexDependencyEntityType, WorkDoc } from '../db/schema';
-import { searchIndexDependencyId, upsertSearchIndexDependenciesForEntity } from './search-index-dependencies';
+import { searchIndexDependencyId } from './search-index-dependencies';
 
 const BACKFILL_BATCH_SIZE = 50;
 const DEPENDENCY_HEALTH_STARTUP_DELAY_MS = 6_000;
@@ -26,7 +26,12 @@ type ExpectedDependency = {
   authorId: string;
   entityId: string;
   entityType: SearchIndexDependencyEntityType;
+  updatedAt: string;
 };
+
+type DependencySource = Pick<WorkDoc | EditionDoc, 'id' | 'authorIds' | 'updatedAt'>;
+
+type DependencyCollection = typeof import('../db/client').RyuDatabase.prototype.searchindexdependencies;
 
 async function getDatabase(db?: RyuDatabase): Promise<RyuDatabase> {
   return db ?? initializeDatabase();
@@ -39,34 +44,105 @@ function yieldToEventLoop(): Promise<void> {
 function expectedRowsForEntity(
   entityType: SearchIndexDependencyEntityType,
   entityId: string,
-  authorIds: string[]
+  authorIds: string[],
+  updatedAt: string
 ): ExpectedDependency[] {
   return [...new Set(authorIds)].map((authorId) => ({
     id: searchIndexDependencyId(authorId, entityType, entityId),
     authorId,
     entityId,
-    entityType
+    entityType,
+    updatedAt
   }));
 }
 
-async function collectExpectedDependencies(db: RyuDatabase): Promise<Map<string, ExpectedDependency>> {
-  const expected = new Map<string, ExpectedDependency>();
-
-  const works = await db.works.find().exec();
-  for (const work of works as WorkDoc[]) {
-    for (const row of expectedRowsForEntity('work', work.id, work.authorIds)) expected.set(row.id, row);
-  }
-
-  const editions = await db.editions.find().exec();
-  for (const edition of editions as EditionDoc[]) {
-    for (const row of expectedRowsForEntity('edition', edition.id, edition.authorIds)) expected.set(row.id, row);
-  }
-
-  return expected;
+async function findBatch<T>(collection: { find: (query: unknown) => { exec: () => Promise<T[]> } }, offset: number): Promise<T[]> {
+  return collection.find({ selector: {}, skip: offset, limit: BACKFILL_BATCH_SIZE }).exec();
 }
 
-function isStaleDependency(actual: SearchIndexDependencyDoc, expected: ExpectedDependency): boolean {
-  return actual.authorId !== expected.authorId || actual.entityId !== expected.entityId || actual.entityType !== expected.entityType;
+async function* iterateCollection<T>(collection: { find: (query: unknown) => { exec: () => Promise<T[]> } }): AsyncGenerator<T[]> {
+  for (let offset = 0; ; offset += BACKFILL_BATCH_SIZE) {
+    const batch = await findBatch<T>(collection, offset);
+    if (batch.length === 0) return;
+    yield batch;
+    if (batch.length < BACKFILL_BATCH_SIZE) return;
+    await yieldToEventLoop();
+  }
+}
+
+async function findDependenciesForEntities(
+  db: RyuDatabase,
+  entityType: SearchIndexDependencyEntityType,
+  entityIds: string[]
+): Promise<SearchIndexDependencyDoc[]> {
+  if (entityIds.length === 0) return [];
+  return db.searchindexdependencies
+    .find({ selector: { entityType, entityId: { $in: entityIds } } as never })
+    .exec() as Promise<SearchIndexDependencyDoc[]>;
+}
+
+function diffEntityDependencies(expected: ExpectedDependency[], actual: SearchIndexDependencyDoc[]) {
+  const expectedById = new Map(expected.map((row) => [row.id, row]));
+  const actualById = new Map(actual.map((row) => [row.id, row]));
+  let missing = 0;
+  let stale = 0;
+
+  for (const [id, expectedRow] of expectedById) {
+    const actualRow = actualById.get(id);
+    if (!actualRow) {
+      missing += 1;
+      continue;
+    }
+    if (
+      actualRow.authorId !== expectedRow.authorId ||
+      actualRow.entityId !== expectedRow.entityId ||
+      actualRow.entityType !== expectedRow.entityType
+    ) {
+      stale += 1;
+    }
+  }
+
+  for (const actualRow of actual) {
+    if (!expectedById.has(actualRow.id)) stale += 1;
+  }
+
+  return { missing, stale };
+}
+
+async function inspectSourceDependencies(
+  db: RyuDatabase,
+  entityType: SearchIndexDependencyEntityType,
+  sources: DependencySource[]
+): Promise<{ expected: number; missing: number; stale: number }> {
+  const expected = sources.flatMap((source) => expectedRowsForEntity(entityType, source.id, source.authorIds, source.updatedAt));
+  const actual = await findDependenciesForEntities(db, entityType, sources.map((source) => source.id));
+  const diff = diffEntityDependencies(expected, actual);
+  return { expected: expected.length, missing: diff.missing, stale: diff.stale };
+}
+
+async function dependencyEntityExists(db: RyuDatabase, row: SearchIndexDependencyDoc): Promise<boolean> {
+  if (row.entityType === 'work') {
+    const work = await db.works.findOne(row.entityId).exec();
+    return Boolean(work && (work as WorkDoc).authorIds.includes(row.authorId));
+  }
+
+  const edition = await db.editions.findOne(row.entityId).exec();
+  return Boolean(edition && (edition as EditionDoc).authorIds.includes(row.authorId));
+}
+
+async function inspectOrphanDependencies(db: RyuDatabase): Promise<{ actual: number; orphan: number }> {
+  let actual = 0;
+  let orphan = 0;
+
+  for await (const batch of iterateCollection<SearchIndexDependencyDoc>(db.searchindexdependencies as never)) {
+    actual += batch.length;
+    for (const row of batch) {
+      const expectedId = searchIndexDependencyId(row.authorId, row.entityType, row.entityId);
+      if (row.id !== expectedId || !(await dependencyEntityExists(db, row))) orphan += 1;
+    }
+  }
+
+  return { actual, orphan };
 }
 
 export async function inspectSearchIndexDependencyHealth(db?: RyuDatabase): Promise<SearchIndexDependencyHealth> {
@@ -74,34 +150,33 @@ export async function inspectSearchIndexDependencyHealth(db?: RyuDatabase): Prom
 
   healthPromise = (async () => {
     const database = await getDatabase(db);
-    const expected = await collectExpectedDependencies(database);
-    const actual = await database.searchindexdependencies.find().exec() as SearchIndexDependencyDoc[];
-    const actualById = new Map(actual.map((row) => [row.id, row]));
-
+    let expectedDependencies = 0;
     let missingDependencies = 0;
     let staleDependencies = 0;
-    let orphanDependencies = 0;
 
-    for (const [id, expectedRow] of expected) {
-      const actualRow = actualById.get(id);
-      if (!actualRow) {
-        missingDependencies += 1;
-        continue;
-      }
-      if (isStaleDependency(actualRow, expectedRow)) staleDependencies += 1;
+    for await (const batch of iterateCollection<WorkDoc>(database.works as never)) {
+      const result = await inspectSourceDependencies(database, 'work', batch);
+      expectedDependencies += result.expected;
+      missingDependencies += result.missing;
+      staleDependencies += result.stale;
     }
 
-    for (const row of actual) {
-      if (!expected.has(row.id)) orphanDependencies += 1;
+    for await (const batch of iterateCollection<EditionDoc>(database.editions as never)) {
+      const result = await inspectSourceDependencies(database, 'edition', batch);
+      expectedDependencies += result.expected;
+      missingDependencies += result.missing;
+      staleDependencies += result.stale;
     }
+
+    const { actual, orphan } = await inspectOrphanDependencies(database);
 
     return {
-      expectedDependencies: expected.size,
-      actualDependencies: actual.length,
+      expectedDependencies,
+      actualDependencies: actual,
       missingDependencies,
       staleDependencies,
-      orphanDependencies,
-      healthy: missingDependencies === 0 && staleDependencies === 0 && orphanDependencies === 0,
+      orphanDependencies: orphan,
+      healthy: missingDependencies === 0 && staleDependencies === 0 && orphan === 0,
       checkedAt: new Date().toISOString()
     };
   })().catch((error) => {
@@ -114,18 +189,73 @@ export async function inspectSearchIndexDependencyHealth(db?: RyuDatabase): Prom
   return healthPromise;
 }
 
-async function removeOrphanDependencies(db: RyuDatabase, expectedIds: Set<string>): Promise<void> {
-  const actual = await db.searchindexdependencies.find().exec();
-  for (const row of actual) {
-    if (expectedIds.has(row.id)) continue;
-    await row.remove().catch((error: unknown) => {
-      console.error('Failed to remove orphan search dependency', {
-        dependencyId: row.id,
-        entityId: row.entityId,
-        entityType: row.entityType,
-        error
-      });
+async function bulkUpsertDependencies(db: RyuDatabase, rows: ExpectedDependency[]): Promise<void> {
+  if (rows.length === 0) return;
+  const collection = db.searchindexdependencies as unknown as {
+    bulkUpsert?: (docs: ExpectedDependency[]) => Promise<unknown>;
+    upsert: (doc: ExpectedDependency) => Promise<unknown>;
+  };
+
+  if (typeof collection.bulkUpsert === 'function') {
+    await collection.bulkUpsert(rows);
+    return;
+  }
+
+  await Promise.all(rows.map((row) => collection.upsert(row)));
+}
+
+async function bulkRemoveDependencies(db: RyuDatabase, ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const collection = db.searchindexdependencies as unknown as {
+    bulkRemove?: (ids: string[]) => Promise<unknown>;
+    findOne: (id: string) => { exec: () => Promise<{ remove: () => Promise<unknown> } | null> };
+  };
+
+  if (typeof collection.bulkRemove === 'function') {
+    await collection.bulkRemove(ids);
+    return;
+  }
+
+  await Promise.all(ids.map(async (id) => {
+    const row = await collection.findOne(id).exec();
+    if (row) await row.remove();
+  }));
+}
+
+async function backfillSourceBatch(
+  db: RyuDatabase,
+  entityType: SearchIndexDependencyEntityType,
+  sources: DependencySource[]
+): Promise<void> {
+  const expected = sources.flatMap((source) => expectedRowsForEntity(entityType, source.id, source.authorIds, source.updatedAt));
+  const actual = await findDependenciesForEntities(db, entityType, sources.map((source) => source.id));
+  const expectedIds = new Set(expected.map((row) => row.id));
+  const staleIds = actual.filter((row) => !expectedIds.has(row.id)).map((row) => row.id);
+
+  await bulkRemoveDependencies(db, staleIds).catch((error: unknown) => {
+    console.error('Failed to remove stale search dependencies', { entityType, error });
+  });
+
+  await bulkUpsertDependencies(db, expected).catch((error: unknown) => {
+    console.error('Failed to upsert search dependencies', { entityType, error });
+  });
+}
+
+async function removeOrphanDependencies(db: RyuDatabase): Promise<void> {
+  const orphanIds: string[] = [];
+
+  for await (const batch of iterateCollection<SearchIndexDependencyDoc>(db.searchindexdependencies as never)) {
+    for (const row of batch) {
+      const expectedId = searchIndexDependencyId(row.authorId, row.entityType, row.entityId);
+      if (row.id !== expectedId || !(await dependencyEntityExists(db, row))) orphanIds.push(row.id);
+    }
+  }
+
+  for (let offset = 0; offset < orphanIds.length; offset += BACKFILL_BATCH_SIZE) {
+    await bulkRemoveDependencies(db, orphanIds.slice(offset, offset + BACKFILL_BATCH_SIZE)).catch((error: unknown) => {
+      console.error('Failed to bulk remove orphan search dependencies', { error });
     });
+    await yieldToEventLoop();
   }
 }
 
@@ -134,34 +264,18 @@ export async function rebuildSearchIndexDependencies(db?: RyuDatabase): Promise<
 
   rebuildPromise = (async () => {
     const database = await getDatabase(db);
-    const expectedIds = new Set<string>();
-    const timestamp = new Date().toISOString();
 
-    const works = await database.works.find().exec();
-    for (let offset = 0; offset < works.length; offset += BACKFILL_BATCH_SIZE) {
-      const batch = (works as WorkDoc[]).slice(offset, offset + BACKFILL_BATCH_SIZE);
-      for (const work of batch) {
-        for (const row of expectedRowsForEntity('work', work.id, work.authorIds)) expectedIds.add(row.id);
-        await upsertSearchIndexDependenciesForEntity(database, 'work', work.id, work.authorIds, timestamp).catch((error: unknown) => {
-          console.error('Failed to backfill work search dependencies', { entityId: work.id, error });
-        });
-      }
+    for await (const batch of iterateCollection<WorkDoc>(database.works as never)) {
+      await backfillSourceBatch(database, 'work', batch);
       await yieldToEventLoop();
     }
 
-    const editions = await database.editions.find().exec();
-    for (let offset = 0; offset < editions.length; offset += BACKFILL_BATCH_SIZE) {
-      const batch = (editions as EditionDoc[]).slice(offset, offset + BACKFILL_BATCH_SIZE);
-      for (const edition of batch) {
-        for (const row of expectedRowsForEntity('edition', edition.id, edition.authorIds)) expectedIds.add(row.id);
-        await upsertSearchIndexDependenciesForEntity(database, 'edition', edition.id, edition.authorIds, timestamp).catch((error: unknown) => {
-          console.error('Failed to backfill edition search dependencies', { entityId: edition.id, error });
-        });
-      }
+    for await (const batch of iterateCollection<EditionDoc>(database.editions as never)) {
+      await backfillSourceBatch(database, 'edition', batch);
       await yieldToEventLoop();
     }
 
-    await removeOrphanDependencies(database, expectedIds);
+    await removeOrphanDependencies(database);
   })().catch((error) => {
     console.error('Search dependency index rebuild failed', { error });
     throw error;
