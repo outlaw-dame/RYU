@@ -36,18 +36,14 @@ export async function findSearchDependentsForAuthor(
   db: RyuDatabase,
   authorId: string
 ): Promise<CanonicalApEntity[]> {
+  const selector = { authorIds: { $in: [authorId] } };
   const [works, editions] = await Promise.all([
-    db.works.find().exec(),
-    db.editions.find().exec()
+    db.works.find({ selector }).exec(),
+    db.editions.find({ selector }).exec()
   ]);
 
-  const dependentWorks = (works as WorkDoc[])
-    .filter((work) => work.authorIds.includes(authorId))
-    .map(workDocToCanonicalEntity);
-
-  const dependentEditions = (editions as EditionDoc[])
-    .filter((edition) => edition.authorIds.includes(authorId))
-    .map(editionDocToCanonicalEntity);
+  const dependentWorks = (works as WorkDoc[]).map(workDocToCanonicalEntity);
+  const dependentEditions = (editions as EditionDoc[]).map(editionDocToCanonicalEntity);
 
   return [...dependentWorks, ...dependentEditions];
 }
