@@ -2,21 +2,9 @@ import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase } from '../db/client';
 import { getEmbeddingProvider } from './embedding-provider';
+import { hashText, vectorId } from './vector-utils';
 
 const vectorStore = new Map<string, { vector: number[]; doc: SearchDocument; model: string; dimensions: number }>();
-
-function hashText(text: string): string {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return String(hash);
-}
-
-function vectorId(entityId: string, model: string, dimensions: number): string {
-  return `${model}:${dimensions}:${entityId}`;
-}
 
 export function clearInMemoryVectorIndex(): void {
   vectorStore.clear();
