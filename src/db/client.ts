@@ -1,18 +1,18 @@
 import { addRxPlugin, createRxDatabase, type RxCollection, type RxDatabase } from 'rxdb';
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
-import {
-  collections,
-  type AuthorDoc,
-  type BookWyrmInstanceDoc,
-  type EditionDoc,
-  type EntityLinkDoc,
-  type EntityResolutionDoc,
-  type FetchQueueDoc,
-  type ReviewDoc,
-  type SearchVectorDoc,
-  type WorkDoc,
-  type WriteQueueDoc
+import { collections } from './runtime-schema';
+import type {
+  AuthorDoc,
+  BookWyrmInstanceDoc,
+  EditionDoc,
+  EntityLinkDoc,
+  EntityResolutionDoc,
+  FetchQueueDoc,
+  ReviewDoc,
+  SearchVectorDoc,
+  WorkDoc,
+  WriteQueueDoc
 } from './schema';
 
 export type RyuCollections = {
@@ -62,7 +62,7 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
         ignoreDuplicate: import.meta.env.DEV
       });
 
-      await db.addCollections(collections);
+      await db.addCollections(collections as any);
       return db;
     })().catch((err) => {
       dbPromise = null;
