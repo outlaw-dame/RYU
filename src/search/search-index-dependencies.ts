@@ -36,7 +36,7 @@ export async function findSearchDependentsForAuthor(
   db: RyuDatabase,
   authorId: string
 ): Promise<CanonicalApEntity[]> {
-  const selector = { authorIds: { $in: [authorId] } };
+  const selector = { authorIds: { $elemMatch: { $eq: authorId } } };
   const [works, editions] = await Promise.all([
     db.works.find({ selector }).exec(),
     db.editions.find({ selector }).exec()
