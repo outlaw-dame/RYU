@@ -22,6 +22,9 @@ export type SearchIndexHealth = {
 };
 
 type SearchVectorMetadata = Pick<SearchVectorDoc, 'id' | 'textHash' | 'dimensions'>;
+type WindowWithIdleCallback = Window & {
+  requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
+};
 
 function mapEdition(d: EditionDoc): SearchDocument {
   return {
@@ -224,12 +227,14 @@ export function scheduleSearchIndexHealthCheck(): void {
     });
   };
 
-  if ('requestIdleCallback' in window) {
-    window.setTimeout(() => {
-      window.requestIdleCallback(run, { timeout: HEALTH_CHECK_STARTUP_DELAY_MS });
-    }, HEALTH_CHECK_STARTUP_DELAY_MS);
-    return;
-  }
+  const browserWindow = window as WindowWithIdleCallback;
 
-  window.setTimeout(run, HEALTH_CHECK_STARTUP_DELAY_MS);
+  window.setTimeout(() => {
+    if (typeof browserWindow.requestIdleCallback === 'function') {
+      browserWindow.requestIdleCallback(run, { timeout: HEALTH_CHECK_STARTUP_DELAY_MS });
+      return;
+    }
+
+    run();
+  }, HEALTH_CHECK_STARTUP_DELAY_MS);
 }
