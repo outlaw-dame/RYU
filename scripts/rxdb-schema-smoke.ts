@@ -15,8 +15,7 @@ async function main(): Promise<void> {
   const db = await createRxDatabase({
     name: `ryu_schema_smoke_${Date.now()}`,
     storage: getRxStorageMemory(),
-    multiInstance: false,
-    ignoreDuplicate: true
+    multiInstance: false
   });
 
   try {
