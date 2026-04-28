@@ -6,7 +6,7 @@ import { importedSearchIndexQueue, type SearchIndexQueue } from './write-through
 
 export type SearchIndexDependencyLogger = Pick<Console, 'error'>;
 
-function dependencyId(authorId: string, entityType: SearchIndexDependencyEntityType, entityId: string): string {
+export function searchIndexDependencyId(authorId: string, entityType: SearchIndexDependencyEntityType, entityId: string): string {
   return `${entityType}:${hashText(authorId)}:${hashText(entityId)}`;
 }
 
@@ -45,7 +45,7 @@ export async function upsertSearchIndexDependenciesForEntity(
   updatedAt: string
 ): Promise<void> {
   const uniqueAuthorIds = [...new Set(authorIds)];
-  const nextIds = new Set(uniqueAuthorIds.map((authorId) => dependencyId(authorId, entityType, entityId)));
+  const nextIds = new Set(uniqueAuthorIds.map((authorId) => searchIndexDependencyId(authorId, entityType, entityId)));
 
   const existing = await db.searchindexdependencies
     .find({ selector: { entityId, entityType } })
@@ -56,7 +56,7 @@ export async function upsertSearchIndexDependenciesForEntity(
   }));
 
   await Promise.all(uniqueAuthorIds.map((authorId) => db.searchindexdependencies.upsert({
-    id: dependencyId(authorId, entityType, entityId),
+    id: searchIndexDependencyId(authorId, entityType, entityId),
     authorId,
     entityId,
     entityType,
