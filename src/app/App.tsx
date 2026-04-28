@@ -17,6 +17,7 @@ import { classifyQueryIntent } from "../search/intent";
 import { getAdaptiveAlpha } from "../search/weights";
 import { recordClick } from "../search/feedback";
 import { normalizeSearchQuery } from "../search/query-normalize";
+import { scheduleSearchIndexDependencyHealthCheck } from "../search/search-index-dependency-lifecycle";
 import type { GroupedSearchResults } from "../search/group";
 import type { RankedSearchResult } from "../search/types";
 import type { SearchExplanation } from "../search/explain";
@@ -181,6 +182,10 @@ export function App() {
   const { books: importedBooks, loading: importedBooksLoading, reload: reloadImportedBooks } = useImportedBooks(state === "ready");
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
+
+  useEffect(() => {
+    if (state === "ready") scheduleSearchIndexDependencyHealthCheck();
+  }, [state]);
 
   useEffect(() => {
     const query = normalizeSearchQuery(searchQuery);
