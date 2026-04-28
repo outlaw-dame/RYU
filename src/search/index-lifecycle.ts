@@ -1,7 +1,12 @@
-import { initializeDatabase } from '../db/client';
+import { initializeDatabase, type RyuDatabase } from '../db/client';
 import type { AuthorDoc, EditionDoc, SearchVectorDoc, WorkDoc } from '../db/schema';
 import { searchableText } from './embeddings';
 import { getEmbeddingProvider } from './embedding-provider';
+import {
+  authorDocToSearchDocument,
+  editionDocToSearchDocument,
+  workDocToSearchDocument
+} from './search-document-projection';
 import { clearInMemoryVectorIndex, indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
 import { hashText, vectorId } from './vector-utils';
@@ -26,67 +31,27 @@ type WindowWithIdleCallback = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
 };
 
-function mapEdition(d: EditionDoc): SearchDocument {
-  return {
-    id: d.id,
-    type: 'edition',
-    title: d.title,
-    description: d.description || '',
-    authorText: '',
-    isbnText: `${d.isbn10 || ''} ${d.isbn13 || ''}`.trim(),
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: d.updatedAt
-  };
-}
-
-function mapWork(w: WorkDoc): SearchDocument {
-  return {
-    id: w.id,
-    type: 'work',
-    title: w.title,
-    description: w.summary || '',
-    authorText: '',
-    isbnText: '',
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: w.updatedAt
-  };
-}
-
-function mapAuthor(a: AuthorDoc): SearchDocument {
-  return {
-    id: a.id,
-    type: 'author',
-    title: a.name,
-    description: a.summary || '',
-    authorText: a.name,
-    isbnText: '',
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: a.updatedAt
-  };
-}
-
-async function visitSearchableDocuments(visitor: (doc: SearchDocument) => Promise<void> | void): Promise<number> {
-  const db = await initializeDatabase();
+async function visitSearchableDocuments(
+  db: RyuDatabase,
+  visitor: (doc: SearchDocument) => Promise<void> | void
+): Promise<number> {
   let count = 0;
 
   const editions = await db.editions.find().exec();
   for (const edition of editions as EditionDoc[]) {
-    await visitor(mapEdition(edition));
+    await visitor(await editionDocToSearchDocument(db, edition));
     count += 1;
   }
 
   const works = await db.works.find().exec();
   for (const work of works as WorkDoc[]) {
-    await visitor(mapWork(work));
+    await visitor(await workDocToSearchDocument(db, work));
     count += 1;
   }
 
   const authors = await db.authors.find().exec();
   for (const author of authors as AuthorDoc[]) {
-    await visitor(mapAuthor(author));
+    await visitor(authorDocToSearchDocument(author));
     count += 1;
   }
 
@@ -124,6 +89,7 @@ export async function inspectSearchIndexHealth(): Promise<SearchIndexHealth> {
   if (healthCheckPromise) return healthCheckPromise;
 
   healthCheckPromise = (async () => {
+    const db = await initializeDatabase();
     const provider = getEmbeddingProvider();
     const vectors = await getCurrentProviderVectorMetadata();
 
@@ -137,7 +103,7 @@ export async function inspectSearchIndexHealth(): Promise<SearchIndexHealth> {
     let staleVectors = 0;
     let invalidVectors = 0;
 
-    searchableDocuments = await visitSearchableDocuments((doc) => {
+    searchableDocuments = await visitSearchableDocuments(db, (doc) => {
       const id = vectorId(doc.id, provider.id, provider.dimensions);
       const vector = vectorById.get(id);
 
@@ -187,10 +153,11 @@ export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
   if (reindexPromise) return reindexPromise;
 
   reindexPromise = (async () => {
+    const db = await initializeDatabase();
     clearInMemoryVectorIndex();
     const pending: SearchDocument[] = [];
 
-    await visitSearchableDocuments(async (doc) => {
+    await visitSearchableDocuments(db, async (doc) => {
       pending.push(doc);
 
       if (pending.length >= REINDEX_CONCURRENCY) {
