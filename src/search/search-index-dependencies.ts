@@ -5,6 +5,8 @@ import { importedSearchIndexQueue, type SearchIndexQueue } from './write-through
 
 export type SearchIndexDependencyLogger = Pick<Console, 'error'>;
 
+type AuthorIdMembershipSelector = { authorIds: string };
+
 function workDocToCanonicalEntity(work: WorkDoc): Extract<CanonicalApEntity, { kind: 'work' }> {
   return {
     kind: 'work',
@@ -36,10 +38,10 @@ export async function findSearchDependentsForAuthor(
   db: RyuDatabase,
   authorId: string
 ): Promise<CanonicalApEntity[]> {
-  const selector = { authorIds: authorId };
+  const selector = { authorIds: authorId } as AuthorIdMembershipSelector;
   const [works, editions] = await Promise.all([
-    db.works.find({ selector }).exec(),
-    db.editions.find({ selector }).exec()
+    db.works.find({ selector: selector as never }).exec(),
+    db.editions.find({ selector: selector as never }).exec()
   ]);
 
   const dependentWorks = (works as WorkDoc[]).map(workDocToCanonicalEntity);
