@@ -11,8 +11,15 @@ export type ActivityPubEntityStore = {
   upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
 };
 
+type SearchIndexJob = {
+  db: RyuDatabase;
+  entity: CanonicalApEntity;
+  timestamp: string;
+};
+
 const INDEX_QUEUE_CONCURRENCY = 2;
-const indexQueue: SearchDocument[] = [];
+const INDEX_QUEUE_MAX_SIZE = 500;
+const indexQueue: SearchIndexJob[] = [];
 let activeIndexJobs = 0;
 
 function nowIso(): string {
@@ -54,7 +61,8 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
 async function resolveAuthorNames(db: RyuDatabase, authorIds: string[]): Promise<string> {
   if (authorIds.length === 0) return '';
 
-  const names = await Promise.all(authorIds.map(async (id) => {
+  const uniqueIds = [...new Set(authorIds)];
+  const names = await Promise.all(uniqueIds.map(async (id) => {
     const author = await db.authors.findOne(id).exec().catch(() => null);
     return author?.name || id;
   }));
@@ -105,20 +113,30 @@ async function toSearchDocument(db: RyuDatabase, entity: CanonicalApEntity, time
   }
 }
 
+function jobKey(job: SearchIndexJob): string {
+  return `${job.entity.kind}:${job.entity.id}`;
+}
+
+async function runIndexJob(job: SearchIndexJob): Promise<void> {
+  const doc = await toSearchDocument(job.db, job.entity, job.timestamp);
+  if (!doc) return;
+
+  await indexDocument(doc).catch((error) => {
+    console.error('Failed to index imported search document', {
+      entityId: doc.id,
+      entityType: doc.type,
+      error
+    });
+  });
+}
+
 function drainIndexQueue(): void {
   while (activeIndexJobs < INDEX_QUEUE_CONCURRENCY && indexQueue.length > 0) {
-    const doc = indexQueue.shift();
-    if (!doc) return;
+    const job = indexQueue.shift();
+    if (!job) continue;
 
     activeIndexJobs += 1;
-    void indexDocument(doc)
-      .catch((error) => {
-        console.error('Failed to index imported search document', {
-          entityId: doc.id,
-          entityType: doc.type,
-          error
-        });
-      })
+    void runIndexJob(job)
       .finally(() => {
         activeIndexJobs -= 1;
         drainIndexQueue();
@@ -126,14 +144,27 @@ function drainIndexQueue(): void {
   }
 }
 
-function enqueueImportedSearchDocument(doc: SearchDocument): void {
-  indexQueue.push(doc);
-  drainIndexQueue();
-}
+function enqueueSearchIndexForEntity(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): void {
+  if (entity.kind === 'review') return;
 
-async function enqueueSearchIndexForEntity(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): Promise<void> {
-  const doc = await toSearchDocument(db, entity, timestamp);
-  if (doc) enqueueImportedSearchDocument(doc);
+  const job: SearchIndexJob = { db, entity, timestamp };
+  const key = jobKey(job);
+  const existingIndex = indexQueue.findIndex((candidate) => jobKey(candidate) === key);
+
+  if (existingIndex >= 0) {
+    indexQueue.splice(existingIndex, 1);
+  } else if (indexQueue.length >= INDEX_QUEUE_MAX_SIZE) {
+    const dropped = indexQueue.shift();
+    if (dropped) {
+      console.warn('Search index queue reached capacity; dropping oldest pending job', {
+        entityId: dropped.entity.id,
+        entityType: dropped.entity.kind
+      });
+    }
+  }
+
+  indexQueue.push(job);
+  drainIndexQueue();
 }
 
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
@@ -149,7 +180,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      await enqueueSearchIndexForEntity(db, entity, timestamp);
+      enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -165,7 +196,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      await enqueueSearchIndexForEntity(db, entity, timestamp);
+      enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -186,7 +217,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      await enqueueSearchIndexForEntity(db, entity, timestamp);
+      enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
