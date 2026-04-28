@@ -33,6 +33,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Schema migration guardrails
+        run: npm run schema:eval
+
       - name: Search evaluation guardrails
         run: npm run search:eval
 
