@@ -1,5 +1,4 @@
-import type { SearchDocument } from "../search/types";
-import { indexDocument } from "../search/vector-index";
+import { importedSearchIndexQueue } from "../search/write-through-indexing";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
 import { enrichKnowledgeEntity } from "./entity-enrichment";
@@ -10,17 +9,6 @@ export type ActivityPubEntityStore = {
   upsertEdition(entity: Extract<CanonicalApEntity, { kind: "edition" }>): Promise<void>;
   upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
 };
-
-type SearchIndexJob = {
-  db: RyuDatabase;
-  entity: CanonicalApEntity;
-  timestamp: string;
-};
-
-const INDEX_QUEUE_CONCURRENCY = 2;
-const INDEX_QUEUE_MAX_SIZE = 500;
-const indexQueue: SearchIndexJob[] = [];
-let activeIndexJobs = 0;
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -58,115 +46,6 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
   }
 }
 
-async function resolveAuthorNames(db: RyuDatabase, authorIds: string[]): Promise<string> {
-  if (authorIds.length === 0) return '';
-
-  const uniqueIds = [...new Set(authorIds)];
-  const names = await Promise.all(uniqueIds.map(async (id) => {
-    const author = await db.authors.findOne(id).exec().catch(() => null);
-    return author?.name || id;
-  }));
-
-  return names.join(' ');
-}
-
-async function toSearchDocument(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): Promise<SearchDocument | null> {
-  switch (entity.kind) {
-    case 'author':
-      return {
-        id: entity.id,
-        type: 'author',
-        title: entity.name,
-        description: entity.summary || '',
-        authorText: entity.name,
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    case 'work':
-      return {
-        id: entity.id,
-        type: 'work',
-        title: entity.title,
-        description: entity.summary || '',
-        authorText: await resolveAuthorNames(db, entity.authorIds),
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    case 'edition':
-      return {
-        id: entity.id,
-        type: 'edition',
-        title: entity.title,
-        description: entity.description || '',
-        authorText: await resolveAuthorNames(db, entity.authorIds),
-        isbnText: `${entity.isbn10 || ''} ${entity.isbn13 || ''}`.trim(),
-        enrichmentText: entity.subtitle || '',
-        source: 'local',
-        updatedAt: timestamp
-      };
-    default:
-      return null;
-  }
-}
-
-function jobKey(job: SearchIndexJob): string {
-  return `${job.entity.kind}:${job.entity.id}`;
-}
-
-async function runIndexJob(job: SearchIndexJob): Promise<void> {
-  const doc = await toSearchDocument(job.db, job.entity, job.timestamp);
-  if (!doc) return;
-
-  await indexDocument(doc).catch((error) => {
-    console.error('Failed to index imported search document', {
-      entityId: doc.id,
-      entityType: doc.type,
-      error
-    });
-  });
-}
-
-function drainIndexQueue(): void {
-  while (activeIndexJobs < INDEX_QUEUE_CONCURRENCY && indexQueue.length > 0) {
-    const job = indexQueue.shift();
-    if (!job) continue;
-
-    activeIndexJobs += 1;
-    void runIndexJob(job)
-      .finally(() => {
-        activeIndexJobs -= 1;
-        drainIndexQueue();
-      });
-  }
-}
-
-function enqueueSearchIndexForEntity(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): void {
-  if (entity.kind === 'review') return;
-
-  const job: SearchIndexJob = { db, entity, timestamp };
-  const key = jobKey(job);
-  const existingIndex = indexQueue.findIndex((candidate) => jobKey(candidate) === key);
-
-  if (existingIndex >= 0) {
-    indexQueue.splice(existingIndex, 1);
-  } else if (indexQueue.length >= INDEX_QUEUE_MAX_SIZE) {
-    const dropped = indexQueue.shift();
-    if (dropped) {
-      console.warn('Search index queue reached capacity; dropping oldest pending job', {
-        entityId: dropped.entity.id,
-        entityType: dropped.entity.kind
-      });
-    }
-  }
-
-  indexQueue.push(job);
-  drainIndexQueue();
-}
-
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
   return {
     async upsertAuthor(entity) {
@@ -180,7 +59,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      enqueueSearchIndexForEntity(db, entity, timestamp);
+      importedSearchIndexQueue.enqueue(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -196,7 +75,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      enqueueSearchIndexForEntity(db, entity, timestamp);
+      importedSearchIndexQueue.enqueue(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -217,7 +96,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      enqueueSearchIndexForEntity(db, entity, timestamp);
+      importedSearchIndexQueue.enqueue(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
