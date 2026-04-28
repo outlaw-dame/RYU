@@ -11,6 +11,7 @@ import type {
   EntityResolutionDoc,
   FetchQueueDoc,
   ReviewDoc,
+  SearchIndexDependencyDoc,
   SearchVectorDoc,
   WorkDoc,
   WriteQueueDoc
@@ -25,6 +26,7 @@ export type RyuCollections = {
   entitylinks: RxCollection<EntityLinkDoc>;
   bookwyrminstances: RxCollection<BookWyrmInstanceDoc>;
   searchvectors: RxCollection<SearchVectorDoc>;
+  searchindexdependencies: RxCollection<SearchIndexDependencyDoc>;
   fetchqueue: RxCollection<FetchQueueDoc>;
   writequeue: RxCollection<WriteQueueDoc>;
 };
