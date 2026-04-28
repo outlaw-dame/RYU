@@ -28,6 +28,10 @@ type ExpectedDependency = {
   entityType: SearchIndexDependencyEntityType;
 };
 
+async function getDatabase(db?: RyuDatabase): Promise<RyuDatabase> {
+  return db ?? initializeDatabase();
+}
+
 function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
@@ -50,16 +54,12 @@ async function collectExpectedDependencies(db: RyuDatabase): Promise<Map<string,
 
   const works = await db.works.find().exec();
   for (const work of works as WorkDoc[]) {
-    for (const row of expectedRowsForEntity('work', work.id, work.authorIds)) {
-      expected.set(row.id, row);
-    }
+    for (const row of expectedRowsForEntity('work', work.id, work.authorIds)) expected.set(row.id, row);
   }
 
   const editions = await db.editions.find().exec();
   for (const edition of editions as EditionDoc[]) {
-    for (const row of expectedRowsForEntity('edition', edition.id, edition.authorIds)) {
-      expected.set(row.id, row);
-    }
+    for (const row of expectedRowsForEntity('edition', edition.id, edition.authorIds)) expected.set(row.id, row);
   }
 
   return expected;
@@ -69,12 +69,13 @@ function isStaleDependency(actual: SearchIndexDependencyDoc, expected: ExpectedD
   return actual.authorId !== expected.authorId || actual.entityId !== expected.entityId || actual.entityType !== expected.entityType;
 }
 
-export async function inspectSearchIndexDependencyHealth(db: RyuDatabase = await initializeDatabase()): Promise<SearchIndexDependencyHealth> {
+export async function inspectSearchIndexDependencyHealth(db?: RyuDatabase): Promise<SearchIndexDependencyHealth> {
   if (healthPromise) return healthPromise;
 
   healthPromise = (async () => {
-    const expected = await collectExpectedDependencies(db);
-    const actual = await db.searchindexdependencies.find().exec() as SearchIndexDependencyDoc[];
+    const database = await getDatabase(db);
+    const expected = await collectExpectedDependencies(database);
+    const actual = await database.searchindexdependencies.find().exec() as SearchIndexDependencyDoc[];
     const actualById = new Map(actual.map((row) => [row.id, row]));
 
     let missingDependencies = 0;
@@ -128,38 +129,39 @@ async function removeOrphanDependencies(db: RyuDatabase, expectedIds: Set<string
   }
 }
 
-export async function rebuildSearchIndexDependencies(db: RyuDatabase = await initializeDatabase()): Promise<void> {
+export async function rebuildSearchIndexDependencies(db?: RyuDatabase): Promise<void> {
   if (rebuildPromise) return rebuildPromise;
 
   rebuildPromise = (async () => {
+    const database = await getDatabase(db);
     const expectedIds = new Set<string>();
     const timestamp = new Date().toISOString();
 
-    const works = await db.works.find().exec();
+    const works = await database.works.find().exec();
     for (let offset = 0; offset < works.length; offset += BACKFILL_BATCH_SIZE) {
       const batch = (works as WorkDoc[]).slice(offset, offset + BACKFILL_BATCH_SIZE);
       for (const work of batch) {
         for (const row of expectedRowsForEntity('work', work.id, work.authorIds)) expectedIds.add(row.id);
-        await upsertSearchIndexDependenciesForEntity(db, 'work', work.id, work.authorIds, timestamp).catch((error: unknown) => {
+        await upsertSearchIndexDependenciesForEntity(database, 'work', work.id, work.authorIds, timestamp).catch((error: unknown) => {
           console.error('Failed to backfill work search dependencies', { entityId: work.id, error });
         });
       }
       await yieldToEventLoop();
     }
 
-    const editions = await db.editions.find().exec();
+    const editions = await database.editions.find().exec();
     for (let offset = 0; offset < editions.length; offset += BACKFILL_BATCH_SIZE) {
       const batch = (editions as EditionDoc[]).slice(offset, offset + BACKFILL_BATCH_SIZE);
       for (const edition of batch) {
         for (const row of expectedRowsForEntity('edition', edition.id, edition.authorIds)) expectedIds.add(row.id);
-        await upsertSearchIndexDependenciesForEntity(db, 'edition', edition.id, edition.authorIds, timestamp).catch((error: unknown) => {
+        await upsertSearchIndexDependenciesForEntity(database, 'edition', edition.id, edition.authorIds, timestamp).catch((error: unknown) => {
           console.error('Failed to backfill edition search dependencies', { entityId: edition.id, error });
         });
       }
       await yieldToEventLoop();
     }
 
-    await removeOrphanDependencies(db, expectedIds);
+    await removeOrphanDependencies(database, expectedIds);
   })().catch((error) => {
     console.error('Search dependency index rebuild failed', { error });
     throw error;
@@ -170,11 +172,12 @@ export async function rebuildSearchIndexDependencies(db: RyuDatabase = await ini
   return rebuildPromise;
 }
 
-export async function healSearchIndexDependenciesIfNeeded(db: RyuDatabase = await initializeDatabase()): Promise<SearchIndexDependencyHealth> {
-  const health = await inspectSearchIndexDependencyHealth(db);
+export async function healSearchIndexDependenciesIfNeeded(db?: RyuDatabase): Promise<SearchIndexDependencyHealth> {
+  const database = await getDatabase(db);
+  const health = await inspectSearchIndexDependencyHealth(database);
   if (!health.healthy) {
     console.info('Search dependency index health check scheduled rebuild', health);
-    scheduleSearchIndexDependencyBackfill(db);
+    scheduleSearchIndexDependencyBackfill(database);
   }
   return health;
 }
@@ -187,9 +190,7 @@ export function scheduleSearchIndexDependencyBackfill(db?: RyuDatabase): void {
   };
 
   if (typeof window === 'undefined') {
-    void rebuildSearchIndexDependencies(db).catch((error) => {
-      console.error('Scheduled search dependency index rebuild failed', { error });
-    });
+    run();
     return;
   }
 
