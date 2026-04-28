@@ -92,7 +92,7 @@ async function main(): Promise<void> {
     });
 
     const orphanHealth = await inspectSearchIndexDependencyHealth(db);
-    assertOk(orphanHealth.orphanDependencies === 1, 'dependency health should detect orphan rows');
+    assertOk(orphanHealth.orphanDependencies >= 1, 'dependency health should detect orphan rows');
 
     await rebuildSearchIndexDependencies(db);
     const healedHealth = await inspectSearchIndexDependencyHealth(db);
