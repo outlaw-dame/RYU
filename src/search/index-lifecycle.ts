@@ -1,10 +1,36 @@
 import { initializeDatabase } from '../db/client';
-import type { AuthorDoc, EditionDoc, WorkDoc } from '../db/schema';
+import type { AuthorDoc, EditionDoc, SearchVectorDoc, WorkDoc } from '../db/schema';
+import { searchableText } from './embeddings';
+import { getEmbeddingProvider } from './embedding-provider';
 import { clearInMemoryVectorIndex, indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
 
 const REINDEX_CONCURRENCY = 4;
 let reindexPromise: Promise<void> | null = null;
+let healthCheckPromise: Promise<SearchIndexHealth> | null = null;
+
+export type SearchIndexHealth = {
+  searchableDocuments: number;
+  vectorsForCurrentProvider: number;
+  missingVectors: number;
+  staleVectors: number;
+  invalidVectors: number;
+  healthy: boolean;
+  checkedAt: string;
+};
+
+function hashText(text: string): string {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = (hash << 5) - hash + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return String(hash);
+}
+
+function vectorId(entityId: string, model: string, dimensions: number): string {
+  return `${model}:${dimensions}:${entityId}`;
+}
 
 function mapEdition(d: EditionDoc): SearchDocument {
   return {
@@ -48,6 +74,21 @@ function mapAuthor(a: AuthorDoc): SearchDocument {
   };
 }
 
+async function getSearchableDocuments(): Promise<SearchDocument[]> {
+  const db = await initializeDatabase();
+  const [editions, works, authors] = await Promise.all([
+    db.editions.find().exec(),
+    db.works.find().exec(),
+    db.authors.find().exec()
+  ]);
+
+  return [
+    ...editions.map((edition: EditionDoc) => mapEdition(edition)),
+    ...works.map((work: WorkDoc) => mapWork(work)),
+    ...authors.map((author: AuthorDoc) => mapAuthor(author))
+  ];
+}
+
 async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
   for (let offset = 0; offset < docs.length; offset += REINDEX_CONCURRENCY) {
     const batch = docs.slice(offset, offset + REINDEX_CONCURRENCY);
@@ -65,25 +106,78 @@ async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
   }
 }
 
+export async function inspectSearchIndexHealth(): Promise<SearchIndexHealth> {
+  if (healthCheckPromise) return healthCheckPromise;
+
+  healthCheckPromise = (async () => {
+    const db = await initializeDatabase();
+    const provider = getEmbeddingProvider();
+    const docs = await getSearchableDocuments();
+    const vectors = await db.searchvectors
+      .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
+      .exec();
+
+    const vectorById = new Map<string, SearchVectorDoc>();
+    for (const vector of vectors as SearchVectorDoc[]) {
+      vectorById.set(vector.id, vector);
+    }
+
+    let missingVectors = 0;
+    let staleVectors = 0;
+    let invalidVectors = 0;
+
+    for (const doc of docs) {
+      const id = vectorId(doc.id, provider.id, provider.dimensions);
+      const vector = vectorById.get(id);
+
+      if (!vector) {
+        missingVectors += 1;
+        continue;
+      }
+
+      const textHash = hashText(searchableText(doc));
+      if (vector.textHash !== textHash) staleVectors += 1;
+      if (vector.vector.length !== provider.dimensions) invalidVectors += 1;
+    }
+
+    const health: SearchIndexHealth = {
+      searchableDocuments: docs.length,
+      vectorsForCurrentProvider: vectors.length,
+      missingVectors,
+      staleVectors,
+      invalidVectors,
+      healthy: missingVectors === 0 && staleVectors === 0 && invalidVectors === 0,
+      checkedAt: new Date().toISOString()
+    };
+
+    return health;
+  })().catch((error) => {
+    console.error('Search index health check failed', { error });
+    throw error;
+  }).finally(() => {
+    healthCheckPromise = null;
+  });
+
+  return healthCheckPromise;
+}
+
+export async function healSearchIndexIfNeeded(): Promise<SearchIndexHealth> {
+  const health = await inspectSearchIndexHealth();
+
+  if (!health.healthy) {
+    console.info('Search index health check scheduled rebuild', health);
+    scheduleSearchVectorRebuild();
+  }
+
+  return health;
+}
+
 export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
   if (reindexPromise) return reindexPromise;
 
   reindexPromise = (async () => {
-    const db = await initializeDatabase();
     clearInMemoryVectorIndex();
-
-    const [editions, works, authors] = await Promise.all([
-      db.editions.find().exec(),
-      db.works.find().exec(),
-      db.authors.find().exec()
-    ]);
-
-    const docs: SearchDocument[] = [
-      ...editions.map((edition: EditionDoc) => mapEdition(edition)),
-      ...works.map((work: WorkDoc) => mapWork(work)),
-      ...authors.map((author: AuthorDoc) => mapAuthor(author))
-    ];
-
+    const docs = await getSearchableDocuments();
     await indexDocumentsWithLimit(docs);
   })().catch((error) => {
     console.error('Search vector rebuild failed', { error });
@@ -99,6 +193,14 @@ export function scheduleSearchVectorRebuild(): void {
   window.setTimeout(() => {
     rebuildSearchVectorsForCurrentProvider().catch((error) => {
       console.error('Scheduled search vector rebuild failed', { error });
+    });
+  }, 0);
+}
+
+export function scheduleSearchIndexHealthCheck(): void {
+  window.setTimeout(() => {
+    healSearchIndexIfNeeded().catch((error) => {
+      console.error('Scheduled search index health check failed', { error });
     });
   }, 0);
 }
