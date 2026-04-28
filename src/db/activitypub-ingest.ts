@@ -1,3 +1,4 @@
+import { enqueueAuthorSearchDependents } from "../search/search-index-dependencies";
 import { importedSearchIndexQueue } from "../search/write-through-indexing";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
@@ -60,6 +61,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
       });
       await writeEntityResolution(db, entity);
       importedSearchIndexQueue.enqueue(db, entity, timestamp);
+      enqueueAuthorSearchDependents(db, entity.id, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
