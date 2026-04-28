@@ -1,3 +1,5 @@
+import type { SearchDocument } from "../search/types";
+import { indexDocument } from "../search/vector-index";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
 import { enrichKnowledgeEntity } from "./entity-enrichment";
@@ -45,6 +47,16 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
   }
 }
 
+function indexImportedSearchDocument(doc: SearchDocument): void {
+  void indexDocument(doc).catch((error) => {
+    console.error('Failed to index imported search document', {
+      entityId: doc.id,
+      entityType: doc.type,
+      error
+    });
+  });
+}
+
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
   return {
     async upsertAuthor(entity) {
@@ -58,6 +70,17 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
+      indexImportedSearchDocument({
+        id: entity.id,
+        type: 'author',
+        title: entity.name,
+        description: entity.summary || '',
+        authorText: entity.name,
+        isbnText: '',
+        enrichmentText: '',
+        source: 'local',
+        updatedAt: timestamp
+      });
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -73,6 +96,17 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
+      indexImportedSearchDocument({
+        id: entity.id,
+        type: 'work',
+        title: entity.title,
+        description: entity.summary || '',
+        authorText: entity.authorIds.join(' '),
+        isbnText: '',
+        enrichmentText: '',
+        source: 'local',
+        updatedAt: timestamp
+      });
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -93,6 +127,17 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
+      indexImportedSearchDocument({
+        id: entity.id,
+        type: 'edition',
+        title: entity.title,
+        description: entity.description || '',
+        authorText: entity.authorIds.join(' '),
+        isbnText: `${entity.isbn10 || ''} ${entity.isbn13 || ''}`.trim(),
+        enrichmentText: entity.subtitle || '',
+        source: 'local',
+        updatedAt: timestamp
+      });
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
