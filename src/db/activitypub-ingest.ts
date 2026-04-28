@@ -11,6 +11,10 @@ export type ActivityPubEntityStore = {
   upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
 };
 
+const INDEX_QUEUE_CONCURRENCY = 2;
+const indexQueue: SearchDocument[] = [];
+let activeIndexJobs = 0;
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -47,14 +51,89 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
   }
 }
 
-function indexImportedSearchDocument(doc: SearchDocument): void {
-  void indexDocument(doc).catch((error) => {
-    console.error('Failed to index imported search document', {
-      entityId: doc.id,
-      entityType: doc.type,
-      error
-    });
-  });
+async function resolveAuthorNames(db: RyuDatabase, authorIds: string[]): Promise<string> {
+  if (authorIds.length === 0) return '';
+
+  const names = await Promise.all(authorIds.map(async (id) => {
+    const author = await db.authors.findOne(id).exec().catch(() => null);
+    return author?.name || id;
+  }));
+
+  return names.join(' ');
+}
+
+async function toSearchDocument(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): Promise<SearchDocument | null> {
+  switch (entity.kind) {
+    case 'author':
+      return {
+        id: entity.id,
+        type: 'author',
+        title: entity.name,
+        description: entity.summary || '',
+        authorText: entity.name,
+        isbnText: '',
+        enrichmentText: '',
+        source: 'local',
+        updatedAt: timestamp
+      };
+    case 'work':
+      return {
+        id: entity.id,
+        type: 'work',
+        title: entity.title,
+        description: entity.summary || '',
+        authorText: await resolveAuthorNames(db, entity.authorIds),
+        isbnText: '',
+        enrichmentText: '',
+        source: 'local',
+        updatedAt: timestamp
+      };
+    case 'edition':
+      return {
+        id: entity.id,
+        type: 'edition',
+        title: entity.title,
+        description: entity.description || '',
+        authorText: await resolveAuthorNames(db, entity.authorIds),
+        isbnText: `${entity.isbn10 || ''} ${entity.isbn13 || ''}`.trim(),
+        enrichmentText: entity.subtitle || '',
+        source: 'local',
+        updatedAt: timestamp
+      };
+    default:
+      return null;
+  }
+}
+
+function drainIndexQueue(): void {
+  while (activeIndexJobs < INDEX_QUEUE_CONCURRENCY && indexQueue.length > 0) {
+    const doc = indexQueue.shift();
+    if (!doc) return;
+
+    activeIndexJobs += 1;
+    void indexDocument(doc)
+      .catch((error) => {
+        console.error('Failed to index imported search document', {
+          entityId: doc.id,
+          entityType: doc.type,
+          error
+        });
+      })
+      .finally(() => {
+        activeIndexJobs -= 1;
+        drainIndexQueue();
+      });
+  }
+}
+
+function enqueueImportedSearchDocument(doc: SearchDocument): void {
+  indexQueue.push(doc);
+  drainIndexQueue();
+}
+
+async function enqueueSearchIndexForEntity(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): Promise<void> {
+  const doc = await toSearchDocument(db, entity, timestamp);
+  if (doc) enqueueImportedSearchDocument(doc);
 }
 
 export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntityStore {
@@ -70,17 +149,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      indexImportedSearchDocument({
-        id: entity.id,
-        type: 'author',
-        title: entity.name,
-        description: entity.summary || '',
-        authorText: entity.name,
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      });
+      await enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -96,17 +165,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      indexImportedSearchDocument({
-        id: entity.id,
-        type: 'work',
-        title: entity.title,
-        description: entity.summary || '',
-        authorText: entity.authorIds.join(' '),
-        isbnText: '',
-        enrichmentText: '',
-        source: 'local',
-        updatedAt: timestamp
-      });
+      await enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
@@ -127,17 +186,7 @@ export function createRxDBActivityPubStore(db: RyuDatabase): ActivityPubEntitySt
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      indexImportedSearchDocument({
-        id: entity.id,
-        type: 'edition',
-        title: entity.title,
-        description: entity.description || '',
-        authorText: entity.authorIds.join(' '),
-        isbnText: `${entity.isbn10 || ''} ${entity.isbn13 || ''}`.trim(),
-        enrichmentText: entity.subtitle || '',
-        source: 'local',
-        updatedAt: timestamp
-      });
+      await enqueueSearchIndexForEntity(db, entity, timestamp);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
