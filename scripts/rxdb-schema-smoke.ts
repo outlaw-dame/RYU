@@ -1,4 +1,5 @@
-import { createRxDatabase } from 'rxdb';
+import { addRxPlugin, createRxDatabase } from 'rxdb';
+import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageMemory } from 'rxdb/plugins/storage-memory';
 import type { RyuCollections, RyuDatabase } from '../src/db/client';
 import { collections, CURRENT_SCHEMA_VERSION } from '../src/db/runtime-schema';
@@ -20,6 +21,8 @@ const selectorCollections = {
 } as unknown as RuntimeCollectionConfig;
 
 async function main(): Promise<void> {
+  addRxPlugin(RxDBMigrationSchemaPlugin);
+
   const db = await createRxDatabase<RyuCollections>({
     name: `ryu_schema_smoke_${Date.now()}`,
     storage: getRxStorageMemory(),
@@ -32,58 +35,14 @@ async function main(): Promise<void> {
     assert(db.works.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'works collection should initialize with runtime schema version');
     assert(db.editions.schema.jsonSchema.version === CURRENT_SCHEMA_VERSION, 'editions collection should initialize with runtime schema version');
 
-    await db.authors.insert({
-      id: authorId,
-      name: 'Ursula K. Le Guin',
-      importedAt: now,
-      updatedAt: now
-    });
+    await db.authors.insert({ id: authorId, name: 'Ursula K. Le Guin', importedAt: now, updatedAt: now });
+    await db.authors.insert({ id: otherAuthorId, name: 'Octavia E. Butler', importedAt: now, updatedAt: now });
 
-    await db.authors.insert({
-      id: otherAuthorId,
-      name: 'Octavia E. Butler',
-      importedAt: now,
-      updatedAt: now
-    });
+    await db.works.insert({ id: 'https://books.example/work/dispossessed', title: 'The Dispossessed', summary: 'An ambiguous utopia.', authorIds: [authorId], importedAt: now, updatedAt: now });
+    await db.works.insert({ id: 'https://books.example/work/kindred', title: 'Kindred', summary: 'A time-travel novel.', authorIds: [otherAuthorId], importedAt: now, updatedAt: now });
 
-    await db.works.insert({
-      id: 'https://books.example/work/dispossessed',
-      title: 'The Dispossessed',
-      summary: 'An ambiguous utopia.',
-      authorIds: [authorId],
-      importedAt: now,
-      updatedAt: now
-    });
-
-    await db.works.insert({
-      id: 'https://books.example/work/kindred',
-      title: 'Kindred',
-      summary: 'A time-travel novel.',
-      authorIds: [otherAuthorId],
-      importedAt: now,
-      updatedAt: now
-    });
-
-    await db.editions.insert({
-      id: 'https://books.example/edition/dispossessed-paperback',
-      title: 'The Dispossessed',
-      description: 'Paperback edition.',
-      authorIds: [authorId],
-      isbn13: '9780061054884',
-      sourceUrl: 'https://books.example/edition/dispossessed-paperback',
-      importedAt: now,
-      updatedAt: now
-    });
-
-    await db.editions.insert({
-      id: 'https://books.example/edition/kindred-paperback',
-      title: 'Kindred',
-      description: 'Paperback edition.',
-      authorIds: [otherAuthorId],
-      sourceUrl: 'https://books.example/edition/kindred-paperback',
-      importedAt: now,
-      updatedAt: now
-    });
+    await db.editions.insert({ id: 'https://books.example/edition/dispossessed-paperback', title: 'The Dispossessed', description: 'Paperback edition.', authorIds: [authorId], isbn13: '9780061054884', sourceUrl: 'https://books.example/edition/dispossessed-paperback', importedAt: now, updatedAt: now });
+    await db.editions.insert({ id: 'https://books.example/edition/kindred-paperback', title: 'Kindred', description: 'Paperback edition.', authorIds: [otherAuthorId], sourceUrl: 'https://books.example/edition/kindred-paperback', importedAt: now, updatedAt: now });
 
     const matchingWorks = await db.works.find({ selector: { authorIds: { $in: [authorId] } } }).exec();
     const matchingEditions = await db.editions.find({ selector: { authorIds: { $in: [authorId] } } }).exec();
