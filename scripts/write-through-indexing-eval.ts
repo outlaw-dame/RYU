@@ -5,6 +5,7 @@ import {
   resolveAuthorNames,
   workDocToSearchDocument
 } from '../src/search/search-document-projection';
+import { findSearchDependentsForAuthor } from '../src/search/search-index-dependencies';
 import { createSearchIndexQueue } from '../src/search/write-through-indexing';
 import type { AuthorDoc, EditionDoc, WorkDoc } from '../src/db/schema';
 import type { CanonicalApEntity } from '../src/sync/activitypub-client';
@@ -18,7 +19,7 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createFakeDb(authorNames: Record<string, string>) {
+function createFakeDb(authorNames: Record<string, string>, records: { works?: WorkDoc[]; editions?: EditionDoc[] } = {}) {
   const lookups: string[] = [];
 
   return {
@@ -31,6 +32,12 @@ function createFakeDb(authorNames: Record<string, string>) {
           return name ? { id, name } : null;
         }
       })
+    },
+    works: {
+      find: () => ({ exec: async () => records.works ?? [] })
+    },
+    editions: {
+      find: () => ({ exec: async () => records.editions ?? [] })
     }
   } as any;
 }
@@ -42,6 +49,12 @@ const author: CanonicalApEntity = {
   id: 'https://books.example/author/ursula',
   name: 'Ursula K. Le Guin',
   summary: 'Author of speculative fiction.'
+};
+
+const otherAuthor: CanonicalApEntity = {
+  kind: 'author',
+  id: 'https://books.example/author/octavia',
+  name: 'Octavia E. Butler'
 };
 
 const work: CanonicalApEntity = {
@@ -89,6 +102,15 @@ const workDoc: WorkDoc = {
   updatedAt: timestamp
 };
 
+const unrelatedWorkDoc: WorkDoc = {
+  id: 'https://books.example/work/kindred',
+  title: 'Kindred',
+  summary: 'A time-travel novel.',
+  authorIds: [otherAuthor.id],
+  importedAt: timestamp,
+  updatedAt: timestamp
+};
+
 const editionDoc: EditionDoc = {
   id: edition.id,
   title: edition.title,
@@ -97,6 +119,16 @@ const editionDoc: EditionDoc = {
   authorIds: edition.authorIds,
   isbn13: edition.isbn13,
   sourceUrl: edition.sourceUrl,
+  importedAt: timestamp,
+  updatedAt: timestamp
+};
+
+const unrelatedEditionDoc: EditionDoc = {
+  id: 'https://books.example/edition/kindred-paperback',
+  title: 'Kindred',
+  description: 'Paperback edition.',
+  authorIds: [otherAuthor.id],
+  sourceUrl: 'https://books.example/edition/kindred-paperback',
   importedAt: timestamp,
   updatedAt: timestamp
 };
@@ -140,6 +172,22 @@ async function testMissingAuthorsFallbackSafely(): Promise<void> {
   const doc = await workDocToSearchDocument(db, workDoc);
 
   assert(doc.authorText === author.id, 'Missing author names should fall back to stable author IDs');
+}
+
+async function testAuthorDependencyLookupFindsOnlyAffectedRecords(): Promise<void> {
+  const db = createFakeDb(
+    { [author.id]: author.name, [otherAuthor.id]: otherAuthor.name },
+    { works: [workDoc, unrelatedWorkDoc], editions: [editionDoc, unrelatedEditionDoc] }
+  );
+
+  const dependents = await findSearchDependentsForAuthor(db, author.id);
+  const ids = dependents.map((entity) => entity.id).sort();
+
+  assert(ids.length === 2, 'Author dependency lookup should include affected work and edition only');
+  assert(ids.includes(work.id), 'Author dependency lookup should include affected work');
+  assert(ids.includes(edition.id), 'Author dependency lookup should include affected edition');
+  assert(ids.includes(unrelatedWorkDoc.id) === false, 'Author dependency lookup should skip unrelated works');
+  assert(ids.includes(unrelatedEditionDoc.id) === false, 'Author dependency lookup should skip unrelated editions');
 }
 
 async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
@@ -225,10 +273,11 @@ async function main(): Promise<void> {
   await testCanonicalEntitySearchDocumentUsesAuthorNames();
   await testLocalDocProjectionMatchesCanonicalProjection();
   await testMissingAuthorsFallbackSafely();
+  await testAuthorDependencyLookupFindsOnlyAffectedRecords();
   await testQueueLimitsConcurrencyAndSkipsReviews();
   await testQueueDedupesPendingJobs();
   await testQueueAppliesCapacityLimit();
-  console.log('Write-through indexing and projection guardrails passed.');
+  console.log('Write-through indexing, projection, and dependency guardrails passed.');
 }
 
 await main();
