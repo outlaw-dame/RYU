@@ -4,8 +4,10 @@ import { searchableText } from './embeddings';
 import { getEmbeddingProvider } from './embedding-provider';
 import { clearInMemoryVectorIndex, indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
+import { hashText, vectorId } from './vector-utils';
 
 const REINDEX_CONCURRENCY = 4;
+const HEALTH_CHECK_STARTUP_DELAY_MS = 5_000;
 let reindexPromise: Promise<void> | null = null;
 let healthCheckPromise: Promise<SearchIndexHealth> | null = null;
 
@@ -19,18 +21,7 @@ export type SearchIndexHealth = {
   checkedAt: string;
 };
 
-function hashText(text: string): string {
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = (hash << 5) - hash + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return String(hash);
-}
-
-function vectorId(entityId: string, model: string, dimensions: number): string {
-  return `${model}:${dimensions}:${entityId}`;
-}
+type SearchVectorMetadata = Pick<SearchVectorDoc, 'id' | 'textHash' | 'dimensions'>;
 
 function mapEdition(d: EditionDoc): SearchDocument {
   return {
@@ -74,19 +65,29 @@ function mapAuthor(a: AuthorDoc): SearchDocument {
   };
 }
 
-async function getSearchableDocuments(): Promise<SearchDocument[]> {
+async function visitSearchableDocuments(visitor: (doc: SearchDocument) => Promise<void> | void): Promise<number> {
   const db = await initializeDatabase();
-  const [editions, works, authors] = await Promise.all([
-    db.editions.find().exec(),
-    db.works.find().exec(),
-    db.authors.find().exec()
-  ]);
+  let count = 0;
 
-  return [
-    ...editions.map((edition: EditionDoc) => mapEdition(edition)),
-    ...works.map((work: WorkDoc) => mapWork(work)),
-    ...authors.map((author: AuthorDoc) => mapAuthor(author))
-  ];
+  const editions = await db.editions.find().exec();
+  for (const edition of editions as EditionDoc[]) {
+    await visitor(mapEdition(edition));
+    count += 1;
+  }
+
+  const works = await db.works.find().exec();
+  for (const work of works as WorkDoc[]) {
+    await visitor(mapWork(work));
+    count += 1;
+  }
+
+  const authors = await db.authors.find().exec();
+  for (const author of authors as AuthorDoc[]) {
+    await visitor(mapAuthor(author));
+    count += 1;
+  }
+
+  return count;
 }
 
 async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
@@ -106,42 +107,49 @@ async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
   }
 }
 
+async function getCurrentProviderVectorMetadata(): Promise<SearchVectorMetadata[]> {
+  const db = await initializeDatabase();
+  const provider = getEmbeddingProvider();
+  const vectors = await db.searchvectors
+    .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
+    .exec();
+
+  return (vectors as SearchVectorDoc[]).map(({ id, textHash, dimensions }) => ({ id, textHash, dimensions }));
+}
+
 export async function inspectSearchIndexHealth(): Promise<SearchIndexHealth> {
   if (healthCheckPromise) return healthCheckPromise;
 
   healthCheckPromise = (async () => {
-    const db = await initializeDatabase();
     const provider = getEmbeddingProvider();
-    const docs = await getSearchableDocuments();
-    const vectors = await db.searchvectors
-      .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
-      .exec();
+    const vectors = await getCurrentProviderVectorMetadata();
 
-    const vectorById = new Map<string, SearchVectorDoc>();
-    for (const vector of vectors as SearchVectorDoc[]) {
+    const vectorById = new Map<string, SearchVectorMetadata>();
+    for (const vector of vectors) {
       vectorById.set(vector.id, vector);
     }
 
+    let searchableDocuments = 0;
     let missingVectors = 0;
     let staleVectors = 0;
     let invalidVectors = 0;
 
-    for (const doc of docs) {
+    searchableDocuments = await visitSearchableDocuments((doc) => {
       const id = vectorId(doc.id, provider.id, provider.dimensions);
       const vector = vectorById.get(id);
 
       if (!vector) {
         missingVectors += 1;
-        continue;
+        return;
       }
 
       const textHash = hashText(searchableText(doc));
       if (vector.textHash !== textHash) staleVectors += 1;
-      if (vector.vector.length !== provider.dimensions) invalidVectors += 1;
-    }
+      if (vector.dimensions !== provider.dimensions) invalidVectors += 1;
+    });
 
     const health: SearchIndexHealth = {
-      searchableDocuments: docs.length,
+      searchableDocuments,
       vectorsForCurrentProvider: vectors.length,
       missingVectors,
       staleVectors,
@@ -177,8 +185,20 @@ export async function rebuildSearchVectorsForCurrentProvider(): Promise<void> {
 
   reindexPromise = (async () => {
     clearInMemoryVectorIndex();
-    const docs = await getSearchableDocuments();
-    await indexDocumentsWithLimit(docs);
+    const pending: SearchDocument[] = [];
+
+    await visitSearchableDocuments(async (doc) => {
+      pending.push(doc);
+
+      if (pending.length >= REINDEX_CONCURRENCY) {
+        const batch = pending.splice(0, pending.length);
+        await indexDocumentsWithLimit(batch);
+      }
+    });
+
+    if (pending.length > 0) {
+      await indexDocumentsWithLimit(pending);
+    }
   })().catch((error) => {
     console.error('Search vector rebuild failed', { error });
     throw error;
@@ -198,9 +218,18 @@ export function scheduleSearchVectorRebuild(): void {
 }
 
 export function scheduleSearchIndexHealthCheck(): void {
-  window.setTimeout(() => {
+  const run = () => {
     healSearchIndexIfNeeded().catch((error) => {
       console.error('Scheduled search index health check failed', { error });
     });
-  }, 0);
+  };
+
+  if ('requestIdleCallback' in window) {
+    window.setTimeout(() => {
+      window.requestIdleCallback(run, { timeout: HEALTH_CHECK_STARTUP_DELAY_MS });
+    }, HEALTH_CHECK_STARTUP_DELAY_MS);
+    return;
+  }
+
+  window.setTimeout(run, HEALTH_CHECK_STARTUP_DELAY_MS);
 }
