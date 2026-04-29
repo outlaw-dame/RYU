@@ -29,17 +29,16 @@ export type SearchIndexHealth = {
   checkedAt: string;
 };
 
+export type SearchIndexRepairOptions = {
+  indexer?: (doc: SearchDocument, db: RyuDatabase) => Promise<void> | void;
+};
+
 type SearchVectorMetadata = Pick<SearchVectorDoc, 'id' | 'entityId' | 'entityType' | 'model' | 'textHash' | 'dimensions'>;
 type WindowWithIdleCallback = Window & {
   requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
 };
 
 type SearchableEntityType = SearchDocument['type'];
-
-type EntityRef = {
-  id: string;
-  type: SearchableEntityType;
-};
 
 async function getDatabase(db?: RyuDatabase): Promise<RyuDatabase> {
   return db ?? initializeDatabase();
@@ -65,46 +64,35 @@ async function* iterateCollection<T>(collection: { find: (query: unknown) => { e
 
 async function documentsForBatch(db: RyuDatabase, type: SearchableEntityType, batch: Array<AuthorDoc | WorkDoc | EditionDoc>): Promise<SearchDocument[]> {
   const docs: SearchDocument[] = [];
-
   if (type === 'author') {
     for (const author of batch as AuthorDoc[]) docs.push(authorDocToSearchDocument(author));
     return docs;
   }
-
   if (type === 'work') {
     for (const work of batch as WorkDoc[]) docs.push(await workDocToSearchDocument(db, work));
     return docs;
   }
-
   for (const edition of batch as EditionDoc[]) docs.push(await editionDocToSearchDocument(db, edition));
   return docs;
 }
 
-async function visitSearchableDocuments(
-  db: RyuDatabase,
-  visitor: (doc: SearchDocument) => Promise<void> | void
-): Promise<number> {
+async function visitSearchableDocuments(db: RyuDatabase, visitor: (doc: SearchDocument) => Promise<void> | void): Promise<number> {
   let count = 0;
 
   for await (const batch of iterateCollection<EditionDoc>(db.editions as never)) {
-    const docs = await documentsForBatch(db, 'edition', batch);
-    for (const doc of docs) {
+    for (const doc of await documentsForBatch(db, 'edition', batch)) {
       await visitor(doc);
       count += 1;
     }
   }
-
   for await (const batch of iterateCollection<WorkDoc>(db.works as never)) {
-    const docs = await documentsForBatch(db, 'work', batch);
-    for (const doc of docs) {
+    for (const doc of await documentsForBatch(db, 'work', batch)) {
       await visitor(doc);
       count += 1;
     }
   }
-
   for await (const batch of iterateCollection<AuthorDoc>(db.authors as never)) {
-    const docs = await documentsForBatch(db, 'author', batch);
-    for (const doc of docs) {
+    for (const doc of await documentsForBatch(db, 'author', batch)) {
       await visitor(doc);
       count += 1;
     }
@@ -115,19 +103,15 @@ async function visitSearchableDocuments(
 
 async function collectSearchableEntityRefs(db: RyuDatabase): Promise<Set<string>> {
   const refs = new Set<string>();
-
   for await (const batch of iterateCollection<EditionDoc>(db.editions as never)) {
     for (const edition of batch) refs.add(`edition:${edition.id}`);
   }
-
   for await (const batch of iterateCollection<WorkDoc>(db.works as never)) {
     for (const work of batch) refs.add(`work:${work.id}`);
   }
-
   for await (const batch of iterateCollection<AuthorDoc>(db.authors as never)) {
     for (const author of batch) refs.add(`author:${author.id}`);
   }
-
   return refs;
 }
 
@@ -137,7 +121,6 @@ function vectorEntityKey(vector: Pick<SearchVectorDoc, 'entityType' | 'entityId'
 
 async function getSearchVectors(db: RyuDatabase): Promise<SearchVectorMetadata[]> {
   const vectors: SearchVectorMetadata[] = [];
-
   for await (const batch of iterateCollection<SearchVectorDoc>(db.searchvectors as never)) {
     for (const vector of batch) {
       vectors.push({
@@ -150,18 +133,20 @@ async function getSearchVectors(db: RyuDatabase): Promise<SearchVectorMetadata[]
       });
     }
   }
-
   return vectors;
 }
 
-async function indexDocumentsWithLimit(docs: SearchDocument[]): Promise<void> {
+async function defaultRepairIndexer(doc: SearchDocument): Promise<void> {
+  await indexDocument(doc);
+}
+
+async function indexDocumentsWithLimit(db: RyuDatabase, docs: SearchDocument[], indexer: NonNullable<SearchIndexRepairOptions['indexer']>): Promise<void> {
   for (let offset = 0; offset < docs.length; offset += REINDEX_CONCURRENCY) {
     const batch = docs.slice(offset, offset + REINDEX_CONCURRENCY);
-    const results = await Promise.allSettled(batch.map((doc) => indexDocument(doc)));
-
+    const results = await Promise.allSettled(batch.map((doc) => indexer(doc, db)));
     results.forEach((result, index) => {
       if (result.status === 'rejected') {
-        console.error('Failed to rebuild search vector', {
+        console.error('Failed to repair search vector', {
           entityId: batch[index].id,
           entityType: batch[index].type,
           error: result.reason
@@ -194,18 +179,15 @@ export async function inspectSearchIndexHealth(db?: RyuDatabase): Promise<Search
     let searchableDocuments = 0;
     let missingVectors = 0;
     let staleVectors = 0;
-    let invalidVectors = 0;
+    const invalidVectors = vectors.filter((vector) => vector.model === provider.id && vector.dimensions !== provider.dimensions).length;
 
     searchableDocuments = await visitSearchableDocuments(database, (doc) => {
       const vector = currentVectorById.get(currentVectorId(doc));
-
       if (!vector) {
         missingVectors += 1;
         return;
       }
-
       if (vector.textHash !== currentTextHash(doc)) staleVectors += 1;
-      if (vector.dimensions !== provider.dimensions) invalidVectors += 1;
     });
 
     let orphanVectors = 0;
@@ -213,10 +195,10 @@ export async function inspectSearchIndexHealth(db?: RyuDatabase): Promise<Search
       if (!entityRefs.has(vectorEntityKey(vector))) orphanVectors += 1;
     }
 
-    const health: SearchIndexHealth = {
+    return {
       searchableDocuments,
       vectorsForCurrentProvider: currentVectors.length,
-      vectorsForOtherProviders: vectors.length - currentVectors.length,
+      vectorsForOtherProviders: vectors.length - currentVectors.length - invalidVectors,
       missingVectors,
       staleVectors,
       invalidVectors,
@@ -224,8 +206,6 @@ export async function inspectSearchIndexHealth(db?: RyuDatabase): Promise<Search
       healthy: missingVectors === 0 && staleVectors === 0 && invalidVectors === 0 && orphanVectors === 0,
       checkedAt: new Date().toISOString()
     };
-
-    return health;
   })().catch((error) => {
     console.error('Search index health check failed', { error });
     throw error;
@@ -242,12 +222,10 @@ async function removeVectors(db: RyuDatabase, ids: string[]): Promise<void> {
     bulkRemove?: (ids: string[]) => Promise<unknown>;
     findOne: (id: string) => { exec: () => Promise<{ remove: () => Promise<unknown> } | null> };
   };
-
   if (typeof collection.bulkRemove === 'function') {
     await collection.bulkRemove(ids);
     return;
   }
-
   await Promise.all(ids.map(async (id) => {
     const row = await collection.findOne(id).exec();
     if (row) await row.remove();
@@ -272,35 +250,31 @@ async function removeOrphanVectors(db: RyuDatabase): Promise<void> {
   }
 }
 
-export async function repairSearchIndexHealth(db?: RyuDatabase): Promise<void> {
+export async function repairSearchIndexHealth(db?: RyuDatabase, options: SearchIndexRepairOptions = {}): Promise<void> {
   if (reindexPromise) return reindexPromise;
 
   reindexPromise = (async () => {
     const database = await getDatabase(db);
     const provider = getEmbeddingProvider();
+    const indexer = options.indexer ?? defaultRepairIndexer;
     const vectors = await getSearchVectors(database);
-    const currentVectorById = new Map(
-      vectors
-        .filter((vector) => vector.model === provider.id && vector.dimensions === provider.dimensions)
-        .map((vector) => [vector.id, vector])
-    );
+    const currentVectorById = new Map(vectors.filter((vector) => vector.model === provider.id && vector.dimensions === provider.dimensions).map((vector) => [vector.id, vector]));
     const pending: SearchDocument[] = [];
 
     clearInMemoryVectorIndex();
 
     await visitSearchableDocuments(database, async (doc) => {
       const vector = currentVectorById.get(currentVectorId(doc));
-      const needsRepair = !vector || vector.textHash !== currentTextHash(doc) || vector.dimensions !== provider.dimensions;
+      const needsRepair = !vector || vector.textHash !== currentTextHash(doc);
       if (!needsRepair) return;
-
       pending.push(doc);
       if (pending.length >= REINDEX_CONCURRENCY) {
         const batch = pending.splice(0, pending.length);
-        await indexDocumentsWithLimit(batch);
+        await indexDocumentsWithLimit(database, batch, indexer);
       }
     });
 
-    if (pending.length > 0) await indexDocumentsWithLimit(pending);
+    if (pending.length > 0) await indexDocumentsWithLimit(database, pending, indexer);
     await removeOrphanVectors(database);
   })().catch((error) => {
     console.error('Search index repair failed', { error });
@@ -315,12 +289,10 @@ export async function repairSearchIndexHealth(db?: RyuDatabase): Promise<void> {
 export async function healSearchIndexIfNeeded(db?: RyuDatabase): Promise<SearchIndexHealth> {
   const database = await getDatabase(db);
   const health = await inspectSearchIndexHealth(database);
-
   if (!health.healthy) {
     console.info('Search index health check scheduled repair', health);
     scheduleSearchIndexRepair(database);
   }
-
   return health;
 }
 
@@ -334,12 +306,10 @@ export function scheduleSearchIndexRepair(db?: RyuDatabase): void {
       console.error('Scheduled search index repair failed', { error });
     });
   };
-
   if (typeof window === 'undefined') {
     run();
     return;
   }
-
   window.setTimeout(run, 0);
 }
 
@@ -353,20 +323,16 @@ export function scheduleSearchIndexHealthCheck(): void {
       console.error('Scheduled search index repair failed', { error });
     });
   };
-
   if (typeof window === 'undefined') {
     run();
     return;
   }
-
   const browserWindow = window as WindowWithIdleCallback;
-
   window.setTimeout(() => {
     if (typeof browserWindow.requestIdleCallback === 'function') {
       browserWindow.requestIdleCallback(run, { timeout: HEALTH_CHECK_STARTUP_DELAY_MS });
       return;
     }
-
     run();
   }, HEALTH_CHECK_STARTUP_DELAY_MS);
 }
