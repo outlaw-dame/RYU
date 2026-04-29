@@ -895,7 +895,6 @@ export function App() {
     setActiveTab("profile");
     setPickerOpen(true);
   }, []);
-
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
