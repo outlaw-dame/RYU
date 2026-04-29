@@ -1,10 +1,16 @@
 import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
-import { initializeDatabase } from '../db/client';
+import { initializeDatabase, type RyuDatabase } from '../db/client';
 import { getEmbeddingProvider } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
 
-const vectorStore = new Map<string, { vector: number[]; doc: SearchDocument; model: string; dimensions: number }>();
+type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; dimensions: number; dbName: string };
+
+const vectorStore = new Map<string, VectorStoreEntry>();
+
+function inMemoryVectorKey(dbName: string, docId: string): string {
+  return `${dbName}:${docId}`;
+}
 
 export function clearInMemoryVectorIndex(): void {
   vectorStore.clear();
@@ -27,21 +33,21 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
   })));
 
   for (const [id, entry] of vectorStore.entries()) {
-    if (entry.model === provider.id && entry.dimensions === provider.dimensions) {
+    if (entry.dbName === db.name && entry.model === provider.id && entry.dimensions === provider.dimensions) {
       vectorStore.delete(id);
     }
   }
 }
 
-export async function indexDocument(doc: SearchDocument) {
-  const db = await initializeDatabase();
+export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {
+  const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
 
   const text = searchableText(doc);
   const textHash = hashText(text);
   const id = vectorId(doc.id, provider.id, provider.dimensions);
 
-  const existing = await db.searchvectors.findOne(id).exec();
+  const existing = await database.searchvectors.findOne(id).exec();
 
   let vector: number[];
 
@@ -60,7 +66,7 @@ export async function indexDocument(doc: SearchDocument) {
       return;
     }
 
-    await db.searchvectors.upsert({
+    await database.searchvectors.upsert({
       id,
       entityId: doc.id,
       entityType: doc.type,
@@ -82,13 +88,22 @@ export async function indexDocument(doc: SearchDocument) {
     });
   }
 
-  vectorStore.set(doc.id, { vector, doc, model: provider.id, dimensions: provider.dimensions });
+  vectorStore.set(inMemoryVectorKey(database.name, doc.id), {
+    vector,
+    doc,
+    model: provider.id,
+    dimensions: provider.dimensions,
+    dbName: database.name
+  });
 }
 
 export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
   const db = await initializeDatabase();
   const provider = getEmbeddingProvider();
-  vectorStore.clear();
+
+  for (const [id, entry] of vectorStore.entries()) {
+    if (entry.dbName === db.name) vectorStore.delete(id);
+  }
 
   const all = await db.searchvectors
     .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
@@ -98,21 +113,22 @@ export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument 
     const doc = getDoc(entry.entityId);
     if (!doc) continue;
 
-    vectorStore.set(entry.entityId, {
+    vectorStore.set(inMemoryVectorKey(db.name, entry.entityId), {
       vector: entry.vector,
       doc,
       model: entry.model,
-      dimensions: entry.dimensions
+      dimensions: entry.dimensions,
+      dbName: db.name
     });
   }
 }
 
-function selectTopKCandidates(queryVector: number[], k = 200) {
+function selectTopKCandidates(dbName: string, queryVector: number[], k = 200) {
   const provider = getEmbeddingProvider();
   const scored: Array<{ id: string; score: number }> = [];
 
-  for (const [id, { vector, model, dimensions }] of vectorStore.entries()) {
-    if (model !== provider.id || dimensions !== provider.dimensions || vector.length !== queryVector.length) continue;
+  for (const [id, { vector, model, dimensions, dbName: entryDbName }] of vectorStore.entries()) {
+    if (entryDbName !== dbName || model !== provider.id || dimensions !== provider.dimensions || vector.length !== queryVector.length) continue;
 
     const score = cosineSimilarity(queryVector, vector);
     if (score > 0) scored.push({ id, score });
@@ -124,13 +140,14 @@ function selectTopKCandidates(queryVector: number[], k = 200) {
     .map((x) => x.id);
 }
 
-export async function semanticSearchLocal(query: string, limit = 20): Promise<RankedSearchResult[]> {
+export async function semanticSearchLocal(query: string, limit = 20, db?: RyuDatabase): Promise<RankedSearchResult[]> {
+  const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
   const queryVector = await provider.embed(query);
 
   if (queryVector.length !== provider.dimensions) return [];
 
-  const candidates = selectTopKCandidates(queryVector, 200);
+  const candidates = selectTopKCandidates(database.name, queryVector, 200);
 
   const results: RankedSearchResult[] = [];
 
