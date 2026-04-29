@@ -232,6 +232,24 @@ async function removeVectors(db: RyuDatabase, ids: string[]): Promise<void> {
   }));
 }
 
+async function removeInvalidVectors(db: RyuDatabase): Promise<void> {
+  const provider = getEmbeddingProvider();
+  const invalidIds: string[] = [];
+
+  for await (const batch of iterateCollection<SearchVectorDoc>(db.searchvectors as never)) {
+    for (const vector of batch) {
+      if (vector.model === provider.id && vector.dimensions !== provider.dimensions) invalidIds.push(vector.id);
+    }
+  }
+
+  for (let offset = 0; offset < invalidIds.length; offset += SEARCH_INDEX_BATCH_SIZE) {
+    await removeVectors(db, invalidIds.slice(offset, offset + SEARCH_INDEX_BATCH_SIZE)).catch((error: unknown) => {
+      console.error('Failed to remove invalid search vectors', { error });
+    });
+    await yieldToEventLoop();
+  }
+}
+
 async function removeOrphanVectors(db: RyuDatabase): Promise<void> {
   const entityRefs = await collectSearchableEntityRefs(db);
   const orphanIds: string[] = [];
@@ -275,6 +293,7 @@ export async function repairSearchIndexHealth(db?: RyuDatabase, options: SearchI
     });
 
     if (pending.length > 0) await indexDocumentsWithLimit(database, pending, indexer);
+    await removeInvalidVectors(database);
     await removeOrphanVectors(database);
   })().catch((error) => {
     console.error('Search index repair failed', { error });
