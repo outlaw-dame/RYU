@@ -106,4 +106,17 @@ describe("Search autocomplete accessibility", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(input).not.toHaveAttribute("aria-activedescendant");
   });
+
+  it("separates existing-account sign in from create-account discovery", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("tab", { name: "Account" }));
+
+    expect(screen.getByText("Use the server you already know, or pick one and come back when your account is ready.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in with this server" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browse servers" })).toBeInTheDocument();
+  });
 });

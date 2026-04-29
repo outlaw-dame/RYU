@@ -7,7 +7,6 @@ import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { SkeletonCoverGrid } from "../components/common/Skeleton";
-import { SettingsScreen } from "../components/settings/SettingsScreen";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
 import { normalizeSearchQuery } from "../search/query-normalize";
@@ -632,6 +631,36 @@ export function App() {
     }
   }, []);
 
+  const applyDiscoveredInstance = useCallback((domain: string) => {
+    setInstanceInput(domain);
+    setAuthError(null);
+    setAuthInfo(null);
+    setPickerOpen(false);
+  }, []);
+
+  const selectedInstanceOrigin = useMemo(() => {
+    const trimmed = instanceInput.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      return normalizeInstanceOrigin(trimmed);
+    } catch {
+      return null;
+    }
+  }, [instanceInput]);
+
+  const openInstanceSite = useCallback((instanceOrigin: string | null) => {
+    if (!instanceOrigin) {
+      setAuthError("Select a valid server before opening it.");
+      return;
+    }
+
+    setAuthError(null);
+    window.open(instanceOrigin, "_blank", "noopener,noreferrer");
+  }, []);
+
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
@@ -867,7 +896,7 @@ export function App() {
               )}
               {activeTab === "profile" && (
                 <TabPanel id="profile" activeTab={activeTab}>
-                  <ScreenTitle title="Profile" />
+                  <ScreenTitle title="Account" />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
                     <div style={{
                       display: "grid",
@@ -877,61 +906,6 @@ export function App() {
                       background: "var(--color-bg-secondary)",
                       boxShadow: "var(--shadow-card)"
                     }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-3)" }}>
-                        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                          Signup picker: open-registration, Mastodon API compatible, Oliphant Tier 0 filtered, ranked by preference.
-                        </p>
-                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                          <button
-                            type="button"
-                            onClick={() => void refreshSignupInstances(true)}
-                            disabled={signupInstancesLoading}
-                            style={{
-                              border: 0,
-                              borderRadius: "var(--radius-sm)",
-                              minHeight: "calc(var(--touch-min) - 8px)",
-                              background: "var(--color-bg)",
-                              color: "var(--color-text)",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-footnote)",
-                              opacity: signupInstancesLoading ? 0.6 : 1
-                            }}
-                          >
-                            {signupInstancesLoading ? "Refreshing..." : "Refresh"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setPickerOpen(true)}
-                            style={{
-                              border: 0,
-                              borderRadius: "var(--radius-sm)",
-                              minHeight: "calc(var(--touch-min) - 8px)",
-                              background: "var(--color-accent)",
-                              color: "white",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-footnote)",
-                              fontWeight: 600
-                            }}
-                          >
-                            Browse
-                          </button>
-                        </div>
-                      </div>
-                      {signupInstancesError ? (
-                        <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-                          Instance discovery issue: {signupInstancesError}
-                        </p>
-                      ) : null}
-                      {signupInstances.length === 0 ? (
-                        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                          {signupInstancesLoading ? "Loading eligible instances..." : "No eligible instances found right now."}
-                        </p>
-                      ) : null}
-                      {signupInstancesRefreshedAt ? (
-                        <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                          Last refreshed: {new Date(signupInstancesRefreshedAt).toLocaleString()}
-                        </p>
-                      ) : null}
                       {connectedAccount !== null ? (
                         <>
                           <p style={{ margin: 0, fontWeight: 600, fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>
@@ -939,6 +913,9 @@ export function App() {
                           </p>
                           <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-footnote)" }}>
                             {connectedAccount.instanceOrigin}
+                          </p>
+                          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                            Disconnect to switch to another server or account.
                           </p>
                           <button
                             type="button"
@@ -959,53 +936,207 @@ export function App() {
                           </button>
                         </>
                       ) : (
-                        <>
-                          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                            Connect your Mastodon or BookWyrm account through OAuth Authorization Code + PKCE.
-                          </p>
-                          <input
-                            type="text"
-                            value={instanceInput}
-                            onChange={(event) => setInstanceInput(event.target.value)}
-                            placeholder="bookwyrm.social"
-                            aria-label="BookWyrm or Mastodon instance"
-                            autoComplete="on"
-                            spellCheck={false}
-                            list={INSTANCE_DATALIST_ID}
-                            style={{
-                              width: "100%",
-                              minHeight: "var(--touch-min)",
+                        <div style={{ display: "grid", gap: "var(--space-4)" }}>
+                          <div style={{
+                            display: "grid",
+                            gap: "var(--space-1)",
+                            padding: "var(--space-3)",
+                            borderRadius: "var(--radius-md)",
+                            background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-bg))",
+                            border: "1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)"
+                          }}>
+                            <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>Use the server you already know, or pick one and come back when your account is ready.</strong>
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              RYU keeps sign-in and server discovery separate so you can move through either path cleanly.
+                            </p>
+                          </div>
+                          <div style={{
+                            display: "grid",
+                            gap: "var(--space-4)",
+                            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))"
+                          }}>
+                            <section style={{
+                              display: "grid",
+                              gap: "var(--space-3)",
+                              padding: "var(--space-4)",
                               borderRadius: "var(--radius-md)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
                               background: "var(--color-bg)",
-                              color: "var(--color-text)",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-body)"
-                            }}
-                          />
-                          <datalist id={INSTANCE_DATALIST_ID}>
-                            {topAutocompleteInstances.map((instance) => (
-                              <option key={instance.domain} value={instance.domain} label={`${instance.softwareName ?? "Fediverse"}${instance.country ? ` • ${instance.country}` : ""}`} />
-                            ))}
-                          </datalist>
-                          <button
-                            type="button"
-                            onClick={() => void startMastodonLogin()}
-                            disabled={isAuthWorking || !instanceInput.trim()}
-                            style={{
-                              minHeight: "var(--touch-min)",
-                              border: 0,
+                              border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)"
+                            }}>
+                              <div style={{ display: "grid", gap: "var(--space-1)" }}>
+                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>Sign in</h2>
+                                <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                                  Enter your home server and continue through secure OAuth sign-in.
+                                </p>
+                              </div>
+                              <input
+                                type="text"
+                                value={instanceInput}
+                                onChange={(event) => setInstanceInput(event.target.value)}
+                                placeholder="bookwyrm.social"
+                                aria-label="BookWyrm or Mastodon instance"
+                                autoComplete="on"
+                                spellCheck={false}
+                                list={INSTANCE_DATALIST_ID}
+                                style={{
+                                  width: "100%",
+                                  minHeight: "var(--touch-min)",
+                                  borderRadius: "var(--radius-md)",
+                                  border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
+                                  background: "var(--color-bg-secondary)",
+                                  color: "var(--color-text)",
+                                  padding: "0 var(--space-3)",
+                                  fontSize: "var(--text-body)"
+                                }}
+                              />
+                              <datalist id={INSTANCE_DATALIST_ID}>
+                                {topAutocompleteInstances.map((instance) => (
+                                  <option key={instance.domain} value={instance.domain} label={`${instance.softwareName ?? "Fediverse"}${instance.country ? ` • ${instance.country}` : ""}`} />
+                                ))}
+                              </datalist>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void startMastodonLogin()}
+                                  disabled={isAuthWorking || !instanceInput.trim()}
+                                  style={{
+                                    minHeight: "var(--touch-min)",
+                                    border: 0,
+                                    borderRadius: "var(--radius-md)",
+                                    background: "var(--color-accent)",
+                                    color: "white",
+                                    fontWeight: 700,
+                                    padding: "0 var(--space-4)",
+                                    opacity: isAuthWorking || !instanceInput.trim() ? 0.6 : 1
+                                  }}
+                                >
+                                  {isAuthWorking ? "Working..." : "Sign in with this server"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPickerOpen(true)}
+                                  style={{
+                                    minHeight: "var(--touch-min)",
+                                    border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                                    borderRadius: "var(--radius-md)",
+                                    background: "transparent",
+                                    color: "var(--color-text)",
+                                    fontWeight: 600,
+                                    padding: "0 var(--space-4)"
+                                  }}
+                                >
+                                  Find server
+                                </button>
+                              </div>
+                            </section>
+                            <section style={{
+                              display: "grid",
+                              gap: "var(--space-3)",
+                              padding: "var(--space-4)",
                               borderRadius: "var(--radius-md)",
-                              background: "var(--color-accent)",
-                              color: "white",
-                              fontWeight: 700,
-                              padding: "0 var(--space-4)",
-                              opacity: isAuthWorking || !instanceInput.trim() ? 0.6 : 1
-                            }}
-                          >
-                            {isAuthWorking ? "Working..." : "Connect account"}
-                          </button>
-                        </>
+                              background: "var(--color-bg)",
+                              border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)"
+                            }}>
+                              <div style={{ display: "grid", gap: "var(--space-1)" }}>
+                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>Create account</h2>
+                                <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                                  Browse open-registration servers filtered for compatibility and safety, then open one to create your account.
+                                </p>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => void refreshSignupInstances(true)}
+                                  disabled={signupInstancesLoading}
+                                  style={{
+                                    border: 0,
+                                    borderRadius: "var(--radius-sm)",
+                                    minHeight: "calc(var(--touch-min) - 8px)",
+                                    background: "var(--color-bg-secondary)",
+                                    color: "var(--color-text)",
+                                    padding: "0 var(--space-3)",
+                                    fontSize: "var(--text-footnote)",
+                                    opacity: signupInstancesLoading ? 0.6 : 1
+                                  }}
+                                >
+                                  {signupInstancesLoading ? "Refreshing..." : "Refresh list"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setPickerOpen(true)}
+                                  style={{
+                                    border: 0,
+                                    borderRadius: "var(--radius-sm)",
+                                    minHeight: "calc(var(--touch-min) - 8px)",
+                                    background: "var(--color-accent)",
+                                    color: "white",
+                                    padding: "0 var(--space-3)",
+                                    fontSize: "var(--text-footnote)",
+                                    fontWeight: 600
+                                  }}
+                                >
+                                  Browse servers
+                                </button>
+                              </div>
+                              {instanceInput.trim() ? (
+                                <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                                  <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                                    Selected server: <strong style={{ color: "var(--color-text)" }}>{selectedInstanceOrigin ?? instanceInput.trim()}</strong>
+                                  </p>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openInstanceSite(selectedInstanceOrigin)}
+                                      style={{
+                                        minHeight: "calc(var(--touch-min) - 8px)",
+                                        border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                                        borderRadius: "var(--radius-sm)",
+                                        background: "transparent",
+                                        color: "var(--color-text)",
+                                        fontWeight: 600,
+                                        padding: "0 var(--space-3)"
+                                      }}
+                                    >
+                                      Open server
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void startMastodonLogin()}
+                                      disabled={isAuthWorking || !selectedInstanceOrigin}
+                                      style={{
+                                        minHeight: "calc(var(--touch-min) - 8px)",
+                                        border: 0,
+                                        borderRadius: "var(--radius-sm)",
+                                        background: "var(--color-accent)",
+                                        color: "white",
+                                        fontWeight: 600,
+                                        padding: "0 var(--space-3)",
+                                        opacity: isAuthWorking || !selectedInstanceOrigin ? 0.6 : 1
+                                      }}
+                                    >
+                                      {isAuthWorking ? "Working..." : "Continue with this server"}
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {signupInstancesError ? (
+                                <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                                  Instance discovery issue: {signupInstancesError}
+                                </p>
+                              ) : null}
+                              {signupInstances.length === 0 ? (
+                                <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                                  {signupInstancesLoading ? "Loading eligible instances..." : "No eligible instances found right now."}
+                                </p>
+                              ) : null}
+                              {signupInstancesRefreshedAt ? (
+                                <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                                  Last refreshed: {new Date(signupInstancesRefreshedAt).toLocaleString()}
+                                </p>
+                              ) : null}
+                            </section>
+                          </div>
+                        </div>
                       )}
                       {authInfo ? <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>{authInfo}</p> : null}
                       {authError ? <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>{authError}</p> : null}
@@ -1047,7 +1178,12 @@ export function App() {
                         }}
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-3)" }}>
-                          <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-title3)" }}>Choose instance</h2>
+                          <div style={{ display: "grid", gap: "var(--space-1)" }}>
+                            <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-title3)" }}>Find a server</h2>
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              Open a server to create an account, or use it immediately if you already have one there.
+                            </p>
+                          </div>
                           <button
                             type="button"
                             onClick={() => setPickerOpen(false)}
@@ -1119,32 +1255,61 @@ export function App() {
                         </div>
                         <div style={{ overflowY: "auto", display: "grid", gap: "var(--space-2)", paddingRight: "var(--space-1)" }}>
                           {signupInstances.map((instance) => (
-                            <button
+                            <article
                               key={instance.domain}
-                              type="button"
-                              onClick={() => {
-                                setInstanceInput(instance.domain);
-                                setPickerOpen(false);
-                              }}
                               style={{
-                                border: 0,
                                 borderRadius: "var(--radius-md)",
-                                minHeight: "calc(var(--touch-min) - 6px)",
                                 background: "var(--color-bg-secondary)",
                                 color: "var(--color-text)",
                                 padding: "var(--space-2) var(--space-3)",
                                 textAlign: "left",
                                 display: "grid",
-                                gap: "2px"
+                                gap: "var(--space-2)"
                               }}
                             >
-                              <span style={{ fontWeight: 700 }}>{instance.domain}</span>
-                              <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption1)" }}>
-                                {instance.softwareName ?? "Fediverse"}
-                                {instance.country ? ` · ${instance.country}` : ""}
-                                {typeof instance.userCount === "number" ? ` · ${instance.userCount.toLocaleString()} users` : ""}
-                              </span>
-                            </button>
+                              <div style={{ display: "grid", gap: "2px" }}>
+                                <span style={{ fontWeight: 700 }}>{instance.domain}</span>
+                                <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption1)" }}>
+                                  {instance.softwareName ?? "Fediverse"}
+                                  {instance.country ? ` · ${instance.country}` : ""}
+                                  {typeof instance.userCount === "number" ? ` · ${instance.userCount.toLocaleString()} users` : ""}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => applyDiscoveredInstance(instance.domain)}
+                                  style={{
+                                    border: 0,
+                                    borderRadius: "var(--radius-sm)",
+                                    minHeight: "calc(var(--touch-min) - 8px)",
+                                    background: "var(--color-accent)",
+                                    color: "white",
+                                    padding: "0 var(--space-3)",
+                                    fontSize: "var(--text-footnote)",
+                                    fontWeight: 600
+                                  }}
+                                >
+                                  Use this server
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openInstanceSite(instance.url)}
+                                  style={{
+                                    border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                                    borderRadius: "var(--radius-sm)",
+                                    minHeight: "calc(var(--touch-min) - 8px)",
+                                    background: "transparent",
+                                    color: "var(--color-text)",
+                                    padding: "0 var(--space-3)",
+                                    fontSize: "var(--text-footnote)",
+                                    fontWeight: 600
+                                  }}
+                                >
+                                  Open site
+                                </button>
+                              </div>
+                            </article>
                           ))}
                           {!signupInstancesLoading && signupInstances.length === 0 ? (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>No matches for current filters.</p>
@@ -1156,7 +1321,6 @@ export function App() {
                       </section>
                     </div>
                   ) : null}
-                  <SettingsScreen />
                 </TabPanel>
               )}
             </AnimatePresence>

@@ -14,7 +14,7 @@ const tabs: TabDefinition[] = [
   { id: "search", label: "Search", Icon: Search },
   { id: "shelves", label: "Shelves", Icon: LayoutGrid },
   { id: "activity", label: "Activity", Icon: Bell },
-  { id: "profile", label: "Profile", Icon: User }
+  { id: "profile", label: "Account", Icon: User }
 ];
 
 export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { activeTab: TabId; onChange: (tab: TabId) => void }) {

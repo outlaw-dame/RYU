@@ -56,19 +56,21 @@ test.beforeEach(async ({ page }) => {
 test("instance picker filters blocked domains and populates selected instance", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("tab", { name: "Profile" }).click();
-  await page.getByRole("button", { name: "Browse" }).click();
+  await page.getByRole("tab", { name: "Account" }).click();
+  await page.getByRole("button", { name: "Browse servers" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Instance picker" });
   await expect(dialog).toBeVisible();
 
-  await expect(dialog.getByRole("button", { name: /bookwyrm.social/i })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: /blocked.example/i })).toHaveCount(0);
+  const bookwyrmCard = dialog.locator("article").filter({ hasText: "bookwyrm.social" });
+  await expect(bookwyrmCard).toBeVisible();
+  await expect(dialog.getByText("blocked.example")).toHaveCount(0);
 
-  await dialog.getByRole("button", { name: /bookwyrm.social/i }).click();
+  await bookwyrmCard.getByRole("button", { name: "Use this server" }).click();
   await expect(dialog).toHaveCount(0);
 
   await expect(page.getByLabel("BookWyrm or Mastodon instance")).toHaveValue("bookwyrm.social");
+  await expect(page.getByRole("button", { name: "Continue with this server" })).toBeVisible();
 });
 
 test("oauth callback retries transient exchange failures and self-heals", async ({ page }) => {
@@ -120,7 +122,7 @@ test("oauth callback retries transient exchange failures and self-heals", async 
   });
 
   await page.goto("/?code=abc123&state=test-state-1");
-  await page.getByRole("tab", { name: "Profile" }).click();
+  await page.getByRole("tab", { name: "Account" }).click();
 
   await expect(page.getByText(/Account connected as reader@bookwyrm.social/i)).toBeVisible();
   await expect
