@@ -799,7 +799,11 @@ async function dispatch(
     if (url.pathname === "/api/auth/mastodon/account/statuses") {
       await handleMastodonProxy(req, res, sessKey, (client, session) => {
         if (!session.account?.id) {
-          throw new z.ZodError([]);
+          throw new MastodonProxyRequestError(
+            409,
+            "account_unavailable",
+            "Reconnect before loading account statuses."
+          );
         }
 
         return client.fetchAccountStatuses(session.account.id, parsePaginationQuery(url));
