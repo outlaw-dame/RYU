@@ -1,6 +1,6 @@
 import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
-import { initializeDatabase } from '../db/client';
+import { initializeDatabase, type RyuDatabase } from '../db/client';
 import { getEmbeddingProvider } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
 
@@ -33,15 +33,15 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
   }
 }
 
-export async function indexDocument(doc: SearchDocument) {
-  const db = await initializeDatabase();
+export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {
+  const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
 
   const text = searchableText(doc);
   const textHash = hashText(text);
   const id = vectorId(doc.id, provider.id, provider.dimensions);
 
-  const existing = await db.searchvectors.findOne(id).exec();
+  const existing = await database.searchvectors.findOne(id).exec();
 
   let vector: number[];
 
@@ -60,7 +60,7 @@ export async function indexDocument(doc: SearchDocument) {
       return;
     }
 
-    await db.searchvectors.upsert({
+    await database.searchvectors.upsert({
       id,
       entityId: doc.id,
       entityType: doc.type,
