@@ -64,7 +64,7 @@ export function createRxDBActivityPubStore(
       });
       await writeEntityResolution(db, entity);
       searchIndexQueue.enqueue(db, entity, timestamp);
-      enqueueAuthorSearchDependents(db, entity.id, timestamp, searchIndexQueue);
+      await enqueueAuthorSearchDependents(db, entity.id, timestamp, searchIndexQueue);
       const candidate = toKnowledgeCandidate(entity);
       if (candidate) void enrichKnowledgeEntity(candidate);
     },
