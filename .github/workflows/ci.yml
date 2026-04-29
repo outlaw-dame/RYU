@@ -72,6 +72,9 @@ jobs:
       - name: Database scoped vector indexing guardrails
         run: npm run search:db-scope-eval
 
+      - name: ActivityPub import search guardrails
+        run: npm run search:import-eval
+
       - name: Build
         run: npm run build
 

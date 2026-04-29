@@ -1,3 +1,5 @@
+import type { RyuDatabase } from '../db/client';
+
 export type SearchEntityType = 'edition' | 'work' | 'author';
 
 export type SearchSurface = 'global' | 'library' | 'shelf' | 'onboarding' | 'entity';
@@ -32,6 +34,7 @@ export type SearchOptions = {
   limit?: number;
   alpha?: number;
   context?: SearchContext;
+  db?: RyuDatabase;
 };
 
 export type SemanticSearchProvider = {

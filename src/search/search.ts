@@ -24,8 +24,8 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
 
   const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
-  const lexical = await searchOrama(normalizedQuery);
-  const semantic = await semanticSearchLocal(normalizedQuery);
+  const lexical = await searchOrama(normalizedQuery, options.db);
+  const semantic = await semanticSearchLocal(normalizedQuery, 20, options.db);
 
   const fused = fuseResults(lexical, semantic, adaptiveAlpha);
 
