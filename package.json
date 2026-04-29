@@ -43,6 +43,7 @@
     "search:indexing-eval": "tsx scripts/write-through-indexing-eval.ts",
     "search:health-eval": "tsx scripts/search-index-health-eval.ts",
     "search:db-scope-eval": "tsx scripts/db-scoped-vector-indexing-eval.ts",
+    "search:import-eval": "tsx scripts/activitypub-import-search-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
   },
   "overrides": {
