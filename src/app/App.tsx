@@ -54,6 +54,7 @@ const DEFAULT_MASTODON_SESSION_ENDPOINT = "/api/auth/mastodon/session";
 const DEFAULT_MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
 const DEFAULT_MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
 const DEFAULT_MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
+const DEFAULT_NOW_READING_ENDPOINT = "/api/trends/now-reading";
 const DEFAULT_BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
 function getOAuthRedirectUri(): string {
@@ -433,6 +434,11 @@ export function App() {
   const [activityLoading, setActivityLoading] = useState(false);
   const [activityLoadedAt, setActivityLoadedAt] = useState<number | null>(null);
   const [activityRefreshNonce, setActivityRefreshNonce] = useState(0);
+  const [nowReadingStatuses, setNowReadingStatuses] = useState<MastodonStatus[]>([]);
+  const [nowReadingLoading, setNowReadingLoading] = useState(false);
+  const [nowReadingError, setNowReadingError] = useState<string | null>(null);
+  const [nowReadingLoadedAt, setNowReadingLoadedAt] = useState<number | null>(null);
+  const [nowReadingRefreshNonce, setNowReadingRefreshNonce] = useState(0);
   const [bookTokTrends, setBookTokTrends] = useState<BookTokTrend[]>(CURATED_BOOKTOK_TRENDS);
   const [bookTokLoading, setBookTokLoading] = useState(false);
   const [bookTokError, setBookTokError] = useState<string | null>(null);
@@ -560,6 +566,50 @@ export function App() {
       controller.abort();
     };
   }, [activeTab, buildActivityEndpoint, connectedAccount, activityRefreshNonce]);
+
+  useEffect(() => {
+    if (activeTab !== "home") {
+      return;
+    }
+
+    let cancelled = false;
+    const endpoint = import.meta.env.VITE_NOW_READING_ENDPOINT ?? DEFAULT_NOW_READING_ENDPOINT;
+
+    setNowReadingLoading(true);
+    setNowReadingError(null);
+
+    void fetchWithBackoff(endpoint, {
+      headers: { Accept: "application/json" }
+    }, 2, 10_000)
+      .then(parseMastodonStatusPageResponse)
+      .then((page) => {
+        if (cancelled) {
+          return;
+        }
+
+        setNowReadingStatuses(page.items.slice(0, 8));
+        setNowReadingLoadedAt(Date.now());
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        setNowReadingStatuses([]);
+        setNowReadingError(error instanceof Error
+          ? `Live #NowReading feed unavailable right now. (${error.message})`
+          : "Live #NowReading feed unavailable right now.");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setNowReadingLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, nowReadingRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -992,21 +1042,18 @@ export function App() {
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="Library" />
                   <section style={{
-                    margin: "0 var(--space-4) var(--space-6)",
-                    padding: "var(--space-3)",
-                    borderRadius: "var(--radius-lg)",
-                    background: "var(--color-bg-secondary)",
-                    boxShadow: "var(--shadow-card)",
+                    margin: "0 var(--space-4) var(--space-5)",
+                    padding: "var(--space-2) 0",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: "var(--space-3)",
                     flexWrap: "wrap"
                   }}>
-                    <div style={{ display: "grid", gap: "2px" }}>
-                      <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>Member access</strong>
-                      <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                        Sign in if you already have an account or create one to sync shelves and activity.
+                    <div style={{ display: "grid", gap: 0 }}>
+                      <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)", letterSpacing: "0.01em" }}>Member</strong>
+                      <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
+                        Sign in or create an account to sync reading activity.
                       </span>
                     </div>
                     <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
@@ -1014,13 +1061,15 @@ export function App() {
                         type="button"
                         onClick={openMemberSignIn}
                         style={{
-                          minHeight: "calc(var(--touch-min) - 6px)",
-                          border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
-                          borderRadius: "var(--radius-md)",
-                          background: "transparent",
+                          minHeight: "36px",
+                          border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                          borderRadius: "999px",
+                          background: "var(--color-bg-secondary)",
                           color: "var(--color-text)",
                           fontWeight: 600,
-                          padding: "0 var(--space-3)"
+                          fontSize: "var(--text-footnote)",
+                          padding: "0 var(--space-3)",
+                          boxShadow: "var(--shadow-card)"
                         }}
                       >
                         Member sign in
@@ -1029,21 +1078,51 @@ export function App() {
                         type="button"
                         onClick={openMemberSignup}
                         style={{
-                          minHeight: "calc(var(--touch-min) - 6px)",
+                          minHeight: "36px",
                           border: 0,
-                          borderRadius: "var(--radius-md)",
+                          borderRadius: "999px",
                           background: "var(--color-accent)",
                           color: "white",
                           fontWeight: 700,
-                          padding: "0 var(--space-3)"
+                          fontSize: "var(--text-footnote)",
+                          padding: "0 var(--space-3)",
+                          boxShadow: "var(--shadow-card)"
                         }}
                       >
                         Become a member
                       </button>
                     </div>
                   </section>
-                  <SectionHeader title="Currently Reading" actionLabel="See All" />
-                  {state === "ready" && !importedBooksLoading ? <CoverGrid books={featuredBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
+                  <SectionHeader
+                    title="Currently Reading"
+                    actionLabel={nowReadingLoading ? undefined : "Refresh"}
+                    onAction={nowReadingLoading ? undefined : () => setNowReadingRefreshNonce((value) => value + 1)}
+                  />
+                  <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                    {nowReadingLoading && nowReadingStatuses.length === 0 ? (
+                      <>
+                        <Skeleton style={{ height: 112 }} />
+                        <Skeleton style={{ height: 112 }} />
+                      </>
+                    ) : nowReadingStatuses.length > 0 ? (
+                      nowReadingStatuses.slice(0, 3).map((status) => (
+                        <ActivityStatusRow key={status.id} status={status} />
+                      ))
+                    ) : (
+                      <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                        No live #NowReading posts found right now.
+                      </p>
+                    )}
+                  </div>
+                  {nowReadingError ? (
+                    <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                      {nowReadingError}
+                    </p>
+                  ) : nowReadingLoadedAt ? (
+                    <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                      Currently Reading updated: {new Date(nowReadingLoadedAt).toLocaleString()}
+                    </p>
+                  ) : null}
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
                   <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} />

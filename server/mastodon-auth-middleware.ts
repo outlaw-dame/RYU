@@ -11,7 +11,7 @@ import {
   parseMastodonRegisterRequest,
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
-import { MastodonApiResponseError, MastodonClient } from "../src/sync/mastodon-client";
+import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -89,6 +89,12 @@ const STORE_PATH = resolve(process.cwd(), ".data/mastodon-credentials.enc");
 const DEV_KEY_PATH = resolve(process.cwd(), ".data/dev-store-key.hex");
 const SESSION_COOKIE = "ryu_masto_session";
 const SESSION_MAX_AGE_SECONDS = 2_592_000; // 30 days
+const MAX_COVER_IMAGE_BYTES = 5 * 1024 * 1024;
+const COVER_IMAGE_ACCEPT = "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.5";
+const COVER_IMAGE_TYPES = new Set(["image/avif", "image/webp", "image/png", "image/jpeg", "image/gif"]);
+const NOW_READING_DEFAULT_ORIGINS = ["https://bookwyrm.social", "https://mastodon.social"];
+const NOW_READING_DEFAULT_TAGS = ["nowreading", "currentlyreading", "amreading", "bookstodon"];
+const NOW_READING_DEFAULT_LIMIT = 12;
 // Domain strings for key derivation — changing these invalidates all stored data.
 const CREDENTIAL_CONTEXT = "ryu:credentials:v1";
 const SESSION_CONTEXT = "ryu:session:v1";
@@ -307,19 +313,21 @@ function createRateLimiter(limitPerMinute: number): (ip: string) => boolean {
 // ─── Network / SSRF Guards ────────────────────────────────────────────────────
 
 function isPrivateAddress(hostname: string): boolean {
+  const host = hostname.replace(/^\[(.*)\]$/, "$1").toLowerCase();
+
   // Block loopback IPs, RFC1918, link-local, and unspecified — but NOT the
   // "localhost" hostname which is intentionally allowed for dev/testing.
   return (
-    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^169\.254\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
-    /^fc[0-9a-f]{2}:/i.test(hostname) ||
-    /^fd[0-9a-f]{2}:/i.test(hostname) ||
-    hostname === "0.0.0.0" ||
-    hostname === "::1" ||
-    hostname === "::"
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^169\.254\.\d{1,3}\.\d{1,3}$/.test(host) ||
+    /^fc[0-9a-f]{2}:/i.test(host) ||
+    /^fd[0-9a-f]{2}:/i.test(host) ||
+    host === "0.0.0.0" ||
+    host === "::1" ||
+    host === "::"
   );
 }
 
@@ -337,17 +345,76 @@ function normalizeOrigin(input: string): string {
 function normalizePublicHttpsUrl(input: string): string {
   const parsed = new URL(input);
   if (parsed.protocol !== "https:") {
-    throw new Error("BookTok upstream must use HTTPS");
+    throw new Error("Upstream URL must use HTTPS");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("Upstream URL must not include credentials");
   }
   if (isPrivateAddress(parsed.hostname) || parsed.hostname === "localhost") {
-    throw new Error("BookTok upstream must use a public host");
+    throw new Error("Upstream URL must use a public host");
   }
 
   return parsed.toString();
 }
 
+function isAllowedCoverContentType(contentType: string | null): boolean {
+  if (!contentType) return false;
+  const mime = contentType.split(";")[0]?.trim().toLowerCase();
+  return Boolean(mime && COVER_IMAGE_TYPES.has(mime));
+}
+
 function sanitizeUpstreamError(text: string): string {
   return text.slice(0, 400).replace(/[\r\n\t]+/g, " ").trim();
+}
+
+function parseNowReadingOrigins(): string[] {
+  const raw = process.env.NOW_READING_PUBLIC_ORIGINS;
+  const candidates = raw
+    ? raw.split(",").map((value) => value.trim()).filter(Boolean)
+    : NOW_READING_DEFAULT_ORIGINS;
+
+  const normalized = new Set<string>();
+  for (const candidate of candidates) {
+    try {
+      normalized.add(normalizePublicHttpsUrl(candidate));
+    } catch {
+      // Skip invalid origins rather than failing the whole endpoint.
+    }
+  }
+
+  return Array.from(normalized);
+}
+
+function parseNowReadingTags(url: URL): string[] {
+  const queryTags = readArrayQuery(url, "tags");
+  const configuredTags = process.env.NOW_READING_TAGS
+    ? process.env.NOW_READING_TAGS.split(",").map((value) => value.trim())
+    : NOW_READING_DEFAULT_TAGS;
+  const source = queryTags && queryTags.length > 0 ? queryTags : configuredTags;
+
+  const tags = new Set<string>();
+  for (const tag of source) {
+    const normalized = tag.replace(/^#/, "").trim().toLowerCase();
+    if (normalized) {
+      tags.add(normalized);
+    }
+  }
+
+  return Array.from(tags);
+}
+
+function parseNowReadingLimit(url: URL): number {
+  const value = readOptionalQuery(url, "limit");
+  if (!value) {
+    return NOW_READING_DEFAULT_LIMIT;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return NOW_READING_DEFAULT_LIMIT;
+  }
+
+  return Math.max(1, Math.min(40, Math.floor(parsed)));
 }
 
 function readOptionalQuery(url: URL, key: string): string | undefined {
@@ -777,6 +844,119 @@ async function handleRevoke(
   sendJson(res, 200, { revoked: true });
 }
 
+async function fetchPublicCoverImage(sourceUrl: string, method: "GET" | "HEAD"): Promise<Response> {
+  let currentUrl = normalizePublicHttpsUrl(sourceUrl);
+
+  for (let redirect = 0; redirect <= 3; redirect += 1) {
+    const response = await fetchWithRetry(currentUrl, {
+      method,
+      redirect: "manual",
+      headers: {
+        Accept: COVER_IMAGE_ACCEPT
+      }
+    });
+
+    if (response.status < 300 || response.status >= 400) {
+      return response;
+    }
+
+    const location = response.headers.get("location");
+    if (!location) {
+      return response;
+    }
+
+    currentUrl = normalizePublicHttpsUrl(new URL(location, currentUrl).toString());
+  }
+
+  throw new Error("Too many cover image redirects");
+}
+
+async function readResponseBytesWithLimit(response: Response, maxBytes: number): Promise<Buffer | null> {
+  if (!response.body) return Buffer.alloc(0);
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  return Buffer.concat(chunks, total);
+}
+
+async function handleCoverImageProxy(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const sourceUrl = url.searchParams.get("url")?.trim();
+  if (!sourceUrl) {
+    sendJson(res, 400, { error: "missing_url", message: "Cover URL is required." });
+    return;
+  }
+
+  try {
+    const response = await fetchPublicCoverImage(sourceUrl, req.method);
+    if (!response.ok) {
+      sendJson(res, 502, { error: "cover_unavailable", message: "Cover image could not be loaded." });
+      return;
+    }
+
+    const contentType = response.headers.get("content-type");
+    if (!isAllowedCoverContentType(contentType)) {
+      sendJson(res, 415, { error: "unsupported_cover_type", message: "Cover response is not a supported image type." });
+      return;
+    }
+
+    const contentLengthHeader = response.headers.get("content-length");
+    const contentLength = contentLengthHeader ? Number(contentLengthHeader) : null;
+    if (typeof contentLength === "number" && Number.isFinite(contentLength) && contentLength > MAX_COVER_IMAGE_BYTES) {
+      sendJson(res, 413, { error: "cover_too_large", message: "Cover image is too large." });
+      return;
+    }
+
+    const setCoverHeaders = () => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", contentType ?? "application/octet-stream");
+      res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+      res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+    };
+
+    if (req.method === "HEAD") {
+      setCoverHeaders();
+      if (typeof contentLength === "number" && Number.isFinite(contentLength) && contentLength >= 0) {
+        res.setHeader("Content-Length", String(contentLength));
+      }
+      res.end();
+      return;
+    }
+
+    const buffer = await readResponseBytesWithLimit(response, MAX_COVER_IMAGE_BYTES);
+    if (!buffer) {
+      sendJson(res, 413, { error: "cover_too_large", message: "Cover image is too large." });
+      return;
+    }
+
+    setCoverHeaders();
+    res.setHeader("Content-Length", String(buffer.byteLength));
+    res.end(buffer);
+  } catch {
+    sendJson(res, 400, { error: "invalid_cover_url", message: "Cover URL must be a public HTTPS image." });
+  }
+}
+
 async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): Promise<void> {
   if (req.method !== "GET" && req.method !== "HEAD") {
     sendJson(res, 405, { error: "method_not_allowed" });
@@ -810,6 +990,62 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
   }
 }
 
+async function handleNowReadingTrends(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const origins = parseNowReadingOrigins();
+  const tags = parseNowReadingTags(url);
+  const limit = parseNowReadingLimit(url);
+
+  if (origins.length === 0 || tags.length === 0) {
+    sendJson(res, 200, { items: [], links: {} });
+    return;
+  }
+
+  const timelinePromises = origins.flatMap((origin) => tags.map(async (tag) => {
+    const timelineUrl = new URL(`/api/v1/timelines/tag/${encodeURIComponent(tag)}`, origin);
+    timelineUrl.searchParams.set("limit", String(limit));
+
+    const response = await fetchWithRetry(timelineUrl.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+
+    if (!response.ok) {
+      return [] as MastodonStatus[];
+    }
+
+    const payload = await response.json().catch(() => null);
+    const parsed = z.array(mastodonStatusSchema).safeParse(payload);
+    return parsed.success ? parsed.data : [];
+  }));
+
+  const timelineBatches = await Promise.allSettled(timelinePromises);
+  const deduped = new Map<string, MastodonStatus>();
+
+  for (const batch of timelineBatches) {
+    if (batch.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const status of batch.value) {
+      const key = status.url ?? status.uri ?? status.id;
+      if (!deduped.has(key)) {
+        deduped.set(key, status);
+      }
+    }
+  }
+
+  const items = Array.from(deduped.values())
+    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+    .slice(0, limit);
+
+  sendJson(res, 200, { items, links: {} });
+}
+
 // ─── Request Dispatcher ───────────────────────────────────────────────────────
 
 async function dispatch(
@@ -820,8 +1056,18 @@ async function dispatch(
   sessKeyPromise: Promise<Buffer>
 ): Promise<void> {
   try {
+    if (url.pathname === "/api/trends/now-reading") {
+      await handleNowReadingTrends(req, res, url);
+      return;
+    }
+
     if (url.pathname === "/api/trends/booktok") {
       await handleBookTokTrends(req, res);
+      return;
+    }
+
+    if (url.pathname === "/api/media/cover") {
+      await handleCoverImageProxy(req, res, url);
       return;
     }
 
@@ -859,6 +1105,21 @@ async function dispatch(
 
         return client.fetchAccountStatuses(session.account.id, parsePaginationQuery(url));
       });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/bookmarks") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchBookmarks(parsePaginationQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/favourites") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchFavourites(parsePaginationQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/lists") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchLists());
       return;
     }
 
@@ -920,7 +1181,12 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
     if (!req.url) { next(); return; }
 
     const url = new URL(req.url, "http://localhost");
-    if (!url.pathname.startsWith("/api/auth/mastodon/") && url.pathname !== "/api/trends/booktok") { next(); return; }
+    if (
+      !url.pathname.startsWith("/api/auth/mastodon/") &&
+      url.pathname !== "/api/trends/now-reading" &&
+      url.pathname !== "/api/trends/booktok" &&
+      url.pathname !== "/api/media/cover"
+    ) { next(); return; }
 
     const ip = clientAddress(req);
     if (!allowRequest(ip)) {
