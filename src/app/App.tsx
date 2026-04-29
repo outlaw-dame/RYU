@@ -7,9 +7,11 @@ import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { SkeletonCoverGrid } from "../components/common/Skeleton";
+import { SettingsScreen } from "../components/settings/SettingsScreen";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
 import { normalizeSearchQuery } from "../search/query-normalize";
+import { scheduleSearchIndexDependencyHealthCheck } from "../search/search-index-dependency-lifecycle";
 import type { GroupedSearchResults } from "../search/group";
 import type { RankedSearchResult } from "../search/types";
 import type { SearchExplanation } from "../search/explain";
@@ -432,6 +434,10 @@ export function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (state === "ready") scheduleSearchIndexDependencyHealthCheck();
+  }, [state]);
 
   useEffect(() => {
     const query = normalizeSearchQuery(searchQuery);
@@ -1147,6 +1153,7 @@ export function App() {
                       </section>
                     </div>
                   ) : null}
+                  <SettingsScreen />
                 </TabPanel>
               )}
             </AnimatePresence>
