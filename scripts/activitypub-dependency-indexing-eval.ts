@@ -83,7 +83,7 @@ async function main(): Promise<void> {
 
   try {
     await db.addCollections(e2eCollections);
-    const store = createRxDBActivityPubStore(db, queue);
+    const store = createRxDBActivityPubStore(db, queue, false);
 
     await ingestActivityPubGraph(graph, store);
     await queue.idle();
