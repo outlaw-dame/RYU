@@ -11,6 +11,7 @@ import {
   parseMastodonRegisterRequest,
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
+import { MastodonApiResponseError, MastodonClient } from "../src/sync/mastodon-client";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,20 @@ const accountResponseSchema = z.object({
   username: z.string().min(1),
   acct: z.string().min(1),
   url: z.string().url().optional()
+});
+
+const mastodonCursorSchema = z.string().min(1).max(128);
+const mastodonPaginationQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(40).default(20),
+  maxId: mastodonCursorSchema.optional(),
+  sinceId: mastodonCursorSchema.optional(),
+  minId: mastodonCursorSchema.optional()
+});
+
+const mastodonNotificationsQuerySchema = mastodonPaginationQuerySchema.extend({
+  accountId: mastodonCursorSchema.optional(),
+  types: z.array(z.string().min(1).max(48)).max(8).optional(),
+  excludeTypes: z.array(z.string().min(1).max(48)).max(8).optional()
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -236,6 +251,24 @@ function readCookie(req: IncomingMessage, name: string): string | null {
   return null;
 }
 
+function readSessionPayload(req: IncomingMessage, res: ServerResponse, sessKey: Buffer): SessionPayload | null {
+  const raw = readCookie(req, SESSION_COOKIE);
+  if (!raw) return null;
+
+  try {
+    const session = JSON.parse(decryptJson(raw, sessKey)) as SessionPayload;
+    if (Date.now() - session.createdAt > SESSION_MAX_AGE_SECONDS * 1000) {
+      clearSessionCookie(req, res);
+      return null;
+    }
+
+    return session;
+  } catch {
+    clearSessionCookie(req, res);
+    return null;
+  }
+}
+
 // ─── Rate Limiter ─────────────────────────────────────────────────────────────
 
 function createRateLimiter(limitPerMinute: number): (ip: string) => boolean {
@@ -296,6 +329,57 @@ function normalizeOrigin(input: string): string {
 
 function sanitizeUpstreamError(text: string): string {
   return text.slice(0, 400).replace(/[\r\n\t]+/g, " ").trim();
+}
+
+function readOptionalQuery(url: URL, key: string): string | undefined {
+  const value = url.searchParams.get(key);
+  return value && value.trim() ? value.trim() : undefined;
+}
+
+function readArrayQuery(url: URL, key: string): string[] | undefined {
+  const values = [
+    ...url.searchParams.getAll(key),
+    ...url.searchParams.getAll(`${key}[]`)
+  ].map((value) => value.trim()).filter(Boolean);
+
+  return values.length > 0 ? values : undefined;
+}
+
+function parsePaginationQuery(url: URL): z.infer<typeof mastodonPaginationQuerySchema> {
+  return mastodonPaginationQuerySchema.parse({
+    limit: readOptionalQuery(url, "limit"),
+    maxId: readOptionalQuery(url, "max_id"),
+    sinceId: readOptionalQuery(url, "since_id"),
+    minId: readOptionalQuery(url, "min_id")
+  });
+}
+
+function parseNotificationsQuery(url: URL): z.infer<typeof mastodonNotificationsQuerySchema> {
+  return mastodonNotificationsQuerySchema.parse({
+    ...parsePaginationQuery(url),
+    accountId: readOptionalQuery(url, "account_id"),
+    types: readArrayQuery(url, "types"),
+    excludeTypes: readArrayQuery(url, "exclude_types")
+  });
+}
+
+function createSessionMastodonClient(session: SessionPayload): MastodonClient {
+  return new MastodonClient({
+    instanceOrigin: session.instanceOrigin,
+    accessToken: session.accessToken,
+    tokenType: session.tokenType,
+    queueOptions: {
+      concurrency: 2,
+      perHostConcurrency: 1,
+      retries: 2,
+      retryDelayMs: 300,
+      backoffMultiplier: 2,
+      timeoutMs: 10_000,
+      jitterMs: 150,
+      retryAfterCapMs: 4_000,
+      persistStatus: false
+    }
+  });
 }
 
 // Exponential backoff with full jitter; cap at 8 s.
@@ -412,33 +496,18 @@ async function handleSession(
   res: ServerResponse,
   sessKey: Buffer
 ): Promise<void> {
-  const raw = readCookie(req, SESSION_COOKIE);
-  if (!raw) {
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
     sendJson(res, 200, { connected: false });
     return;
   }
 
-  try {
-    const session = JSON.parse(decryptJson(raw, sessKey)) as SessionPayload;
-
-    // Server-side age check as defence-in-depth against replayed cookies.
-    if (Date.now() - session.createdAt > SESSION_MAX_AGE_SECONDS * 1000) {
-      clearSessionCookie(req, res);
-      sendJson(res, 200, { connected: false });
-      return;
-    }
-
-    sendJson(res, 200, {
-      connected: true,
-      instanceOrigin: session.instanceOrigin,
-      account: session.account ?? null,
-      scope: session.scope ?? null
-    });
-  } catch {
-    // Tampered or key-rotated cookie — clear it and report disconnected.
-    clearSessionCookie(req, res);
-    sendJson(res, 200, { connected: false });
-  }
+  sendJson(res, 200, {
+    connected: true,
+    instanceOrigin: session.instanceOrigin,
+    account: session.account ?? null,
+    scope: session.scope ?? null
+  });
 }
 
 async function handleRegister(
@@ -564,6 +633,75 @@ async function handleExchange(
     account: account ?? undefined,
     expiresAt: token.expires_in != null ? Date.now() + token.expires_in * 1000 : null
   }));
+}
+
+async function handleMastodonProxy(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  sessKey: Buffer,
+  fetchPage: (client: MastodonClient, session: SessionPayload) => Promise<unknown>
+): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    sendJson(res, 401, {
+      error: "not_authenticated",
+      message: "Sign in before loading Mastodon activity."
+    });
+    return;
+  }
+
+  try {
+    const client = createSessionMastodonClient(session);
+    const payload = await fetchPage(client, session);
+    sendJson(res, 200, payload);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+function sendMastodonProxyError(req: IncomingMessage, res: ServerResponse, error: unknown): void {
+  if (error instanceof MastodonApiResponseError) {
+    if (typeof error.retryAfterMs === "number") {
+      res.setHeader("Retry-After", String(Math.max(1, Math.ceil(error.retryAfterMs / 1000))));
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      clearSessionCookie(req, res);
+      sendJson(res, error.status, {
+        error: "mastodon_auth_failed",
+        message: "Mastodon rejected this session. Sign in again."
+      });
+      return;
+    }
+
+    if (error.status === 429) {
+      sendJson(res, 429, {
+        error: "mastodon_rate_limited",
+        message: "Mastodon rate limited this request. Try again shortly."
+      });
+      return;
+    }
+
+    sendJson(res, error.retryable ? 502 : 400, {
+      error: error.retryable ? "mastodon_upstream_unavailable" : "mastodon_request_failed",
+      message: error.retryable
+        ? "Mastodon activity is temporarily unavailable."
+        : "Mastodon rejected the activity request."
+    });
+    return;
+  }
+
+  const message = error instanceof Error ? error.message.slice(0, 200) : "Mastodon request failed";
+  sendJson(res, 400, {
+    error: "mastodon_proxy_error",
+    message
+  });
 }
 
 async function handleRevoke(

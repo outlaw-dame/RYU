@@ -85,11 +85,18 @@ export type MastodonNotification = z.infer<typeof mastodonNotificationSchema>;
 
 export class MastodonApiResponseError extends Error {
   readonly retryable: boolean;
+  readonly retryAfterMs?: number;
 
-  constructor(readonly url: string, readonly status: number, readonly responseText?: string) {
+  constructor(
+    readonly url: string,
+    readonly status: number,
+    readonly responseText?: string,
+    options: { retryAfterMs?: number } = {}
+  ) {
     const detail = responseText ? `: ${responseText}` : "";
     super(`Mastodon API request failed ${url}: ${status}${detail}`);
     this.retryable = status === 408 || status === 425 || status === 429 || status >= 500;
+    this.retryAfterMs = options.retryAfterMs;
   }
 }
 
@@ -152,7 +159,17 @@ export class MastodonClient {
     });
 
     if (!response.ok) {
-      throw new MastodonApiResponseError(url.toString(), response.status, sanitizeResponseText(await response.text().catch(() => "")));
+      throw new MastodonApiResponseError(
+        url.toString(),
+        response.status,
+        sanitizeResponseText(await response.text().catch(() => "")),
+        { retryAfterMs: parseRetryAfterMs(response.headers.get("Retry-After")) }
+      );
+    }
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(`Invalid Mastodon API response content type: ${contentType || "unknown"}`);
     }
 
     return {
@@ -167,10 +184,14 @@ export function parseMastodonLinkHeader(header: string | null): MastodonPaginati
   if (!header) return links;
 
   for (const part of header.split(",")) {
-    const match = part.trim().match(/^<([^>]+)>;\s*rel="(next|prev)"$/);
-    if (!match) continue;
+    const urlMatch = part.trim().match(/<([^>]+)>/);
+    const relMatch = part.trim().match(/;\s*rel="?([^";]+)"?/);
+    if (!urlMatch || !relMatch) continue;
 
-    const [, rawUrl, rel] = match;
+    const [, rawUrl] = urlMatch;
+    const [, rel] = relMatch;
+    if (rel !== "next" && rel !== "prev") continue;
+
     const params = parsePaginationParams(rawUrl);
     if (rel === "next") {
       links.nextUrl = rawUrl;
@@ -255,4 +276,20 @@ function normalizeInstanceOrigin(input: string): string {
 function sanitizeResponseText(text: string): string | undefined {
   const sanitized = text.slice(0, 400).replace(/[\r\n\t]+/g, " ").trim();
   return sanitized || undefined;
+}
+
+function parseRetryAfterMs(value: string | null): number | undefined {
+  if (!value) return undefined;
+
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+
+  const dateMs = Date.parse(value);
+  if (!Number.isFinite(dateMs)) {
+    return undefined;
+  }
+
+  return Math.max(0, dateMs - Date.now());
 }

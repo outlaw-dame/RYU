@@ -28,7 +28,7 @@ describe("MastodonClient", () => {
       instanceOrigin: "https://books.example",
       accessToken: "token-123",
       fetchImpl,
-      queueOptions: { retries: 0, jitterMs: 0 }
+      queueOptions: { retries: 0, jitterMs: 0, persistStatus: false }
     });
 
     const page = await client.fetchHomeTimeline({ limit: 20 });
@@ -57,7 +57,7 @@ describe("MastodonClient", () => {
       instanceOrigin: "https://books.example",
       accessToken: "token-123",
       fetchImpl,
-      queueOptions: { retries: 0, jitterMs: 0 }
+      queueOptions: { retries: 0, jitterMs: 0, persistStatus: false }
     });
 
     const page = await client.fetchNotifications({ types: ["favourite", "mention"], excludeTypes: ["follow"] });
@@ -69,18 +69,22 @@ describe("MastodonClient", () => {
   });
 
   it("surfaces non-ok responses as retry-aware Mastodon API errors", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response("rate limited", { status: 429 }));
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("rate limited", {
+      status: 429,
+      headers: { "Retry-After": "2" }
+    }));
     const client = new MastodonClient({
       instanceOrigin: "https://books.example",
       accessToken: "token-123",
       fetchImpl,
-      queueOptions: { retries: 0, jitterMs: 0 }
+      queueOptions: { retries: 0, jitterMs: 0, persistStatus: false }
     });
 
     await expect(client.fetchHomeTimeline()).rejects.toMatchObject({
       status: 429,
       retryable: true,
-      responseText: "rate limited"
+      responseText: "rate limited",
+      retryAfterMs: 2000
     } satisfies Partial<MastodonApiResponseError>);
   });
 });
