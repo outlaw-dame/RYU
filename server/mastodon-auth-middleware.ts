@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { URL } from "node:url";
+import { gzipSync, gunzipSync } from "node:zlib";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 import {
@@ -103,16 +104,21 @@ function deriveSubkey(master: Buffer, context: string): Buffer {
 }
 
 // ─── AES-256-GCM Crypto ───────────────────────────────────────────────────────
+//
+// Buffer-level primitives are used so the credential store can compress its
+// payload (gzip bytes → encrypt) without an extra base64 round-trip.
+// The session cookie helpers (encryptJson / decryptJson) remain string-in /
+// string-out wrappers for backward compatibility.
 
-function encryptJson(payload: string, key: Buffer): string {
+function encryptBuffer(plaintext: Buffer, key: Buffer): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const ciphertext = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()]);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
   return [iv, tag, ciphertext].map((b) => b.toString("base64url")).join(".");
 }
 
-function decryptJson(payload: string, key: Buffer): string {
+function decryptToBuffer(payload: string, key: Buffer): Buffer {
   const parts = payload.split(".");
   if (parts.length !== 3) throw new Error("Malformed encrypted payload");
   const [ivB64, tagB64, ciphertextB64] = parts as [string, string, string];
@@ -121,7 +127,16 @@ function decryptJson(payload: string, key: Buffer): string {
   return Buffer.concat([
     decipher.update(Buffer.from(ciphertextB64, "base64url")),
     decipher.final()
-  ]).toString("utf8");
+  ]);
+}
+
+// String wrappers used by session cookie encrypt/decrypt.
+function encryptJson(payload: string, key: Buffer): string {
+  return encryptBuffer(Buffer.from(payload, "utf8"), key);
+}
+
+function decryptJson(payload: string, key: Buffer): string {
+  return decryptToBuffer(payload, key).toString("utf8");
 }
 
 // ─── HTTP Helpers ─────────────────────────────────────────────────────────────
@@ -344,7 +359,13 @@ class CredentialStore {
     const key = await this.keyPromise;
     try {
       const encrypted = await readFile(STORE_PATH, "utf8");
-      const payload = JSON.parse(decryptJson(encrypted.trim(), key)) as StorePayload;
+      const raw = decryptToBuffer(encrypted.trim(), key);
+      // v1 stores wrote plain JSON; v2+ write gzip-compressed JSON (magic 0x1f 0x8b).
+      // Magic-byte detection gives zero-cost backward compatibility with no version bump.
+      const json = (raw[0] === 0x1f && raw[1] === 0x8b)
+        ? gunzipSync(raw).toString("utf8")
+        : raw.toString("utf8");
+      const payload = JSON.parse(json) as StorePayload;
       if (payload.version !== 1) return;
       for (const [origin, creds] of Object.entries(payload.entries)) {
         this.entries.set(origin, creds);
@@ -357,7 +378,11 @@ class CredentialStore {
   private async persist(): Promise<void> {
     const key = await this.keyPromise;
     const payload: StorePayload = { version: 1, entries: Object.fromEntries(this.entries) };
-    const encrypted = encryptJson(JSON.stringify(payload), key);
+    // Compress the JSON before encrypting. Text compresses well (typically 60-75%
+    // reduction); post-encryption bytes are pseudorandom and incompressible, so
+    // the order must be compress → encrypt, never encrypt → compress.
+    const compressed = gzipSync(Buffer.from(JSON.stringify(payload), "utf8"), { level: 6 });
+    const encrypted = encryptBuffer(compressed, key);
     await mkdir(dirname(STORE_PATH), { recursive: true });
     // Use hrtime for tmp suffix to prevent collision between rapid concurrent writes.
     const tmp = `${STORE_PATH}.${process.hrtime.bigint()}.tmp`;
