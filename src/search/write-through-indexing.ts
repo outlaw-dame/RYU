@@ -69,7 +69,6 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
         .finally(() => {
           activeJobs -= 1;
           drain();
-          flushIdleResolvers();
         });
     }
 
