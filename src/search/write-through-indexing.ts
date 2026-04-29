@@ -56,7 +56,7 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
     const doc = await canonicalEntityToSearchDocument(job.db, job.entity, job.timestamp);
     if (!doc) return;
 
-    await Promise.resolve(indexer(doc, job.db)).catch((error) => {
+    await Promise.resolve().then(() => indexer(doc, job.db)).catch((error) => {
       logger.error('Failed to index imported search document', {
         entityId: doc.id,
         entityType: doc.type,
