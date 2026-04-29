@@ -6,7 +6,7 @@ import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { SectionHeader } from "../components/common/SectionHeader";
-import { SkeletonCoverGrid } from "../components/common/Skeleton";
+import { Skeleton, SkeletonCoverGrid } from "../components/common/Skeleton";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
 import { normalizeSearchQuery } from "../search/query-normalize";
@@ -26,6 +26,14 @@ import {
 } from "../auth/contracts";
 import { useInstanceDiscovery } from "../hooks/useInstanceDiscovery";
 import { useAutocomplete } from "../hooks/useAutocomplete";
+import { sanitizeUrl, stripHtml } from "../lib/sanitize";
+import type { MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
+import {
+  MastodonSessionApiError,
+  parseMastodonNotificationPageResponse,
+  parseMastodonStatusPageResponse
+} from "../sync/mastodon-session-api";
+import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
 
 const sampleBooks = [
   { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
@@ -43,6 +51,9 @@ const DEFAULT_MASTODON_REGISTER_ENDPOINT = "/api/auth/mastodon/register";
 const DEFAULT_MASTODON_EXCHANGE_ENDPOINT = "/api/auth/mastodon/exchange";
 const DEFAULT_MASTODON_SESSION_ENDPOINT = "/api/auth/mastodon/session";
 const DEFAULT_MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
+const DEFAULT_MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
+const DEFAULT_MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
+const DEFAULT_BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
 function getOAuthRedirectUri(): string {
   return `${window.location.origin}${window.location.pathname}`;
@@ -60,17 +71,25 @@ function computeClientBackoffMs(attempt: number, baseMs = 200, capMs = 1800): nu
 
 async function fetchWithBackoff(url: string, init: RequestInit, attempts = 3, timeoutMs = 12_000): Promise<Response> {
   let lastError: Error | null = null;
+  const { signal: externalSignal, ...initWithoutSignal } = init;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
+    const abortFromExternalSignal = () => controller.abort(externalSignal?.reason);
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+    if (externalSignal?.aborted) {
+      controller.abort(externalSignal.reason);
+    } else {
+      externalSignal?.addEventListener("abort", abortFromExternalSignal, { once: true });
+    }
 
     try {
       const response = await fetch(url, {
-        ...init,
+        ...initWithoutSignal,
         signal: controller.signal
       });
       window.clearTimeout(timeoutId);
+      externalSignal?.removeEventListener("abort", abortFromExternalSignal);
 
       if (response.ok) {
         return response;
@@ -84,6 +103,10 @@ async function fetchWithBackoff(url: string, init: RequestInit, attempts = 3, ti
       return response;
     } catch (error) {
       window.clearTimeout(timeoutId);
+      externalSignal?.removeEventListener("abort", abortFromExternalSignal);
+      if (externalSignal?.aborted) {
+        throw error;
+      }
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < attempts) {
         await new Promise((resolve) => window.setTimeout(resolve, computeClientBackoffMs(attempt)));
@@ -276,6 +299,114 @@ function SearchResultsSection({
   );
 }
 
+function formatActivityDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  });
+}
+
+function mastodonAccountLabel(account: MastodonStatus["account"]): string {
+  return account.display_name || account.acct || account.username || "Unknown account";
+}
+
+function mastodonStatusText(status: MastodonStatus): string {
+  const text = stripHtml(status.content ?? "");
+  if (text) return text;
+  if (status.spoiler_text) return status.spoiler_text;
+  return "Updated their reading activity.";
+}
+
+function notificationVerb(type: string): string {
+  switch (type) {
+    case "follow":
+      return "followed you";
+    case "favourite":
+      return "favourited your post";
+    case "mention":
+      return "mentioned you";
+    case "reblog":
+      return "boosted your post";
+    case "status":
+      return "posted a new update";
+    case "update":
+      return "updated a post";
+    default:
+      return type.replace(/_/g, " ");
+  }
+}
+
+function ActivityStatusRow({ status }: { status: MastodonStatus }) {
+  const href = sanitizeUrl(status.url ?? status.uri ?? null);
+
+  return (
+    <article style={{
+      borderRadius: "var(--radius-md)",
+      background: "var(--color-bg-secondary)",
+      color: "var(--color-text)",
+      padding: "var(--space-4)",
+      display: "grid",
+      gap: "var(--space-2)",
+      boxShadow: "var(--shadow-card)"
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
+        <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+        <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+          {formatActivityDate(status.created_at)}
+        </span>
+      </div>
+      <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+        {mastodonStatusText(status)}
+      </p>
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
+          Open post
+        </a>
+      ) : null}
+    </article>
+  );
+}
+
+function ActivityNotificationRow({ notification }: { notification: MastodonNotification }) {
+  const statusText = notification.status ? mastodonStatusText(notification.status) : null;
+  const href = sanitizeUrl(notification.status?.url ?? notification.status?.uri ?? null);
+
+  return (
+    <article style={{
+      borderRadius: "var(--radius-md)",
+      background: "var(--color-bg-elevated)",
+      color: "var(--color-text)",
+      padding: "var(--space-4)",
+      display: "grid",
+      gap: "var(--space-2)",
+      border: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)"
+    }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
+        <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>
+          {mastodonAccountLabel(notification.account)} {notificationVerb(notification.type)}
+        </strong>
+        <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+          {formatActivityDate(notification.created_at)}
+        </span>
+      </div>
+      {statusText ? (
+        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+          {statusText}
+        </p>
+      ) : null}
+      {href ? (
+        <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
+          Open post
+        </a>
+      ) : null}
+    </article>
+  );
+}
+
 export function App() {
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [importUrl, setImportUrl] = useState("");
@@ -295,6 +426,17 @@ export function App() {
   const [authInfo, setAuthInfo] = useState<string | null>(null);
   const [isAuthWorking, setIsAuthWorking] = useState(false);
   const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string } | null>(null);
+  const [activityTimeline, setActivityTimeline] = useState<MastodonStatus[]>([]);
+  const [activityNotifications, setActivityNotifications] = useState<MastodonNotification[]>([]);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activityLoadedAt, setActivityLoadedAt] = useState<number | null>(null);
+  const [activityRefreshNonce, setActivityRefreshNonce] = useState(0);
+  const [bookTokTrends, setBookTokTrends] = useState<BookTokTrend[]>(CURATED_BOOKTOK_TRENDS);
+  const [bookTokLoading, setBookTokLoading] = useState(false);
+  const [bookTokError, setBookTokError] = useState<string | null>(null);
+  const [bookTokLoadedAt, setBookTokLoadedAt] = useState<number | null>(null);
+  const [bookTokRefreshNonce, setBookTokRefreshNonce] = useState(0);
   const { state } = useDatabase();
   const autocompleteResults = useAutocomplete(searchQuery);
   const preferredSoftwareSlugs = useMemo(() => (preferredSoftware ? [preferredSoftware] : []), [preferredSoftware]);
@@ -316,6 +458,12 @@ export function App() {
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
 
+  const buildActivityEndpoint = useCallback((endpoint: string, limit: number) => {
+    const url = new URL(endpoint, window.location.origin);
+    url.searchParams.set("limit", String(limit));
+    return url.origin === window.location.origin ? `${url.pathname}${url.search}` : url.toString();
+  }, []);
+
   // Restore session state from the server-side session cookie on mount.
   useEffect(() => {
     let cancelled = false;
@@ -334,6 +482,82 @@ export function App() {
 
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (connectedAccount) return;
+    setActivityTimeline([]);
+    setActivityNotifications([]);
+    setActivityError(null);
+    setActivityLoadedAt(null);
+    setActivityLoading(false);
+  }, [connectedAccount]);
+
+  useEffect(() => {
+    if (activeTab !== "activity" || !connectedAccount) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timelineEndpoint = buildActivityEndpoint(
+      import.meta.env.VITE_MASTODON_HOME_TIMELINE_ENDPOINT ?? DEFAULT_MASTODON_HOME_TIMELINE_ENDPOINT,
+      20
+    );
+    const notificationsEndpoint = buildActivityEndpoint(
+      import.meta.env.VITE_MASTODON_NOTIFICATIONS_ENDPOINT ?? DEFAULT_MASTODON_NOTIFICATIONS_ENDPOINT,
+      20
+    );
+
+    setActivityLoading(true);
+    setActivityError(null);
+
+    void Promise.allSettled([
+      fetchWithBackoff(timelineEndpoint, { signal: controller.signal }, 3, 12_000).then(parseMastodonStatusPageResponse),
+      fetchWithBackoff(notificationsEndpoint, { signal: controller.signal }, 3, 12_000).then(parseMastodonNotificationPageResponse)
+    ]).then((results) => {
+      if (cancelled) return;
+
+      const [timelineResult, notificationsResult] = results;
+      const failures = results.filter((result) => result.status === "rejected");
+      const authFailure = failures.some((result) => {
+        return result.status === "rejected" &&
+          result.reason instanceof MastodonSessionApiError &&
+          (result.reason.status === 401 || result.reason.status === 403);
+      });
+
+      if (authFailure) {
+        setConnectedAccount(null);
+        setAuthInfo(null);
+        setAuthError("Your session expired. Sign in again to load activity.");
+        return;
+      }
+
+      if (timelineResult.status === "fulfilled") {
+        setActivityTimeline(timelineResult.value.items);
+      }
+      if (notificationsResult.status === "fulfilled") {
+        setActivityNotifications(notificationsResult.value.items);
+      }
+
+      if (failures.length === results.length) {
+        setActivityError("Activity could not be loaded right now.");
+      } else if (failures.length > 0) {
+        setActivityError("Some activity could not be loaded right now.");
+      }
+
+      setActivityLoadedAt(Date.now());
+    }).catch((error: unknown) => {
+      if (cancelled || controller.signal.aborted) return;
+      setActivityError(error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (!cancelled) {
+        setActivityLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [activeTab, buildActivityEndpoint, connectedAccount, activityRefreshNonce]);
 
   useEffect(() => {
     let cancelled = false;
@@ -674,6 +898,77 @@ export function App() {
     () => topAutocompleteInstances.map((instance) => `https://${instance.domain}/book/`),
     [topAutocompleteInstances]
   );
+  const bookTokCoverBooks = useMemo(() => {
+    return bookTokTrends.map((trend) => ({
+      id: trend.id,
+      title: trend.title,
+      author: trend.author,
+      coverUrl: trend.coverUrl
+    }));
+  }, [bookTokTrends]);
+  const openBookTokTrend = useCallback((trendId: string) => {
+    const trend = bookTokTrends.find((entry) => entry.id === trendId);
+    const href = sanitizeUrl(trend?.sourceUrl ?? null);
+    if (!href) {
+      return;
+    }
+
+    window.open(href, "_blank", "noopener,noreferrer");
+  }, [bookTokTrends]);
+
+  useEffect(() => {
+    if (activeTab !== "home") {
+      return;
+    }
+
+    let cancelled = false;
+    const endpoint = import.meta.env.VITE_BOOKTOK_TRENDING_ENDPOINT ?? DEFAULT_BOOKTOK_TRENDING_ENDPOINT;
+
+    setBookTokLoading(true);
+    setBookTokError(null);
+
+    void fetchWithBackoff(endpoint, {
+      headers: { Accept: "application/json" }
+    }, 3, 10_000)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(`BookTok trending request failed (${response.status})`);
+        }
+
+        return parseBookTokTrendingPayload(await response.json());
+      })
+      .then((trends) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (trends.length > 0) {
+          setBookTokTrends(trends.slice(0, 9));
+        } else {
+          setBookTokTrends(CURATED_BOOKTOK_TRENDS);
+        }
+        setBookTokLoadedAt(Date.now());
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        setBookTokTrends(CURATED_BOOKTOK_TRENDS);
+        setBookTokError(error instanceof Error
+          ? `Live BookTok sync unavailable. Showing curated picks. (${error.message})`
+          : "Live BookTok sync unavailable. Showing curated picks.");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setBookTokLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, bookTokRefreshNonce]);
 
   return (
     <MotionConfig reducedMotion="user">
@@ -698,6 +993,33 @@ export function App() {
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
                   <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} />
+                  <div style={{ height: "var(--space-8)" }} />
+                  <SectionHeader
+                    title="BookTok Trending"
+                    actionLabel={bookTokLoading ? undefined : "Refresh"}
+                    onAction={bookTokLoading ? undefined : () => setBookTokRefreshNonce((value) => value + 1)}
+                  />
+                  {bookTokLoading && bookTokTrends.length === 0 ? (
+                    <SkeletonCoverGrid count={3} />
+                  ) : (
+                    <CoverGrid
+                      books={bookTokCoverBooks.slice(0, 9)}
+                      onBookPress={(book) => openBookTokTrend(book.id)}
+                    />
+                  )}
+                  {bookTokError ? (
+                    <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                      {bookTokError}
+                    </p>
+                  ) : bookTokLoadedAt ? (
+                    <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                      BookTok updated: {new Date(bookTokLoadedAt).toLocaleString()}
+                    </p>
+                  ) : (
+                    <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                      Showing curated BookTok picks while live trend sync initializes.
+                    </p>
+                  )}
                 </TabPanel>
               )}
               {activeTab === "search" && (
@@ -891,7 +1213,64 @@ export function App() {
               {activeTab === "activity" && (
                 <TabPanel id="activity" activeTab={activeTab}>
                   <ScreenTitle title="Activity" />
-                  <EmptyState title="No activity yet" description="Reviews, follows, favourites, and reading updates will appear here." />
+                  {!connectedAccount ? (
+                    <EmptyState title="Sign in to load activity" description="Your home timeline, notifications, and reading updates will appear here." />
+                  ) : (
+                    <div style={{ display: "grid", gap: "var(--space-6)" }}>
+                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                        <SectionHeader
+                          title="Notifications"
+                          actionLabel={activityLoading ? undefined : "Refresh"}
+                          onAction={activityLoading ? undefined : () => setActivityRefreshNonce((value) => value + 1)}
+                        />
+                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                          {activityLoading && activityNotifications.length === 0 ? (
+                            <>
+                              <Skeleton style={{ height: 92 }} />
+                              <Skeleton style={{ height: 92 }} />
+                            </>
+                          ) : activityNotifications.length > 0 ? (
+                            activityNotifications.map((notification) => (
+                              <ActivityNotificationRow key={notification.id} notification={notification} />
+                            ))
+                          ) : (
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              No notifications yet.
+                            </p>
+                          )}
+                        </div>
+                      </section>
+                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                        <SectionHeader title="Home Timeline" />
+                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                          {activityLoading && activityTimeline.length === 0 ? (
+                            <>
+                              <Skeleton style={{ height: 120 }} />
+                              <Skeleton style={{ height: 120 }} />
+                              <Skeleton style={{ height: 120 }} />
+                            </>
+                          ) : activityTimeline.length > 0 ? (
+                            activityTimeline.map((status) => (
+                              <ActivityStatusRow key={status.id} status={status} />
+                            ))
+                          ) : (
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              No timeline posts yet.
+                            </p>
+                          )}
+                        </div>
+                      </section>
+                      {activityError ? (
+                        <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                          {activityError}
+                        </p>
+                      ) : activityLoadedAt ? (
+                        <p style={{ margin: "0 var(--space-4)", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                          Last updated: {new Date(activityLoadedAt).toLocaleString()}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </TabPanel>
               )}
               {activeTab === "profile" && (

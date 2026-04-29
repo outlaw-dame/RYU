@@ -12,6 +12,7 @@ import {
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
 import { MastodonApiResponseError, MastodonClient } from "../src/sync/mastodon-client";
+import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -331,6 +332,18 @@ function normalizeOrigin(input: string): string {
     throw new Error("Instance origin must not be a private network address");
   }
   return `${parsed.protocol}//${parsed.host}`;
+}
+
+function normalizePublicHttpsUrl(input: string): string {
+  const parsed = new URL(input);
+  if (parsed.protocol !== "https:") {
+    throw new Error("BookTok upstream must use HTTPS");
+  }
+  if (isPrivateAddress(parsed.hostname) || parsed.hostname === "localhost") {
+    throw new Error("BookTok upstream must use a public host");
+  }
+
+  return parsed.toString();
 }
 
 function sanitizeUpstreamError(text: string): string {
@@ -764,6 +777,39 @@ async function handleRevoke(
   sendJson(res, 200, { revoked: true });
 }
 
+async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const upstreamRaw = process.env.BOOKTOK_TRENDING_UPSTREAM;
+  if (!upstreamRaw) {
+    sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
+    return;
+  }
+
+  try {
+    const upstream = normalizePublicHttpsUrl(upstreamRaw);
+    const response = await fetchWithRetry(upstream, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
+      return;
+    }
+
+    const parsed = parseBookTokTrendingPayload(await response.json());
+    sendJson(res, 200, { items: parsed.length > 0 ? parsed : CURATED_BOOKTOK_TRENDS });
+  } catch {
+    sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
+  }
+}
+
 // ─── Request Dispatcher ───────────────────────────────────────────────────────
 
 async function dispatch(
@@ -774,6 +820,11 @@ async function dispatch(
   sessKeyPromise: Promise<Buffer>
 ): Promise<void> {
   try {
+    if (url.pathname === "/api/trends/booktok") {
+      await handleBookTokTrends(req, res);
+      return;
+    }
+
     // Resolve session key once; used by session, exchange, and revoke handlers.
     const sessKey = await sessKeyPromise;
 
@@ -869,7 +920,7 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
     if (!req.url) { next(); return; }
 
     const url = new URL(req.url, "http://localhost");
-    if (!url.pathname.startsWith("/api/auth/mastodon/")) { next(); return; }
+    if (!url.pathname.startsWith("/api/auth/mastodon/") && url.pathname !== "/api/trends/booktok") { next(); return; }
 
     const ip = clientAddress(req);
     if (!allowRequest(ip)) {
