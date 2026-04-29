@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  MastodonActivityApiError,
   disconnectMastodon,
   getAccountStatuses,
   getBookTokTrends,
@@ -49,7 +48,7 @@ describe("mastodon-activity-api", () => {
         return jsonResponse({ items: [statusPayload("61")], links: {} });
       }
       if (path === "/api/trends/booktok") {
-        return jsonResponse({ items: [{ id: "trend-1", title: "Cozy fantasy", description: "Warm reads", tags: ["cozy"], score: 1 }] });
+        return jsonResponse({ items: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 1 }] });
       }
       throw new Error(`unexpected path ${path}`);
     });
@@ -58,17 +57,12 @@ describe("mastodon-activity-api", () => {
     await expect(getNotifications({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "51" }] });
     await expect(getAccountStatuses({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "61" }] });
     await expect(getBookTokTrends({ fetchImpl })).resolves.toMatchObject([{ id: "trend-1" }]);
+    await expect(disconnectMastodon({ fetchImpl })).resolves.toBeUndefined();
 
     for (const call of fetchImpl.mock.calls) {
       expect(String(call[0]).startsWith("/")).toBe(true);
       expect(String(call[0]).startsWith("http")).toBe(false);
     }
-  });
-
-  it("rejects non-proxy paths", async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ connected: false }));
-    await expect(getHomeTimeline({}, { fetchImpl, attempts: 1, timeoutMs: 100, signal: undefined })).resolves.toBeDefined();
-    await expect(disconnectMastodon({ fetchImpl, attempts: 1 })).resolves.toBeUndefined();
   });
 
   it("does not retry authentication failures", async () => {
