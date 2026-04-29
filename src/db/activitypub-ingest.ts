@@ -2,13 +2,21 @@ import { enqueueAuthorSearchDependents, upsertSearchIndexDependenciesForEntity }
 import { importedSearchIndexQueue, type SearchIndexQueue } from "../search/write-through-indexing";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
-import { enrichKnowledgeEntity } from "./entity-enrichment";
+import {
+  defaultEntityEnrichmentScheduler,
+  type EntityEnrichmentScheduler
+} from "./entity-enrichment-scheduler";
 
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
   upsertWork(entity: Extract<CanonicalApEntity, { kind: "work" }>): Promise<void>;
   upsertEdition(entity: Extract<CanonicalApEntity, { kind: "edition" }>): Promise<void>;
   upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
+};
+
+export type ActivityPubStoreOptions = {
+  searchIndexQueue?: SearchIndexQueue;
+  enrichmentScheduler?: EntityEnrichmentScheduler;
 };
 
 function nowIso(): string {
@@ -47,17 +55,18 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
   }
 }
 
-function maybeEnrich(entity: CanonicalApEntity, enabled: boolean): void {
-  if (!enabled) return;
+function scheduleEnrichment(entity: CanonicalApEntity, scheduler: EntityEnrichmentScheduler): void {
   const candidate = toKnowledgeCandidate(entity);
-  if (candidate) void enrichKnowledgeEntity(candidate);
+  if (candidate) scheduler.enqueue(candidate);
 }
 
 export function createRxDBActivityPubStore(
   db: RyuDatabase,
-  searchIndexQueue: SearchIndexQueue = importedSearchIndexQueue,
-  enableEnrichment = true
+  options: ActivityPubStoreOptions = {}
 ): ActivityPubEntityStore {
+  const searchIndexQueue = options.searchIndexQueue ?? importedSearchIndexQueue;
+  const enrichmentScheduler = options.enrichmentScheduler ?? defaultEntityEnrichmentScheduler;
+
   return {
     async upsertAuthor(entity) {
       const timestamp = nowIso();
@@ -72,7 +81,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       searchIndexQueue.enqueue(db, entity, timestamp);
       await enqueueAuthorSearchDependents(db, entity.id, timestamp, searchIndexQueue);
-      maybeEnrich(entity, enableEnrichment);
+      scheduleEnrichment(entity, enrichmentScheduler);
     },
     async upsertWork(entity) {
       const timestamp = nowIso();
@@ -88,7 +97,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       await upsertSearchIndexDependenciesForEntity(db, 'work', entity.id, entity.authorIds, timestamp);
       searchIndexQueue.enqueue(db, entity, timestamp);
-      maybeEnrich(entity, enableEnrichment);
+      scheduleEnrichment(entity, enrichmentScheduler);
     },
     async upsertEdition(entity) {
       const timestamp = nowIso();
@@ -109,7 +118,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       await upsertSearchIndexDependenciesForEntity(db, 'edition', entity.id, entity.authorIds, timestamp);
       searchIndexQueue.enqueue(db, entity, timestamp);
-      maybeEnrich(entity, enableEnrichment);
+      scheduleEnrichment(entity, enrichmentScheduler);
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
