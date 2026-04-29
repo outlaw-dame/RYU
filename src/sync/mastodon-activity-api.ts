@@ -70,10 +70,6 @@ const sessionSchema = z.object({
   scope: z.string().nullable().optional()
 });
 
-const bookTokPageSchema = z.object({
-  items: z.unknown()
-});
-
 const errorResponseSchema = z.object({
   error: z.string().optional(),
   message: z.string().optional()
@@ -113,8 +109,7 @@ export async function getAccountStatuses(
 
 export async function getBookTokTrends(options: MastodonActivityApiOptions = {}): Promise<BookTokTrend[]> {
   const response = await requestProxy(BOOKTOK_TRENDING_ENDPOINT, { method: "GET" }, { ...options, attempts: options.attempts ?? 2 });
-  const payload = bookTokPageSchema.parse(await response.json());
-  return parseBookTokTrendingPayload(payload.items);
+  return parseBookTokTrendingPayload(await response.json());
 }
 
 export async function disconnectMastodon(options: MastodonActivityApiOptions = {}): Promise<void> {
