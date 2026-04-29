@@ -13,6 +13,7 @@ const HEALTH_CHECK_STARTUP_DELAY_MS = 5_000;
 const DEFAULT_DB_KEY = 'default';
 const healthPromises = new Map<string, Promise<SearchIndexHealth>>();
 const repairPromises = new Map<string, Promise<void>>();
+const scheduledHealthChecks = new Set<string>();
 
 export type SearchIndexHealth = {
   searchableDocuments: number;
@@ -309,8 +310,16 @@ export function scheduleSearchVectorRebuild(): void {
   scheduleSearchIndexRepair();
 }
 
-export function scheduleSearchIndexHealthCheck(): void {
-  const run = () => healSearchIndexIfNeeded().catch((error) => console.error('Scheduled search index health check failed', { error }));
+export function scheduleSearchIndexHealthCheck(db?: RyuDatabase): void {
+  const key = dbKey(db);
+  if (scheduledHealthChecks.has(key)) return;
+  scheduledHealthChecks.add(key);
+
+  const run = () => {
+    scheduledHealthChecks.delete(key);
+    healSearchIndexIfNeeded(db).catch((error) => console.error('Scheduled search index health check failed', { error }));
+  };
+
   if (typeof window === 'undefined') {
     run();
     return;

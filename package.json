@@ -44,6 +44,7 @@
     "search:health-eval": "tsx scripts/search-index-health-eval.ts",
     "search:db-scope-eval": "tsx scripts/db-scoped-vector-indexing-eval.ts",
     "search:import-eval": "tsx scripts/activitypub-import-search-eval.ts",
+    "pwa:sw-policy-eval": "tsx scripts/service-worker-policy-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
   },
   "overrides": {

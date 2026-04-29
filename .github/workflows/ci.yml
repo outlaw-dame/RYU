@@ -75,6 +75,9 @@ jobs:
       - name: ActivityPub import search guardrails
         run: npm run search:import-eval
 
+      - name: Service worker policy guardrails
+        run: npm run pwa:sw-policy-eval
+
       - name: Build
         run: npm run build
 
