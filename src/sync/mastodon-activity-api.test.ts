@@ -35,7 +35,7 @@ describe("mastodon-activity-api", () => {
     expect(JSON.stringify(session)).not.toContain("access_token");
   });
 
-  it("loads timeline, notifications, account statuses, and trends through same-origin proxy paths", async () => {
+  it("loads timeline, notifications, account statuses, trends, and disconnect through same-origin proxy paths", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.startsWith("/api/auth/mastodon/timelines/home")) {
@@ -49,6 +49,9 @@ describe("mastodon-activity-api", () => {
       }
       if (path === "/api/trends/booktok") {
         return jsonResponse({ items: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 1 }] });
+      }
+      if (path === "/api/auth/mastodon/revoke") {
+        return jsonResponse({ revoked: true });
       }
       throw new Error(`unexpected path ${path}`);
     });
