@@ -50,6 +50,14 @@ const graph: CanonicalApGraph = {
   ]
 };
 
+const e2eCollections = {
+  authors: collections.authors,
+  works: collections.works,
+  editions: collections.editions,
+  entityresolutions: collections.entityresolutions,
+  searchindexdependencies: collections.searchindexdependencies
+} as unknown as RuntimeCollections;
+
 function docIdsByType(docs: SearchDocument[], type: SearchDocument['type']): string[] {
   return docs.filter((doc) => doc.type === type).map((doc) => doc.id).sort();
 }
@@ -74,7 +82,7 @@ async function main(): Promise<void> {
   });
 
   try {
-    await db.addCollections(collections as unknown as RuntimeCollections);
+    await db.addCollections(e2eCollections);
     const store = createRxDBActivityPubStore(db, queue);
 
     await ingestActivityPubGraph(graph, store);
