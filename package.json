@@ -16,6 +16,7 @@
     "schema:eval": "tsx scripts/schema-eval.ts",
     "db:schema-smoke": "tsx scripts/rxdb-authorids-smoke.ts",
     "activitypub:indexing-eval": "tsx scripts/activitypub-dependency-indexing-eval.ts",
+    "activitypub:enrichment-eval": "tsx scripts/activitypub-enrichment-isolation-eval.ts",
     "search:eval": "tsx scripts/search-eval.ts",
     "search:indexing-eval": "tsx scripts/write-through-indexing-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
