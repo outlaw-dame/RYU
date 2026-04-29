@@ -79,9 +79,16 @@ export const mastodonNotificationSchema = z.object({
   status: mastodonStatusSchema.nullable().optional()
 }).passthrough();
 
+export const mastodonListSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  replies_policy: z.string().optional()
+}).passthrough();
+
 export type MastodonAccount = z.infer<typeof mastodonAccountSchema>;
 export type MastodonStatus = z.infer<typeof mastodonStatusSchema>;
 export type MastodonNotification = z.infer<typeof mastodonNotificationSchema>;
+export type MastodonList = z.infer<typeof mastodonListSchema>;
 
 export class MastodonApiResponseError extends Error {
   readonly retryable: boolean;
@@ -129,6 +136,19 @@ export class MastodonClient {
 
   fetchNotifications(params: MastodonNotificationsParams = {}): Promise<MastodonPage<MastodonNotification>> {
     return this.fetchArray("/api/v1/notifications", mastodonNotificationSchema, params);
+  }
+
+  fetchBookmarks(params: MastodonPaginationParams = {}): Promise<MastodonPage<MastodonStatus>> {
+    return this.fetchArray("/api/v1/bookmarks", mastodonStatusSchema, params);
+  }
+
+  fetchFavourites(params: MastodonPaginationParams = {}): Promise<MastodonPage<MastodonStatus>> {
+    return this.fetchArray("/api/v1/favourites", mastodonStatusSchema, params);
+  }
+
+  async fetchLists(): Promise<MastodonList[]> {
+    const page = await this.fetchArray("/api/v1/lists", mastodonListSchema, {});
+    return page.items;
   }
 
   private async fetchArray<T>(path: string, itemSchema: ZodType<T>, params: Record<string, unknown>): Promise<MastodonPage<T>> {
