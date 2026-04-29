@@ -11,6 +11,7 @@ import { SettingsScreen } from "../components/settings/SettingsScreen";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
 import { normalizeSearchQuery } from "../search/query-normalize";
+import { scheduleSearchIndexHealthCheck } from "../search/index-lifecycle";
 import { scheduleSearchIndexDependencyHealthCheck } from "../search/search-index-dependency-lifecycle";
 import type { GroupedSearchResults } from "../search/group";
 import type { RankedSearchResult } from "../search/types";
@@ -436,7 +437,9 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (state === "ready") scheduleSearchIndexDependencyHealthCheck();
+    if (state !== "ready") return;
+    scheduleSearchIndexDependencyHealthCheck();
+    scheduleSearchIndexHealthCheck();
   }, [state]);
 
   useEffect(() => {
