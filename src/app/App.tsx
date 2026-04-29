@@ -26,8 +26,9 @@ import {
 } from "../auth/contracts";
 import { useInstanceDiscovery } from "../hooks/useInstanceDiscovery";
 import { useAutocomplete } from "../hooks/useAutocomplete";
+import { useMastodonShelves } from "../hooks/useMastodonShelves";
 import { sanitizeUrl, stripHtml } from "../lib/sanitize";
-import type { MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
+import type { MastodonList, MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
 import {
   MastodonSessionApiError,
   parseMastodonNotificationPageResponse,
@@ -455,6 +456,7 @@ export function App() {
     limit: 80
   });
   const { books: importedBooks, loading: importedBooksLoading, reload: reloadImportedBooks } = useImportedBooks(state === "ready");
+  const shelves = useMastodonShelves(connectedAccount !== null);
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
 
@@ -885,6 +887,15 @@ export function App() {
     window.open(instanceOrigin, "_blank", "noopener,noreferrer");
   }, []);
 
+  const openMemberSignIn = useCallback(() => {
+    setActiveTab("profile");
+  }, []);
+
+  const openMemberSignup = useCallback(() => {
+    setActiveTab("profile");
+    setPickerOpen(true);
+  }, []);
+
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
@@ -903,17 +914,9 @@ export function App() {
       id: trend.id,
       title: trend.title,
       author: trend.author,
-      coverUrl: trend.coverUrl
+      coverUrl: trend.coverUrl,
+      sourceUrl: trend.sourceUrl
     }));
-  }, [bookTokTrends]);
-  const openBookTokTrend = useCallback((trendId: string) => {
-    const trend = bookTokTrends.find((entry) => entry.id === trendId);
-    const href = sanitizeUrl(trend?.sourceUrl ?? null);
-    if (!href) {
-      return;
-    }
-
-    window.open(href, "_blank", "noopener,noreferrer");
   }, [bookTokTrends]);
 
   useEffect(() => {
@@ -987,7 +990,58 @@ export function App() {
             <AnimatePresence mode="wait">
               {activeTab === "home" && (
                 <TabPanel id="home" activeTab={activeTab}>
-                  <ScreenTitle eyebrow="Good evening" title="My Library" />
+                  <ScreenTitle eyebrow="Good evening" title="Library" />
+                  <section style={{
+                    margin: "0 var(--space-4) var(--space-6)",
+                    padding: "var(--space-3)",
+                    borderRadius: "var(--radius-lg)",
+                    background: "var(--color-bg-secondary)",
+                    boxShadow: "var(--shadow-card)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--space-3)",
+                    flexWrap: "wrap"
+                  }}>
+                    <div style={{ display: "grid", gap: "2px" }}>
+                      <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>Member access</strong>
+                      <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                        Sign in if you already have an account or create one to sync shelves and activity.
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={openMemberSignIn}
+                        style={{
+                          minHeight: "calc(var(--touch-min) - 6px)",
+                          border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
+                          borderRadius: "var(--radius-md)",
+                          background: "transparent",
+                          color: "var(--color-text)",
+                          fontWeight: 600,
+                          padding: "0 var(--space-3)"
+                        }}
+                      >
+                        Member sign in
+                      </button>
+                      <button
+                        type="button"
+                        onClick={openMemberSignup}
+                        style={{
+                          minHeight: "calc(var(--touch-min) - 6px)",
+                          border: 0,
+                          borderRadius: "var(--radius-md)",
+                          background: "var(--color-accent)",
+                          color: "white",
+                          fontWeight: 700,
+                          padding: "0 var(--space-3)"
+                        }}
+                      >
+                        Become a member
+                      </button>
+                    </div>
+                  </section>
                   <SectionHeader title="Currently Reading" actionLabel="See All" />
                   {state === "ready" && !importedBooksLoading ? <CoverGrid books={featuredBooks.slice(0, 3)} /> : <SkeletonCoverGrid count={3} />}
                   <div style={{ height: "var(--space-8)" }} />
@@ -1002,10 +1056,7 @@ export function App() {
                   {bookTokLoading && bookTokTrends.length === 0 ? (
                     <SkeletonCoverGrid count={3} />
                   ) : (
-                    <CoverGrid
-                      books={bookTokCoverBooks.slice(0, 9)}
-                      onBookPress={(book) => openBookTokTrend(book.id)}
-                    />
+                    <CoverGrid books={bookTokCoverBooks.slice(0, 9)} />
                   )}
                   {bookTokError ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
@@ -1207,7 +1258,86 @@ export function App() {
               {activeTab === "shelves" && (
                 <TabPanel id="shelves" activeTab={activeTab}>
                   <ScreenTitle title="Shelves" />
-                  <CoverGrid books={sampleBooks} />
+                  {!connectedAccount ? (
+                    <EmptyState title="Sign in to load shelves" description="Your Mastodon bookmarks, favourites, and lists will appear here." />
+                  ) : (
+                    <div style={{ display: "grid", gap: "var(--space-6)" }}>
+                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                        <SectionHeader
+                          title="Bookmarks"
+                          actionLabel={shelves.loading ? undefined : "Refresh"}
+                          onAction={shelves.loading ? undefined : shelves.reload}
+                        />
+                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                          {shelves.loading && shelves.bookmarks.length === 0 ? (
+                            <>
+                              <Skeleton style={{ height: 92 }} />
+                              <Skeleton style={{ height: 92 }} />
+                            </>
+                          ) : shelves.bookmarks.length > 0 ? (
+                            shelves.bookmarks.map((status) => (
+                              <ActivityStatusRow key={status.id} status={status} />
+                            ))
+                          ) : (
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              No bookmarks yet.
+                            </p>
+                          )}
+                        </div>
+                      </section>
+                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                        <SectionHeader title="Favourites" />
+                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                          {shelves.loading && shelves.favourites.length === 0 ? (
+                            <>
+                              <Skeleton style={{ height: 92 }} />
+                              <Skeleton style={{ height: 92 }} />
+                            </>
+                          ) : shelves.favourites.length > 0 ? (
+                            shelves.favourites.map((status) => (
+                              <ActivityStatusRow key={status.id} status={status} />
+                            ))
+                          ) : (
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+                              No favourites yet.
+                            </p>
+                          )}
+                        </div>
+                      </section>
+                      {shelves.lists.length > 0 ? (
+                        <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                          <SectionHeader title="Lists" />
+                          <div style={{ display: "grid", gap: "var(--space-2)", padding: "0 var(--space-4)" }}>
+                            {shelves.lists.map((list: MastodonList) => (
+                              <div
+                                key={list.id}
+                                style={{
+                                  borderRadius: "var(--radius-md)",
+                                  background: "var(--color-bg-secondary)",
+                                  color: "var(--color-text)",
+                                  padding: "var(--space-3) var(--space-4)",
+                                  fontWeight: 600,
+                                  fontSize: "var(--text-subhead)",
+                                  boxShadow: "var(--shadow-card)"
+                                }}
+                              >
+                                {list.title}
+                              </div>
+                            ))}
+                          </div>
+                        </section>
+                      ) : null}
+                      {shelves.error === "unauthenticated" ? (
+                        <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                          Your session expired. Sign in again to load shelves.
+                        </p>
+                      ) : shelves.error === "network" ? (
+                        <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
+                          Shelves could not be loaded right now.
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
                 </TabPanel>
               )}
               {activeTab === "activity" && (
