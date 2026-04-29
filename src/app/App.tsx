@@ -351,6 +351,17 @@ type NowReadingImportedBook = {
   sourceUrl?: string;
 };
 
+type InAppReaderProfile = {
+  displayName: string;
+  username: string;
+  avatarSrc: string | null;
+  bio: string | null;
+  featuredHashtags: string[];
+  recentTitles: string[];
+  externalProfileUrl: string | null;
+  originLabel: string;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -467,10 +478,6 @@ function statusCreatorLabel(status: MastodonStatus): string | null {
     }
   }
 
-  const tags: unknown[] = Array.isArray((status as unknown as Record<string, unknown>).tags)
-    ? (status as unknown as Record<string, unknown>).tags as unknown[]
-    : [];
-
   return null;
 }
 
@@ -490,6 +497,107 @@ function resolveCoverProxySrc(rawUrl: string | null | undefined): string | null 
   }
 
   return parsed.toString();
+}
+
+function retryImageViaProxy(event: React.SyntheticEvent<HTMLImageElement>): void {
+  const element = event.currentTarget;
+  const alreadyRetried = element.dataset.proxyRetry === "1";
+  if (alreadyRetried) {
+    element.style.display = "none";
+    return;
+  }
+
+  const currentSrc = element.getAttribute("src");
+  const safeSrc = sanitizeUrl(currentSrc);
+  if (!safeSrc) {
+    element.style.display = "none";
+    return;
+  }
+
+  const parsed = new URL(safeSrc, window.location.origin);
+  if (parsed.origin === window.location.origin || parsed.protocol !== "https:") {
+    element.style.display = "none";
+    return;
+  }
+
+  element.dataset.proxyRetry = "1";
+  element.src = `/api/media/cover?url=${encodeURIComponent(parsed.toString())}`;
+}
+
+function accountBio(account: MastodonStatus["account"]): string | null {
+  const record = account as unknown as Record<string, unknown>;
+  const note = typeof record.note === "string" ? stripHtml(record.note).trim() : "";
+  if (note) {
+    return note;
+  }
+
+  const summary = typeof record.summary === "string" ? stripHtml(record.summary).trim() : "";
+  return summary || null;
+}
+
+function statusHashtags(status: MastodonStatus): string[] {
+  const record = status as unknown as Record<string, unknown>;
+  const rawTags = Array.isArray(record.tags) ? record.tags as unknown[] : [];
+
+  return rawTags
+    .map((tag) => {
+      const tagRecord = asRecord(tag);
+      if (!tagRecord || typeof tagRecord.name !== "string") {
+        return null;
+      }
+
+      const name = tagRecord.name.trim().replace(/^#/, "");
+      return name ? name.toLowerCase() : null;
+    })
+    .filter((value): value is string => Boolean(value));
+}
+
+function statusAccountKey(status: MastodonStatus): string {
+  return (status.account.acct || status.account.id || status.account.username || "unknown").toLowerCase();
+}
+
+function buildReaderProfileFromStatus(status: MastodonStatus, allStatuses: MastodonStatus[]): InAppReaderProfile {
+  const account = status.account;
+  const accountKey = statusAccountKey(status);
+  const related = allStatuses.filter((item) => statusAccountKey(item) === accountKey);
+  const hashtagScores = new Map<string, number>();
+
+  for (const item of related) {
+    for (const tag of statusHashtags(item)) {
+      hashtagScores.set(tag, (hashtagScores.get(tag) ?? 0) + 1);
+    }
+  }
+
+  const featuredHashtags = Array.from(hashtagScores.entries())
+    .sort((left, right) => right[1] - left[1])
+    .slice(0, 8)
+    .map(([tag]) => `#${tag}`);
+
+  const recentTitles = related
+    .map((item) => statusBookTitle(item))
+    .filter((title, index, values) => Boolean(title) && values.indexOf(title) === index)
+    .slice(0, 4);
+
+  const username = account.acct ? `@${account.acct}` : account.username ? `@${account.username}` : "@reader";
+  const displayName = mastodonAccountLabel(account);
+  const avatarSrc = resolveCoverProxySrc(account.avatar ?? null);
+  const externalProfileUrl = sanitizeUrl(account.url ?? null);
+  const originLabel = username.includes("bookwyrm")
+    ? "BookWyrm"
+    : username.includes("mastodon") || externalProfileUrl?.includes("mastodon")
+      ? "Mastodon"
+      : "Fediverse";
+
+  return {
+    displayName,
+    username,
+    avatarSrc,
+    bio: accountBio(account),
+    featuredHashtags,
+    recentTitles,
+    externalProfileUrl,
+    originLabel
+  };
 }
 
 function matchImportedBookCover(
@@ -534,7 +642,17 @@ function matchImportedBookCover(
   return null;
 }
 
-function NowReadingStatusGrid({ statuses, importedBooks }: { statuses: MastodonStatus[]; importedBooks: NowReadingImportedBook[] }) {
+function NowReadingStatusGrid({
+  statuses,
+  importedBooks,
+  onOpenProfile,
+  onOpenStatus
+}: {
+  statuses: MastodonStatus[];
+  importedBooks: NowReadingImportedBook[];
+  onOpenProfile: (status: MastodonStatus) => void;
+  onOpenStatus: (status: MastodonStatus) => void;
+}) {
   return (
     <motion.div
       initial="hidden"
@@ -550,160 +668,15 @@ function NowReadingStatusGrid({ statuses, importedBooks }: { statuses: MastodonS
       }}
     >
       {statuses.map((status) => {
-        const href = sanitizeUrl(status.url ?? status.uri ?? null);
         const text = mastodonStatusText(status);
         const account = mastodonAccountLabel(status.account);
         const accountHandle = status.account.acct ? `@${status.account.acct}` : status.account.username ? `@${status.account.username}` : "@reader";
-        const accountUrl = sanitizeUrl(status.account.url ?? null);
         const avatarSrc = resolveCoverProxySrc(status.account.avatar ?? null);
         const card = statusCardData(status);
         const creatorLabel = statusCreatorLabel(status);
         const bookTitle = statusBookTitle(status);
         const importedCoverMatch = matchImportedBookCover(bookTitle, importedBooks);
         const coverSrc = resolveCoverProxySrc(card.image) ?? resolveCoverProxySrc(statusMediaCover(status)) ?? resolveCoverProxySrc(importedCoverMatch?.coverUrl ?? null);
-        const cardHref = card.url ?? href;
-        const cover = (
-          <div
-            style={{
-              position: "relative",
-              display: "grid",
-              gridTemplateRows: coverSrc ? "1fr auto" : "auto auto 1fr",
-              aspectRatio: "2 / 3",
-              borderRadius: "var(--radius-cover)",
-              overflow: "hidden",
-              background: "linear-gradient(145deg, var(--color-bg-secondary), var(--color-bg-tertiary))",
-              boxShadow: "var(--shadow-cover)",
-              padding: "var(--space-2)"
-            }}
-          >
-            {coverSrc ? (
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  backgroundImage: `url(${coverSrc})`,
-                  backgroundSize: "cover",
-                  backgroundPosition: "center",
-                  backgroundRepeat: "no-repeat"
-                }}
-              />
-            ) : null}
-            <div
-              style={{
-                position: "relative",
-                zIndex: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "var(--space-2)"
-              }}
-            >
-              <span
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  borderRadius: "999px",
-                  overflow: "hidden",
-                  display: "grid",
-                  placeItems: "center",
-                  fontSize: "var(--text-caption2)",
-                  fontWeight: 700,
-                  color: "white",
-                  background: "color-mix(in srgb, var(--color-text) 26%, transparent)",
-                  border: "1px solid color-mix(in srgb, white 50%, transparent)"
-                }}
-              >
-                  <span aria-hidden="true">{accountInitials(status.account)}</span>
-                  {avatarSrc ? (
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        backgroundImage: `url(${avatarSrc})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                        backgroundRepeat: "no-repeat"
-                      }}
-                    />
-                  ) : null}
-              </span>
-              {creatorLabel ? (
-                <span
-                  style={{
-                    maxWidth: "70%",
-                    borderRadius: "999px",
-                    padding: "2px 8px",
-                    fontSize: "10px",
-                    fontWeight: 700,
-                    color: "white",
-                    background: "color-mix(in srgb, var(--color-accent) 82%, black 8%)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {creatorLabel}
-                </span>
-              ) : null}
-            </div>
-            <div style={{ position: "relative", zIndex: 1, marginTop: "var(--space-2)", minHeight: 0 }}>
-              <strong
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  color: coverSrc ? "white" : "var(--color-text)",
-                  fontFamily: "var(--font-display)",
-                  fontSize: "var(--text-subhead)",
-                  lineHeight: "var(--leading-subhead)"
-                }}
-              >
-                {bookTitle}
-              </strong>
-              <p
-                style={{
-                  margin: "var(--space-1) 0 0",
-                  color: coverSrc ? "rgba(255,255,255,0.92)" : "var(--color-text-secondary)",
-                  fontSize: "var(--text-caption1)",
-                  lineHeight: "1.3",
-                  display: "-webkit-box",
-                  WebkitLineClamp: coverSrc ? 2 : 6,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  overflowWrap: "anywhere",
-                  wordBreak: "break-word"
-                }}
-              >
-                {text}
-              </p>
-            </div>
-            <span
-              style={{
-                position: "relative",
-                zIndex: 1,
-                marginTop: "var(--space-2)",
-                color: coverSrc ? "rgba(255,255,255,0.8)" : "var(--color-text-tertiary)",
-                fontSize: "var(--text-caption2)",
-                fontWeight: 700
-              }}
-            >
-              {formatActivityDate(status.created_at)}
-            </span>
-            {coverSrc ? (
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  background: "linear-gradient(180deg, rgba(6,8,16,0.05) 0%, rgba(6,8,16,0.72) 72%, rgba(6,8,16,0.88) 100%)"
-                }}
-              />
-            ) : null}
-          </div>
-        );
 
         return (
           <motion.div
@@ -711,57 +684,179 @@ function NowReadingStatusGrid({ statuses, importedBooks }: { statuses: MastodonS
             variants={{ hidden: { opacity: 0, y: 8, scale: 0.96 }, show: { opacity: 1, y: 0, scale: 1 } }}
             style={{ display: "grid", gap: "var(--space-2)", width: "100%", minWidth: 0 }}
           >
-            {cardHref ? (
-              <a
-                href={cardHref}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={`Open post by ${account}`}
-                style={{ display: "block", textDecoration: "none" }}
+            <button
+              type="button"
+              onClick={() => onOpenStatus(status)}
+              aria-label={`Open in-app post by ${account}`}
+              style={{ border: 0, padding: 0, margin: 0, display: "block", textAlign: "left", background: "transparent", cursor: "pointer" }}
+            >
+              <div
+                style={{
+                  position: "relative",
+                  display: "grid",
+                  gridTemplateRows: coverSrc ? "1fr auto" : "auto auto 1fr",
+                  aspectRatio: "2 / 3",
+                  borderRadius: "var(--radius-cover)",
+                  overflow: "hidden",
+                  background: "linear-gradient(145deg, var(--color-bg-secondary), var(--color-bg-tertiary))",
+                  boxShadow: "var(--shadow-cover)",
+                  padding: "var(--space-2)"
+                }}
               >
-                {cover}
-              </a>
-            ) : cover}
-            <div>
-              {cardHref ? (
-                <a
-                  href={cardHref}
-                  target="_blank"
-                  rel="noreferrer"
+                {coverSrc ? (
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      backgroundImage: `url(${coverSrc})`,
+                      backgroundSize: "cover",
+                      backgroundPosition: "center",
+                      backgroundRepeat: "no-repeat"
+                    }}
+                  />
+                ) : null}
+                <div
                   style={{
-                    color: "var(--color-text)",
-                    fontSize: "var(--text-footnote)",
-                    fontWeight: 600,
-                    lineHeight: "var(--leading-footnote)",
-                    letterSpacing: "var(--tracking-footnote)",
-                    textDecoration: "none",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                    overflowWrap: "anywhere"
+                    position: "relative",
+                    zIndex: 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--space-2)"
                   }}
                 >
-                  {bookTitle}
-                </a>
-              ) : (
+                  <span
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "999px",
+                      overflow: "hidden",
+                      display: "grid",
+                      placeItems: "center",
+                      fontSize: "var(--text-caption2)",
+                      fontWeight: 700,
+                      color: "white",
+                      background: "color-mix(in srgb, var(--color-text) 26%, transparent)",
+                      border: "1px solid color-mix(in srgb, white 50%, transparent)",
+                      position: "relative"
+                    }}
+                  >
+                    <span aria-hidden="true">{accountInitials(status.account)}</span>
+                    {avatarSrc ? (
+                      <img
+                        src={avatarSrc}
+                        alt={`${account} avatar`}
+                        loading="lazy"
+                        decoding="async"
+                        referrerPolicy="no-referrer"
+                        onError={(event) => {
+                          retryImageViaProxy(event);
+                        }}
+                        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                      />
+                    ) : null}
+                  </span>
+                  {creatorLabel ? (
+                    <span
+                      style={{
+                        maxWidth: "70%",
+                        borderRadius: "999px",
+                        padding: "2px 8px",
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: "white",
+                        background: "color-mix(in srgb, var(--color-accent) 82%, black 8%)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}
+                    >
+                      {creatorLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <div style={{ position: "relative", zIndex: 1, marginTop: "var(--space-2)", minHeight: 0 }}>
+                  <strong
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 3,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      color: coverSrc ? "white" : "var(--color-text)",
+                      fontFamily: "var(--font-display)",
+                      fontSize: "var(--text-subhead)",
+                      lineHeight: "var(--leading-subhead)"
+                    }}
+                  >
+                    {bookTitle}
+                  </strong>
+                  <p
+                    style={{
+                      margin: "var(--space-1) 0 0",
+                      color: coverSrc ? "rgba(255,255,255,0.92)" : "var(--color-text-secondary)",
+                      fontSize: "var(--text-caption1)",
+                      lineHeight: "1.3",
+                      display: "-webkit-box",
+                      WebkitLineClamp: coverSrc ? 2 : 6,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word"
+                    }}
+                  >
+                    {text}
+                  </p>
+                </div>
                 <span
                   style={{
-                    color: "var(--color-text)",
-                    fontSize: "var(--text-footnote)",
-                    fontWeight: 600,
-                    lineHeight: "var(--leading-footnote)",
-                    letterSpacing: "var(--tracking-footnote)",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 2,
-                    WebkitBoxOrient: "vertical",
-                    overflow: "hidden",
-                    overflowWrap: "anywhere"
+                    position: "relative",
+                    zIndex: 1,
+                    marginTop: "var(--space-2)",
+                    color: coverSrc ? "rgba(255,255,255,0.8)" : "var(--color-text-tertiary)",
+                    fontSize: "var(--text-caption2)",
+                    fontWeight: 700
                   }}
                 >
-                  {bookTitle}
+                  {formatActivityDate(status.created_at)}
                 </span>
-              )}
+                {coverSrc ? (
+                  <div
+                    aria-hidden="true"
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: "linear-gradient(180deg, rgba(6,8,16,0.05) 0%, rgba(6,8,16,0.72) 72%, rgba(6,8,16,0.88) 100%)"
+                    }}
+                  />
+                ) : null}
+              </div>
+            </button>
+            <div>
+              <button
+                type="button"
+                onClick={() => onOpenStatus(status)}
+                style={{
+                  border: 0,
+                  padding: 0,
+                  margin: 0,
+                  background: "transparent",
+                  color: "var(--color-text)",
+                  fontSize: "var(--text-footnote)",
+                  fontWeight: 600,
+                  lineHeight: "var(--leading-footnote)",
+                  letterSpacing: "var(--tracking-footnote)",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  overflowWrap: "anywhere",
+                  textAlign: "left",
+                  cursor: "pointer"
+                }}
+              >
+                {bookTitle}
+              </button>
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: 2, minWidth: 0 }}>
                 <span
                   style={{
@@ -775,63 +870,315 @@ function NowReadingStatusGrid({ statuses, importedBooks }: { statuses: MastodonS
                     fontSize: "9px",
                     fontWeight: 700,
                     color: "white",
-                    background: "color-mix(in srgb, var(--color-text) 22%, transparent)"
+                    background: "color-mix(in srgb, var(--color-text) 22%, transparent)",
+                    position: "relative"
                   }}
                 >
                   <span aria-hidden="true">{accountInitials(status.account)}</span>
                   {avatarSrc ? (
-                    <span
+                    <img
+                      src={avatarSrc}
+                      alt=""
                       aria-hidden="true"
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        backgroundImage: `url(${avatarSrc})`,
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                        backgroundRepeat: "no-repeat"
+                      loading="lazy"
+                      decoding="async"
+                      referrerPolicy="no-referrer"
+                      onError={(event) => {
+                        retryImageViaProxy(event);
                       }}
+                      style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
                     />
                   ) : null}
                 </span>
-                {accountUrl ? (
-                  <a
-                    href={accountUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      color: "var(--color-text-tertiary)",
-                      fontSize: "var(--text-caption2)",
-                      lineHeight: "var(--leading-caption2)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      textDecoration: "none"
-                    }}
-                    title={`${account} (${accountHandle})`}
-                  >
-                    {account}
-                  </a>
-                ) : (
-                  <span
-                    style={{
-                      color: "var(--color-text-tertiary)",
-                      fontSize: "var(--text-caption2)",
-                      lineHeight: "var(--leading-caption2)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap"
-                    }}
-                    title={`${account} (${accountHandle})`}
-                  >
-                    {account}
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={() => onOpenProfile(status)}
+                  style={{
+                    border: 0,
+                    padding: 0,
+                    margin: 0,
+                    background: "transparent",
+                    color: "var(--color-text-tertiary)",
+                    fontSize: "var(--text-caption2)",
+                    lineHeight: "var(--leading-caption2)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    textAlign: "left",
+                    cursor: "pointer"
+                  }}
+                  title={`${account} (${accountHandle})`}
+                >
+                  {account}
+                </button>
               </div>
             </div>
           </motion.div>
         );
       })}
     </motion.div>
+  );
+}
+
+function ReaderProfileSheet({
+  profile,
+  onClose
+}: {
+  profile: InAppReaderProfile;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${profile.displayName} profile`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "color-mix(in srgb, var(--color-bg) 72%, black 28%)",
+        display: "grid",
+        placeItems: "center",
+        padding: "var(--space-4)",
+        zIndex: 55
+      }}
+      onClick={onClose}
+    >
+      <section
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(680px, 100%)",
+          maxHeight: "82dvh",
+          overflowY: "auto",
+          borderRadius: "var(--radius-xl)",
+          background: "var(--color-bg-elevated)",
+          boxShadow: "var(--shadow-card)",
+          padding: "var(--space-5)",
+          display: "grid",
+          gap: "var(--space-4)"
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--space-3)" }}>
+          <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", minWidth: 0 }}>
+            <div
+              style={{
+                width: "76px",
+                height: "76px",
+                borderRadius: "999px",
+                overflow: "hidden",
+                background: "var(--color-bg-secondary)",
+                display: "grid",
+                placeItems: "center",
+                fontSize: "var(--text-title3)",
+                fontWeight: 700,
+                color: "var(--color-text-secondary)",
+                position: "relative"
+              }}
+            >
+              <span aria-hidden="true">{profile.displayName.slice(0, 2).toUpperCase()}</span>
+              {profile.avatarSrc ? (
+                <img
+                  src={profile.avatarSrc}
+                  alt={`${profile.displayName} avatar`}
+                  loading="lazy"
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => {
+                    retryImageViaProxy(event);
+                  }}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : null}
+            </div>
+            <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+              <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-title2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {profile.displayName}
+              </strong>
+              <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {profile.username}
+              </span>
+              <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                {profile.originLabel} profile
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ border: 0, borderRadius: "var(--radius-sm)", background: "var(--color-bg-secondary)", color: "var(--color-text)", minHeight: "36px", padding: "0 var(--space-3)" }}
+          >
+            Close
+          </button>
+        </div>
+
+        <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
+          <strong style={{ fontSize: "var(--text-subhead)" }}>Bio</strong>
+          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+            {profile.bio ?? "No bio provided on this account yet."}
+          </p>
+        </section>
+
+        <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
+          <strong style={{ fontSize: "var(--text-subhead)" }}>Featured hashtags</strong>
+          {profile.featuredHashtags.length > 0 ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+              {profile.featuredHashtags.map((tag) => (
+                <span key={tag} style={{ borderRadius: "999px", padding: "4px 10px", background: "color-mix(in srgb, var(--color-accent) 16%, var(--color-bg))", color: "var(--color-text)", fontSize: "var(--text-caption1)", fontWeight: 700 }}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
+              No hashtags detected from recent now-reading posts.
+            </p>
+          )}
+        </section>
+
+        {profile.recentTitles.length > 0 ? (
+          <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
+            <strong style={{ fontSize: "var(--text-subhead)" }}>Recent reading mentions</strong>
+            <ul style={{ margin: 0, paddingLeft: "var(--space-4)", color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", display: "grid", gap: "var(--space-1)" }}>
+              {profile.recentTitles.map((title) => (
+                <li key={title}>{title}</li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+
+        {profile.externalProfileUrl ? (
+          <button
+            type="button"
+            onClick={() => window.open(profile.externalProfileUrl ?? "", "_blank", "noopener,noreferrer")}
+            style={{ minHeight: "var(--touch-min)", border: 0, borderRadius: "var(--radius-md)", background: "var(--color-accent)", color: "white", fontWeight: 700 }}
+          >
+            Open remote profile
+          </button>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+function NowReadingPostSheet({
+  status,
+  importedBooks,
+  onClose,
+  onOpenProfile
+}: {
+  status: MastodonStatus;
+  importedBooks: NowReadingImportedBook[];
+  onClose: () => void;
+  onOpenProfile: (status: MastodonStatus) => void;
+}) {
+  const text = mastodonStatusText(status);
+  const card = statusCardData(status);
+  const title = statusBookTitle(status);
+  const account = mastodonAccountLabel(status.account);
+  const accountHandle = status.account.acct ? `@${status.account.acct}` : status.account.username ? `@${status.account.username}` : "@reader";
+  const avatarSrc = resolveCoverProxySrc(status.account.avatar ?? null);
+  const coverSrc = resolveCoverProxySrc(card.image) ?? resolveCoverProxySrc(statusMediaCover(status)) ?? resolveCoverProxySrc(matchImportedBookCover(title, importedBooks)?.coverUrl ?? null);
+  const externalHref = sanitizeUrl(card.url ?? status.url ?? status.uri ?? null);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reading post"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "color-mix(in srgb, var(--color-bg) 72%, black 28%)",
+        display: "grid",
+        placeItems: "center",
+        padding: "var(--space-4)",
+        zIndex: 54
+      }}
+      onClick={onClose}
+    >
+      <section
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(760px, 100%)",
+          maxHeight: "82dvh",
+          overflowY: "auto",
+          borderRadius: "var(--radius-xl)",
+          background: "var(--color-bg-elevated)",
+          boxShadow: "var(--shadow-card)",
+          padding: "var(--space-5)",
+          display: "grid",
+          gap: "var(--space-4)"
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-3)" }}>
+          <button
+            type="button"
+            onClick={() => onOpenProfile(status)}
+            style={{ border: 0, padding: 0, margin: 0, background: "transparent", display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer", minWidth: 0 }}
+          >
+            <span style={{ width: "34px", height: "34px", borderRadius: "999px", overflow: "hidden", display: "grid", placeItems: "center", background: "var(--color-bg-secondary)", position: "relative", fontSize: "var(--text-caption1)", fontWeight: 700 }}>
+              <span aria-hidden="true">{accountInitials(status.account)}</span>
+              {avatarSrc ? (
+                <img
+                  src={avatarSrc}
+                  alt=""
+                  aria-hidden="true"
+                  referrerPolicy="no-referrer"
+                  onError={(event) => {
+                    retryImageViaProxy(event);
+                  }}
+                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : null}
+            </span>
+            <span style={{ display: "grid", textAlign: "left", minWidth: 0 }}>
+              <strong style={{ color: "var(--color-text)", fontSize: "var(--text-subhead)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{account}</strong>
+              <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption2)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{accountHandle}</span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ border: 0, borderRadius: "var(--radius-sm)", background: "var(--color-bg-secondary)", color: "var(--color-text)", minHeight: "36px", padding: "0 var(--space-3)" }}
+          >
+            Close
+          </button>
+        </div>
+
+        <article style={{ display: "grid", gap: "var(--space-3)", borderRadius: "var(--radius-lg)", background: "var(--color-bg)", padding: "var(--space-4)" }}>
+          {coverSrc ? (
+            <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "var(--radius-md)", backgroundImage: `url(${coverSrc})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+          ) : null}
+          <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-title2)", lineHeight: "var(--leading-title2)", overflowWrap: "anywhere" }}>
+            {title}
+          </h2>
+          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+            {text}
+          </p>
+          <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+            {formatActivityDate(status.created_at)}
+          </p>
+        </article>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+          <button
+            type="button"
+            onClick={() => onOpenProfile(status)}
+            style={{ minHeight: "calc(var(--touch-min) - 6px)", border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)", borderRadius: "var(--radius-md)", background: "transparent", color: "var(--color-text)", fontWeight: 700, padding: "0 var(--space-4)" }}
+          >
+            View reader profile
+          </button>
+          {externalHref ? (
+            <button
+              type="button"
+              onClick={() => window.open(externalHref, "_blank", "noopener,noreferrer")}
+              style={{ minHeight: "calc(var(--touch-min) - 6px)", border: 0, borderRadius: "var(--radius-md)", background: "var(--color-accent)", color: "white", fontWeight: 700, padding: "0 var(--space-4)" }}
+            >
+              Open original post
+            </button>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -956,6 +1303,8 @@ export function App() {
   const [bookTokError, setBookTokError] = useState<string | null>(null);
   const [bookTokLoadedAt, setBookTokLoadedAt] = useState<number | null>(null);
   const [bookTokRefreshNonce, setBookTokRefreshNonce] = useState(0);
+  const [activeReaderProfile, setActiveReaderProfile] = useState<InAppReaderProfile | null>(null);
+  const [activeNowReadingStatus, setActiveNowReadingStatus] = useState<MastodonStatus | null>(null);
   const { state } = useDatabase();
   const autocompleteResults = useAutocomplete(searchQuery);
   const preferredSoftwareSlugs = useMemo(() => (preferredSoftware ? [preferredSoftware] : []), [preferredSoftware]);
@@ -1458,6 +1807,14 @@ export function App() {
     setPickerOpen(true);
   }, []);
 
+  const openReaderProfile = useCallback((status: MastodonStatus) => {
+    setActiveReaderProfile(buildReaderProfileFromStatus(status, nowReadingStatuses));
+  }, [nowReadingStatuses]);
+
+  const openNowReadingStatus = useCallback((status: MastodonStatus) => {
+    setActiveNowReadingStatus(status);
+  }, []);
+
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
@@ -1618,7 +1975,12 @@ export function App() {
                   {nowReadingLoading && nowReadingStatuses.length === 0 ? (
                     <SkeletonCoverGrid count={3} />
                   ) : nowReadingStatuses.length > 0 ? (
-                    <NowReadingStatusGrid statuses={nowReadingStatuses.slice(0, 6)} importedBooks={importedBooks} />
+                    <NowReadingStatusGrid
+                      statuses={nowReadingStatuses.slice(0, 6)}
+                      importedBooks={importedBooks}
+                      onOpenProfile={openReaderProfile}
+                      onOpenStatus={openNowReadingStatus}
+                    />
                   ) : (
                     <div style={{ padding: "0 var(--space-4)" }}>
                       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2424,6 +2786,25 @@ export function App() {
                 </TabPanel>
               )}
             </AnimatePresence>
+
+            {activeNowReadingStatus ? (
+              <NowReadingPostSheet
+                status={activeNowReadingStatus}
+                importedBooks={importedBooks}
+                onClose={() => setActiveNowReadingStatus(null)}
+                onOpenProfile={(status) => {
+                  setActiveNowReadingStatus(null);
+                  openReaderProfile(status);
+                }}
+              />
+            ) : null}
+
+            {activeReaderProfile ? (
+              <ReaderProfileSheet
+                profile={activeReaderProfile}
+                onClose={() => setActiveReaderProfile(null)}
+              />
+            ) : null}
           </main>
           <AppTabBar activeTab={activeTab} onChange={changeTab} />
         </div>
