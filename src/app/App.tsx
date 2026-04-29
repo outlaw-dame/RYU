@@ -319,7 +319,7 @@ export function App() {
     let cancelled = false;
     const endpoint = import.meta.env.VITE_MASTODON_AUTH_SESSION_ENDPOINT ?? DEFAULT_MASTODON_SESSION_ENDPOINT;
 
-    void fetch(endpoint)
+    void fetchWithBackoff(endpoint, {}, 2, 8000)
       .then(async (r) => {
         if (!r.ok || cancelled) return;
         const data = await r.json() as { connected?: boolean; instanceOrigin?: string; account?: { acct: string } | null };

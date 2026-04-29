@@ -163,6 +163,17 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 }
 
 function clientAddress(req: IncomingMessage): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string") {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
+  if (Array.isArray(forwarded)) {
+    const first = forwarded[0]?.split(",")[0]?.trim();
+    if (first) return first;
+  }
+
   return req.socket.remoteAddress ?? "unknown";
 }
 
@@ -251,7 +262,9 @@ function isPrivateAddress(hostname: string): boolean {
     /^169\.254\.\d{1,3}\.\d{1,3}$/.test(hostname) ||
     /^fc[0-9a-f]{2}:/i.test(hostname) ||
     /^fd[0-9a-f]{2}:/i.test(hostname) ||
-    hostname === "0.0.0.0"
+    hostname === "0.0.0.0" ||
+    hostname === "::1" ||
+    hostname === "::"
   );
 }
 
