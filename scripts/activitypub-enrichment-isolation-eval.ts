@@ -4,6 +4,7 @@ import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { createRxDBActivityPubStore, ingestActivityPubGraph } from '../src/db/activitypub-ingest';
 import { createEntityEnrichmentScheduler } from '../src/db/entity-enrichment-scheduler';
+import type { KnowledgeEntityCandidate } from '../src/db/entity-enrichment';
 import type { RyuCollections, RyuDatabase } from '../src/db/client';
 import { collections } from '../src/db/runtime-schema';
 import { createSearchIndexQueue } from '../src/search/write-through-indexing';
@@ -44,8 +45,43 @@ const testCollections = {
   searchindexdependencies: collections.searchindexdependencies
 } as unknown as RuntimeCollections;
 
+async function verifyActiveEnrichmentDedupe(): Promise<void> {
+  const calls: string[] = [];
+  let release: (() => void) | null = null;
+  let resolveStarted: (() => void) | null = null;
+  const firstRunStarted = new Promise<void>((resolve) => {
+    resolveStarted = resolve;
+  });
+
+  const scheduler = createEntityEnrichmentScheduler({
+    concurrency: 1,
+    maxSize: 20,
+    enrich: async (candidate) => {
+      calls.push(`${candidate.kind}:${candidate.id}`);
+      resolveStarted?.();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    logger: { error: () => undefined, warn: () => undefined }
+  });
+
+  const candidate: KnowledgeEntityCandidate = { id: 'author:active-dedupe', kind: 'author', label: 'Active Dedupe' };
+  scheduler.enqueue(candidate);
+  await firstRunStarted;
+
+  assertOk(scheduler.active() === 1, 'active dedupe scheduler should have one active job');
+  scheduler.enqueue(candidate);
+  assertOk(scheduler.pending() === 0, 'duplicate active enrichment job should not be queued');
+
+  release?.();
+  await scheduler.idle();
+  assertOk(calls.length === 1, 'duplicate active enrichment job should be skipped');
+}
+
 async function main(): Promise<void> {
   addRxPlugin(RxDBMigrationSchemaPlugin);
+  await verifyActiveEnrichmentDedupe();
 
   const db = await createRxDatabase<RyuCollections>({
     name: `ryu_ap_enrichment_isolation_${Date.now()}`,
