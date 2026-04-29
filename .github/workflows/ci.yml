@@ -33,6 +33,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Auth contract harness
+        run: npm run auth:contracts
+
+      - name: Auth backend smoke
+        run: npm run auth:smoke
+
       - name: Schema migration guardrails
         run: npm run schema:eval
 
@@ -47,6 +53,15 @@ jobs:
 
       - name: Search evaluation guardrails
         run: npm run search:eval
+
+      - name: Unit and UI smoke tests
+        run: npm run test
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E smoke
+        run: npm run test:e2e
 
       - name: Search indexing guardrails
         run: npm run search:indexing-eval

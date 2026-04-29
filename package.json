@@ -5,14 +5,36 @@
   "type": "module",
   "description": "A local-first iOS-style Progressive Web App client for BookWyrm.",
   "license": "AGPL-3.0-or-later",
-  "repository": { "type": "git", "url": "https://github.com/outlaw-dame/RYU.git" },
-  "keywords": ["bookwyrm","activitypub","pwa","ios","local-first","rxdb","indexeddb","books"],
-  "engines": { "node": ">=20.0.0" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/outlaw-dame/RYU.git"
+  },
+  "keywords": [
+    "bookwyrm",
+    "activitypub",
+    "pwa",
+    "ios",
+    "local-first",
+    "rxdb",
+    "indexeddb",
+    "books"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui:smoke": "vitest run src/app/App.search-a11y.test.tsx",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "auth:contracts": "tsx scripts/auth-contract-harness.ts",
+    "auth:smoke": "tsx scripts/auth-backend-smoke.ts",
+    "auth:server": "tsx server/start-mastodon-auth-server.ts",
     "schema:eval": "tsx scripts/schema-eval.ts",
     "db:schema-smoke": "tsx scripts/rxdb-authorids-smoke.ts",
     "activitypub:indexing-eval": "tsx scripts/activitypub-dependency-indexing-eval.ts",
@@ -20,6 +42,9 @@
     "search:eval": "tsx scripts/search-eval.ts",
     "search:indexing-eval": "tsx scripts/write-through-indexing-eval.ts",
     "clean": "rm -rf dist .vite node_modules/.vite"
+  },
+  "overrides": {
+    "ajv": "^8.18.0"
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.2",
@@ -37,12 +62,18 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.0",
     "fake-indexeddb": "^6.2.5",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.5"
   }
 }
