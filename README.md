@@ -38,6 +38,20 @@ src/
 npm install
 npm run dev
 npm run typecheck
+npm run test
+npm run build
+```
+
+## Pre-PR Validation
+
+Run this sequence before opening or updating a pull request:
+
+```bash
+npm run typecheck
+npm run auth:contracts
+npm run auth:smoke
+npm run search:eval
+npm run test
 npm run build
 ```
 
