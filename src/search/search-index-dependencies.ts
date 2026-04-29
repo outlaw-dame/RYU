@@ -96,36 +96,25 @@ export async function findSearchDependentsForAuthor(
       continue;
     }
 
-    await dependency.remove().catch((error: unknown) => {
-      console.error('Failed to remove stale search dependency', {
-        dependencyId: dependency.id,
-        entityId: dependency.entityId,
-        entityType: dependency.entityType,
-        error
-      });
-    });
+    await dependency.remove();
   }
 
   return dependents;
 }
 
-export function enqueueAuthorSearchDependents(
+export async function enqueueAuthorSearchDependents(
   db: RyuDatabase,
   authorId: string,
   timestamp: string,
   queue: SearchIndexQueue = importedSearchIndexQueue,
   logger: SearchIndexDependencyLogger = console
-): void {
-  void findSearchDependentsForAuthor(db, authorId)
-    .then((entities) => {
-      for (const entity of entities) {
-        queue.enqueue(db, entity, timestamp);
-      }
-    })
-    .catch((error) => {
-      logger.error('Failed to enqueue dependent search reindex jobs', {
-        authorId,
-        error
-      });
-    });
+): Promise<void> {
+  try {
+    const entities = await findSearchDependentsForAuthor(db, authorId);
+    for (const entity of entities) {
+      queue.enqueue(db, entity, timestamp);
+    }
+  } catch (error) {
+    logger.error('Author dependency fanout failed', { authorId, error });
+  }
 }

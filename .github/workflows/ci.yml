@@ -39,6 +39,9 @@ jobs:
       - name: RxDB schema smoke
         run: npm run db:schema-smoke
 
+      - name: ActivityPub dependency indexing guardrails
+        run: npm run activitypub:indexing-eval
+
       - name: Search evaluation guardrails
         run: npm run search:eval
 

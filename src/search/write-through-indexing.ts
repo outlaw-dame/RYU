@@ -21,6 +21,7 @@ export type SearchIndexQueue = {
   enqueue(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): void;
   pending(): number;
   active(): number;
+  idle(): Promise<void>;
 };
 
 const DEFAULT_INDEX_QUEUE_CONCURRENCY = 2;
@@ -36,7 +37,14 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
   const indexer = options.indexer ?? indexDocument;
   const logger = options.logger ?? console;
   const queue: SearchIndexJob[] = [];
+  const idleResolvers: Array<() => void> = [];
   let activeJobs = 0;
+
+  function flushIdleResolvers(): void {
+    if (queue.length > 0 || activeJobs > 0) return;
+    const resolvers = idleResolvers.splice(0, idleResolvers.length);
+    for (const resolve of resolvers) resolve();
+  }
 
   async function runIndexJob(job: SearchIndexJob): Promise<void> {
     const doc = await canonicalEntityToSearchDocument(job.db, job.entity, job.timestamp);
@@ -63,6 +71,8 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
           drain();
         });
     }
+
+    flushIdleResolvers();
   }
 
   function enqueue(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): void {
@@ -88,10 +98,16 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
     drain();
   }
 
+  function idle(): Promise<void> {
+    if (queue.length === 0 && activeJobs === 0) return Promise.resolve();
+    return new Promise((resolve) => idleResolvers.push(resolve));
+  }
+
   return {
     enqueue,
     pending: () => queue.length,
-    active: () => activeJobs
+    active: () => activeJobs,
+    idle
   };
 }
 
