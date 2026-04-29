@@ -7,7 +7,23 @@ import { applySearchRuntimeSettings } from "./search/runtime-configure";
 import "./design/tokens.css";
 
 applySearchRuntimeSettings();
-scheduleSearchIndexHealthCheck();
+
+// Avoid startup contention by scheduling non-critical index health checks during idle time.
+if (typeof window !== "undefined") {
+  const withIdle = window as Window & {
+    requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+  };
+
+  if (typeof withIdle.requestIdleCallback === "function") {
+    withIdle.requestIdleCallback(() => {
+      scheduleSearchIndexHealthCheck();
+    }, { timeout: 2_000 });
+  } else {
+    window.setTimeout(() => {
+      scheduleSearchIndexHealthCheck();
+    }, 450);
+  }
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
