@@ -317,10 +317,522 @@ function mastodonAccountLabel(account: MastodonStatus["account"]): string {
 }
 
 function mastodonStatusText(status: MastodonStatus): string {
-  const text = stripHtml(status.content ?? "");
+  const normalizedHtml = (status.content ?? "")
+    .replace(/<span[^>]*class="[^"]*invisible[^"]*"[^>]*>[\s\S]*?<\/span>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|li|blockquote|h[1-6])>/gi, "\n");
+  const text = stripHtml(normalizedHtml)
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
   if (text) return text;
   if (status.spoiler_text) return status.spoiler_text;
   return "Updated their reading activity.";
+}
+
+function accountInitials(account: MastodonStatus["account"]): string {
+  const label = mastodonAccountLabel(account).replace(/^@/, "").trim();
+  const initials = label
+    .split(/[^A-Za-z0-9]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+  return initials || "RY";
+}
+
+type NowReadingImportedBook = {
+  id: string;
+  title: string;
+  author?: string;
+  coverUrl?: string;
+  sourceUrl?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function statusCardData(status: MastodonStatus): {
+  title: string | null;
+  authorName: string | null;
+  url: string | null;
+  image: string | null;
+} {
+  const card = asRecord((status as unknown as Record<string, unknown>).card);
+  if (!card) {
+    return { title: null, authorName: null, url: null, image: null };
+  }
+
+  return {
+    title: typeof card.title === "string" && card.title.trim() ? card.title.trim() : null,
+    authorName: typeof card.author_name === "string" && card.author_name.trim() ? card.author_name.trim() : null,
+    url: typeof card.url === "string" ? sanitizeUrl(card.url) : null,
+    image: typeof card.image === "string" ? sanitizeUrl(card.image) : null
+  };
+}
+
+function statusMediaCover(status: MastodonStatus): string | null {
+  const record = status as unknown as Record<string, unknown>;
+  const media = Array.isArray(record.media_attachments) ? record.media_attachments : [];
+
+  for (const item of media) {
+    const mediaRecord = asRecord(item);
+    if (!mediaRecord) {
+      continue;
+    }
+
+    const mediaType = typeof mediaRecord.type === "string" ? mediaRecord.type : "";
+    if (mediaType && mediaType !== "image") {
+      continue;
+    }
+
+    const mediaUrl = typeof mediaRecord.preview_url === "string"
+      ? sanitizeUrl(mediaRecord.preview_url)
+      : typeof mediaRecord.url === "string"
+        ? sanitizeUrl(mediaRecord.url)
+        : null;
+
+    if (mediaUrl) {
+      return mediaUrl;
+    }
+  }
+
+  return null;
+}
+
+function normalizeLookupText(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function extractBookTitleFromText(text: string): string | null {
+  const fromReadingPhrase = text.match(/(?:currently|now|am)?\s*reading\s+(["“][^"”]+["”]|[^.!?\n#]{3,90})/i);
+  if (fromReadingPhrase?.[1]) {
+    return fromReadingPhrase[1].replace(/["“”]/g, "").trim();
+  }
+
+  const quoted = text.match(/["“]([^"”]{2,110})["”]/);
+  if (quoted?.[1]) {
+    return quoted[1].trim();
+  }
+
+  return null;
+}
+
+function statusBookTitle(status: MastodonStatus): string {
+  const card = statusCardData(status);
+  if (card.title) {
+    return card.title;
+  }
+
+  const text = mastodonStatusText(status);
+  const extracted = extractBookTitleFromText(text);
+  if (extracted) {
+    return extracted;
+  }
+
+  return "Reading update";
+}
+
+function statusCreatorLabel(status: MastodonStatus): string | null {
+  const card = statusCardData(status);
+  if (card.authorName) {
+    return `Creator: ${card.authorName}`;
+  }
+
+  const accountFields: unknown[] = Array.isArray((status.account as unknown as Record<string, unknown>).fields)
+    ? (status.account as unknown as Record<string, unknown>).fields as unknown[]
+    : [];
+
+  for (const field of accountFields) {
+    const fieldRecord = asRecord(field);
+    if (!fieldRecord) {
+      continue;
+    }
+
+    const name = typeof fieldRecord.name === "string" ? fieldRecord.name.toLowerCase().trim() : "";
+    if (name !== "creator") {
+      continue;
+    }
+
+    const value = typeof fieldRecord.value === "string" ? stripHtml(fieldRecord.value).trim() : "";
+    if (value) {
+      return `Creator: ${value}`;
+    }
+  }
+
+  const tags: unknown[] = Array.isArray((status as unknown as Record<string, unknown>).tags)
+    ? (status as unknown as Record<string, unknown>).tags as unknown[]
+    : [];
+
+  return null;
+}
+
+function resolveCoverProxySrc(rawUrl: string | null | undefined): string | null {
+  const safeUrl = sanitizeUrl(rawUrl);
+  if (!safeUrl) {
+    return null;
+  }
+
+  const parsed = new URL(safeUrl, window.location.origin);
+  if (parsed.origin === window.location.origin) {
+    return parsed.toString();
+  }
+
+  if (parsed.protocol !== "https:") {
+    return null;
+  }
+
+  return parsed.toString();
+}
+
+function matchImportedBookCover(
+  title: string,
+  importedBooks: NowReadingImportedBook[]
+): NowReadingImportedBook | null {
+  const normalizedTitle = normalizeLookupText(title);
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  for (const book of importedBooks) {
+    if (!book.coverUrl) {
+      continue;
+    }
+
+    const normalizedBookTitle = normalizeLookupText(book.title);
+    if (!normalizedBookTitle) {
+      continue;
+    }
+
+    if (normalizedBookTitle === normalizedTitle) {
+      return book;
+    }
+  }
+
+  for (const book of importedBooks) {
+    if (!book.coverUrl) {
+      continue;
+    }
+
+    const normalizedBookTitle = normalizeLookupText(book.title);
+    if (!normalizedBookTitle) {
+      continue;
+    }
+
+    if (normalizedBookTitle.includes(normalizedTitle) || normalizedTitle.includes(normalizedBookTitle)) {
+      return book;
+    }
+  }
+
+  return null;
+}
+
+function NowReadingStatusGrid({ statuses, importedBooks }: { statuses: MastodonStatus[]; importedBooks: NowReadingImportedBook[] }) {
+  return (
+    <motion.div
+      initial="hidden"
+      animate="show"
+      variants={{ hidden: {}, show: { transition: { staggerChildren: 0.04 } } }}
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fill, minmax(88px, 128px))",
+        justifyContent: "start",
+        alignItems: "start",
+        gap: "var(--space-4) var(--space-3)",
+        padding: "0 var(--space-4)"
+      }}
+    >
+      {statuses.map((status) => {
+        const href = sanitizeUrl(status.url ?? status.uri ?? null);
+        const text = mastodonStatusText(status);
+        const account = mastodonAccountLabel(status.account);
+        const accountHandle = status.account.acct ? `@${status.account.acct}` : status.account.username ? `@${status.account.username}` : "@reader";
+        const accountUrl = sanitizeUrl(status.account.url ?? null);
+        const avatarSrc = resolveCoverProxySrc(status.account.avatar ?? null);
+        const card = statusCardData(status);
+        const creatorLabel = statusCreatorLabel(status);
+        const bookTitle = statusBookTitle(status);
+        const importedCoverMatch = matchImportedBookCover(bookTitle, importedBooks);
+        const coverSrc = resolveCoverProxySrc(card.image) ?? resolveCoverProxySrc(statusMediaCover(status)) ?? resolveCoverProxySrc(importedCoverMatch?.coverUrl ?? null);
+        const cardHref = card.url ?? href;
+        const cover = (
+          <div
+            style={{
+              position: "relative",
+              display: "grid",
+              gridTemplateRows: coverSrc ? "1fr auto" : "auto auto 1fr",
+              aspectRatio: "2 / 3",
+              borderRadius: "var(--radius-cover)",
+              overflow: "hidden",
+              background: "linear-gradient(145deg, var(--color-bg-secondary), var(--color-bg-tertiary))",
+              boxShadow: "var(--shadow-cover)",
+              padding: "var(--space-2)"
+            }}
+          >
+            {coverSrc ? (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundImage: `url(${coverSrc})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  backgroundRepeat: "no-repeat"
+                }}
+              />
+            ) : null}
+            <div
+              style={{
+                position: "relative",
+                zIndex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: "var(--space-2)"
+              }}
+            >
+              <span
+                style={{
+                  width: "32px",
+                  height: "32px",
+                  borderRadius: "999px",
+                  overflow: "hidden",
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: "var(--text-caption2)",
+                  fontWeight: 700,
+                  color: "white",
+                  background: "color-mix(in srgb, var(--color-text) 26%, transparent)",
+                  border: "1px solid color-mix(in srgb, white 50%, transparent)"
+                }}
+              >
+                  <span aria-hidden="true">{accountInitials(status.account)}</span>
+                  {avatarSrc ? (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        backgroundImage: `url(${avatarSrc})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        backgroundRepeat: "no-repeat"
+                      }}
+                    />
+                  ) : null}
+              </span>
+              {creatorLabel ? (
+                <span
+                  style={{
+                    maxWidth: "70%",
+                    borderRadius: "999px",
+                    padding: "2px 8px",
+                    fontSize: "10px",
+                    fontWeight: 700,
+                    color: "white",
+                    background: "color-mix(in srgb, var(--color-accent) 82%, black 8%)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}
+                >
+                  {creatorLabel}
+                </span>
+              ) : null}
+            </div>
+            <div style={{ position: "relative", zIndex: 1, marginTop: "var(--space-2)", minHeight: 0 }}>
+              <strong
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  color: coverSrc ? "white" : "var(--color-text)",
+                  fontFamily: "var(--font-display)",
+                  fontSize: "var(--text-subhead)",
+                  lineHeight: "var(--leading-subhead)"
+                }}
+              >
+                {bookTitle}
+              </strong>
+              <p
+                style={{
+                  margin: "var(--space-1) 0 0",
+                  color: coverSrc ? "rgba(255,255,255,0.92)" : "var(--color-text-secondary)",
+                  fontSize: "var(--text-caption1)",
+                  lineHeight: "1.3",
+                  display: "-webkit-box",
+                  WebkitLineClamp: coverSrc ? 2 : 6,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word"
+                }}
+              >
+                {text}
+              </p>
+            </div>
+            <span
+              style={{
+                position: "relative",
+                zIndex: 1,
+                marginTop: "var(--space-2)",
+                color: coverSrc ? "rgba(255,255,255,0.8)" : "var(--color-text-tertiary)",
+                fontSize: "var(--text-caption2)",
+                fontWeight: 700
+              }}
+            >
+              {formatActivityDate(status.created_at)}
+            </span>
+            {coverSrc ? (
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "linear-gradient(180deg, rgba(6,8,16,0.05) 0%, rgba(6,8,16,0.72) 72%, rgba(6,8,16,0.88) 100%)"
+                }}
+              />
+            ) : null}
+          </div>
+        );
+
+        return (
+          <motion.div
+            key={status.id}
+            variants={{ hidden: { opacity: 0, y: 8, scale: 0.96 }, show: { opacity: 1, y: 0, scale: 1 } }}
+            style={{ display: "grid", gap: "var(--space-2)", width: "100%", minWidth: 0 }}
+          >
+            {cardHref ? (
+              <a
+                href={cardHref}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={`Open post by ${account}`}
+                style={{ display: "block", textDecoration: "none" }}
+              >
+                {cover}
+              </a>
+            ) : cover}
+            <div>
+              {cardHref ? (
+                <a
+                  href={cardHref}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    color: "var(--color-text)",
+                    fontSize: "var(--text-footnote)",
+                    fontWeight: 600,
+                    lineHeight: "var(--leading-footnote)",
+                    letterSpacing: "var(--tracking-footnote)",
+                    textDecoration: "none",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                    overflowWrap: "anywhere"
+                  }}
+                >
+                  {bookTitle}
+                </a>
+              ) : (
+                <span
+                  style={{
+                    color: "var(--color-text)",
+                    fontSize: "var(--text-footnote)",
+                    fontWeight: 600,
+                    lineHeight: "var(--leading-footnote)",
+                    letterSpacing: "var(--tracking-footnote)",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                    overflowWrap: "anywhere"
+                  }}
+                >
+                  {bookTitle}
+                </span>
+              )}
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginTop: 2, minWidth: 0 }}>
+                <span
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "999px",
+                    overflow: "hidden",
+                    flex: "0 0 auto",
+                    display: "grid",
+                    placeItems: "center",
+                    fontSize: "9px",
+                    fontWeight: 700,
+                    color: "white",
+                    background: "color-mix(in srgb, var(--color-text) 22%, transparent)"
+                  }}
+                >
+                  <span aria-hidden="true">{accountInitials(status.account)}</span>
+                  {avatarSrc ? (
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        backgroundImage: `url(${avatarSrc})`,
+                        backgroundSize: "cover",
+                        backgroundPosition: "center",
+                        backgroundRepeat: "no-repeat"
+                      }}
+                    />
+                  ) : null}
+                </span>
+                {accountUrl ? (
+                  <a
+                    href={accountUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      fontSize: "var(--text-caption2)",
+                      lineHeight: "var(--leading-caption2)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      textDecoration: "none"
+                    }}
+                    title={`${account} (${accountHandle})`}
+                  >
+                    {account}
+                  </a>
+                ) : (
+                  <span
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      fontSize: "var(--text-caption2)",
+                      lineHeight: "var(--leading-caption2)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap"
+                    }}
+                    title={`${account} (${accountHandle})`}
+                  >
+                    {account}
+                  </span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        );
+      })}
+    </motion.div>
+  );
 }
 
 function notificationVerb(type: string): string {
@@ -1042,78 +1554,78 @@ export function App() {
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="Library" />
                   <section style={{
-                    margin: "0 var(--space-4) var(--space-5)",
-                    padding: "var(--space-2) 0",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "var(--space-3)",
-                    flexWrap: "wrap"
+                    padding: "0 var(--space-4)",
+                    marginBottom: "var(--space-6)"
                   }}>
-                    <div style={{ display: "grid", gap: 0 }}>
-                      <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)", letterSpacing: "0.01em" }}>Member</strong>
-                      <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
-                        Sign in or create an account to sync reading activity.
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                      <button
-                        type="button"
-                        onClick={openMemberSignIn}
-                        style={{
-                          minHeight: "36px",
-                          border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
-                          borderRadius: "999px",
-                          background: "var(--color-bg-secondary)",
-                          color: "var(--color-text)",
-                          fontWeight: 600,
-                          fontSize: "var(--text-footnote)",
-                          padding: "0 var(--space-3)",
-                          boxShadow: "var(--shadow-card)"
-                        }}
-                      >
-                        Member sign in
-                      </button>
-                      <button
-                        type="button"
-                        onClick={openMemberSignup}
-                        style={{
-                          minHeight: "36px",
-                          border: 0,
-                          borderRadius: "999px",
-                          background: "var(--color-accent)",
-                          color: "white",
-                          fontWeight: 700,
-                          fontSize: "var(--text-footnote)",
-                          padding: "0 var(--space-3)",
-                          boxShadow: "var(--shadow-card)"
-                        }}
-                      >
-                        Become a member
-                      </button>
-                    </div>
+                    <article style={{
+                      borderRadius: "var(--radius-lg)",
+                      background: "var(--color-bg-secondary)",
+                      boxShadow: "var(--shadow-card)",
+                      padding: "var(--space-4)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "var(--space-4)",
+                      flexWrap: "wrap"
+                    }}>
+                      <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
+                        <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
+                        <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
+                          Sign in or create an account to sync reading activity.
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={openMemberSignIn}
+                          style={{
+                            minHeight: "var(--touch-min)",
+                            border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                            borderRadius: "var(--radius-md)",
+                            background: "transparent",
+                            color: "var(--color-text)",
+                            fontWeight: 700,
+                            fontSize: "var(--text-footnote)",
+                            padding: "0 var(--space-4)"
+                          }}
+                        >
+                          Member sign in
+                        </button>
+                        <button
+                          type="button"
+                          onClick={openMemberSignup}
+                          style={{
+                            minHeight: "var(--touch-min)",
+                            border: 0,
+                            borderRadius: "var(--radius-md)",
+                            background: "var(--color-accent)",
+                            color: "white",
+                            fontWeight: 700,
+                            fontSize: "var(--text-footnote)",
+                            padding: "0 var(--space-4)"
+                          }}
+                        >
+                          Become a member
+                        </button>
+                      </div>
+                    </article>
                   </section>
                   <SectionHeader
                     title="Currently Reading"
                     actionLabel={nowReadingLoading ? undefined : "Refresh"}
                     onAction={nowReadingLoading ? undefined : () => setNowReadingRefreshNonce((value) => value + 1)}
                   />
-                  <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
-                    {nowReadingLoading && nowReadingStatuses.length === 0 ? (
-                      <>
-                        <Skeleton style={{ height: 112 }} />
-                        <Skeleton style={{ height: 112 }} />
-                      </>
-                    ) : nowReadingStatuses.length > 0 ? (
-                      nowReadingStatuses.slice(0, 3).map((status) => (
-                        <ActivityStatusRow key={status.id} status={status} />
-                      ))
-                    ) : (
+                  {nowReadingLoading && nowReadingStatuses.length === 0 ? (
+                    <SkeletonCoverGrid count={3} />
+                  ) : nowReadingStatuses.length > 0 ? (
+                    <NowReadingStatusGrid statuses={nowReadingStatuses.slice(0, 6)} importedBooks={importedBooks} />
+                  ) : (
+                    <div style={{ padding: "0 var(--space-4)" }}>
                       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
                         No live #NowReading posts found right now.
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   {nowReadingError ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
                       {nowReadingError}
@@ -1709,7 +2221,7 @@ export function App() {
                               ) : null}
                               {signupInstancesError ? (
                                 <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-                                  Instance discovery issue: {signupInstancesError}
+                                  {signupInstancesError}
                                 </p>
                               ) : null}
                               {signupInstances.length === 0 ? (
