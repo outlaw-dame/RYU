@@ -3,6 +3,7 @@ import { addRxPlugin, createRxDatabase } from 'rxdb';
 import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { createRxDBActivityPubStore, ingestActivityPubGraph } from '../src/db/activitypub-ingest';
+import { createEntityEnrichmentScheduler } from '../src/db/entity-enrichment-scheduler';
 import type { RyuCollections, RyuDatabase } from '../src/db/client';
 import { collections } from '../src/db/runtime-schema';
 import { findSearchDependentsForAuthor } from '../src/search/search-index-dependencies';
@@ -80,13 +81,21 @@ async function main(): Promise<void> {
     },
     logger: { error: () => undefined, warn: () => undefined }
   });
+  const enrichmentScheduler = createEntityEnrichmentScheduler({
+    enrich: async () => undefined,
+    logger: { error: () => undefined, warn: () => undefined }
+  });
 
   try {
     await db.addCollections(e2eCollections);
-    const store = createRxDBActivityPubStore(db, queue, false);
+    const store = createRxDBActivityPubStore(db, {
+      searchIndexQueue: queue,
+      enrichmentScheduler
+    });
 
     await ingestActivityPubGraph(graph, store);
     await queue.idle();
+    await enrichmentScheduler.idle();
 
     assertOk(docIdsByType(indexed, 'author').join(',') === authorId, 'initial import should index the author');
     assertOk(docIdsByType(indexed, 'work').join(',') === workId, 'initial import should index the work');
@@ -119,6 +128,7 @@ async function main(): Promise<void> {
       summary: 'Updated author summary.'
     });
     await queue.idle();
+    await enrichmentScheduler.idle();
 
     const fanoutIds = indexed.map((doc) => `${doc.type}:${doc.id}`).sort();
     assertOk(
