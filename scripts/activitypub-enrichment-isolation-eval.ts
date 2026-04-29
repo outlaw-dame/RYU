@@ -48,35 +48,35 @@ const testCollections = {
 async function verifyActiveEnrichmentDedupe(): Promise<void> {
   const calls: string[] = [];
   let release: (() => void) | null = null;
+  let resolveStarted: (() => void) | null = null;
   const firstRunStarted = new Promise<void>((resolve) => {
-    const scheduler = createEntityEnrichmentScheduler({
-      concurrency: 1,
-      maxSize: 20,
-      enrich: async (candidate) => {
-        calls.push(`${candidate.kind}:${candidate.id}`);
-        resolve();
-        await new Promise<void>((innerResolve) => {
-          release = innerResolve;
-        });
-      },
-      logger: { error: () => undefined, warn: () => undefined }
-    });
-
-    const candidate: KnowledgeEntityCandidate = { id: 'author:active-dedupe', kind: 'author', label: 'Active Dedupe' };
-    scheduler.enqueue(candidate);
-
-    void firstRunStarted.then(async () => {
-      assertOk(scheduler.active() === 1, 'active dedupe scheduler should have one active job');
-      scheduler.enqueue(candidate);
-      assertOk(scheduler.pending() === 0, 'duplicate active enrichment job should not be queued');
-      release?.();
-      await scheduler.idle();
-      assertOk(calls.length === 1, 'duplicate active enrichment job should be skipped');
-    });
+    resolveStarted = resolve;
   });
 
+  const scheduler = createEntityEnrichmentScheduler({
+    concurrency: 1,
+    maxSize: 20,
+    enrich: async (candidate) => {
+      calls.push(`${candidate.kind}:${candidate.id}`);
+      resolveStarted?.();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+    logger: { error: () => undefined, warn: () => undefined }
+  });
+
+  const candidate: KnowledgeEntityCandidate = { id: 'author:active-dedupe', kind: 'author', label: 'Active Dedupe' };
+  scheduler.enqueue(candidate);
   await firstRunStarted;
-  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assertOk(scheduler.active() === 1, 'active dedupe scheduler should have one active job');
+  scheduler.enqueue(candidate);
+  assertOk(scheduler.pending() === 0, 'duplicate active enrichment job should not be queued');
+
+  release?.();
+  await scheduler.idle();
+  assertOk(calls.length === 1, 'duplicate active enrichment job should be skipped');
 }
 
 async function main(): Promise<void> {
