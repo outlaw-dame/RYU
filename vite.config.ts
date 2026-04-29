@@ -66,12 +66,13 @@ function preCompressionPlugin(): Plugin {
 
         // zstd level 19 — available natively in Node.js >= 22.15; skipped silently on older runtimes.
         // Level 19 maximises ratio for offline pre-compression (speed is irrelevant at build time).
-        // ZSTD_c_compressionLevel = 100 is the zlib param key for the compression level.
+        // ZSTD_c_compressionLevel param key is 100 (literal used here because older @types/node
+        // versions do not include zstd constants in the constants object type).
         if (zstdCompressSync) {
           this.emitFile({
             type: "asset",
             fileName: `${fileName}.zst`,
-            source: zstdCompressSync(buf, { params: { [zlibConstants.ZSTD_c_compressionLevel]: 19 } })
+            source: zstdCompressSync(buf, { params: { 100: 19 } })
           });
         }
       }
