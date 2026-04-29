@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties, type ReactNode } from "react";
 import { EmptyState } from "../components/common/EmptyState";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { Skeleton } from "../components/common/Skeleton";
@@ -75,12 +75,15 @@ export function MastodonActivityPanel({
   if (!connected) {
     return (
       <ActivityShell>
-        <EmptyState
-          title="Connect your account"
-          description="Bring in your reading timeline, replies, and notifications without turning RYU into a generic social feed."
-          actionLabel="Connect account"
-          onAction={onConnect}
-        />
+        <section style={{ display: "grid", gap: "var(--space-4)", padding: "0 var(--space-4)" }}>
+          <EmptyState
+            title="Connect your account"
+            description="Bring in your reading timeline, replies, and notifications without turning RYU into a generic social feed."
+          />
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button type="button" onClick={onConnect} style={primaryButtonStyle}>Connect account</button>
+          </div>
+        </section>
       </ActivityShell>
     );
   }
@@ -134,13 +137,14 @@ export function MastodonActivityPanel({
       {isLoadingActivity ? <ActivitySkeletonCards /> : null}
 
       {!isLoadingActivity && !hasAnyActivity ? (
-        <section style={{ padding: "0 var(--space-4)" }}>
+        <section style={{ display: "grid", gap: "var(--space-4)", padding: "0 var(--space-4)" }}>
           <EmptyState
             title="Nothing new yet"
             description="When your reading network has new posts or notifications, they’ll appear here."
-            actionLabel="Refresh"
-            onAction={refreshAll}
           />
+          <div style={{ display: "flex", justifyContent: "center" }}>
+            <button type="button" onClick={refreshAll} style={secondaryButtonStyle}>Refresh</button>
+          </div>
         </section>
       ) : null}
 
@@ -167,7 +171,7 @@ export function MastodonActivityPanel({
   );
 }
 
-function ActivityShell({ children }: { children: React.ReactNode }) {
+function ActivityShell({ children }: { children: ReactNode }) {
   return (
     <div style={{ display: "grid", gap: "var(--space-5)" }}>
       {children}
@@ -214,7 +218,7 @@ function ActivityNotice({ message, actionLabel, onAction }: { message: string; a
   );
 }
 
-function ActivityList({ title, children }: { title: string; children: React.ReactNode }) {
+function ActivityList({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section style={{ display: "grid", gap: "var(--space-3)" }}>
       <SectionHeader title={title} />
@@ -269,7 +273,7 @@ function BookTokTrendRail({ trends, loading }: { trends: BookTokTrend[]; loading
 
   return (
     <section style={{ display: "grid", gap: "var(--space-3)" }}>
-      <SectionHeader title="BookTok signals" action={loading ? "Refreshing…" : undefined} />
+      <SectionHeader title="BookTok signals" actionLabel={loading ? "Refreshing…" : undefined} />
       <div style={{
         display: "grid",
         gridAutoFlow: "column",
@@ -349,7 +353,7 @@ function notificationVerb(type: string): string {
   }
 }
 
-const activityCardStyle: React.CSSProperties = {
+const activityCardStyle: CSSProperties = {
   borderRadius: "var(--radius-lg)",
   background: "var(--color-bg-secondary)",
   color: "var(--color-text)",
@@ -359,7 +363,7 @@ const activityCardStyle: React.CSSProperties = {
   boxShadow: "var(--shadow-card)"
 };
 
-const activityTextStyle: React.CSSProperties = {
+const activityTextStyle: CSSProperties = {
   margin: 0,
   color: "var(--color-text-secondary)",
   fontSize: "var(--text-footnote)",
@@ -367,7 +371,19 @@ const activityTextStyle: React.CSSProperties = {
   overflowWrap: "anywhere"
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
+const primaryButtonStyle: CSSProperties = {
+  border: 0,
+  background: "var(--color-accent)",
+  color: "white",
+  borderRadius: "999px",
+  padding: "var(--space-3) var(--space-5)",
+  fontSize: "var(--text-body)",
+  fontWeight: 700,
+  minHeight: 44,
+  cursor: "pointer"
+};
+
+const secondaryButtonStyle: CSSProperties = {
   border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
   background: "var(--color-bg-elevated)",
   color: "var(--color-text)",
