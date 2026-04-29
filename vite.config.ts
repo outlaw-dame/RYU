@@ -106,6 +106,18 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
+          if (id.includes("node_modules/onnxruntime-web") || id.includes("node_modules/onnxruntime-common")) {
+            return "ml-onnxruntime";
+          }
+
+          if (id.includes("node_modules/@huggingface/jinja")) {
+            return "ml-jinja";
+          }
+
+          if (id.includes("node_modules/@huggingface/transformers")) {
+            return "ml-transformers";
+          }
+
           if (id.includes("node_modules/rxdb") || id.includes("node_modules/dexie")) {
             return "db-runtime";
           }

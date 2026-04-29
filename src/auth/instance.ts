@@ -1,7 +1,8 @@
 import type { MastodonDiscoveryResult, OAuthServerMetadata } from "./types";
 
-const DEFAULT_SCOPE_SET = ["profile"];
-const FALLBACK_SCOPE_SET = ["read:accounts"];
+const DEFAULT_SCOPE_SET = ["read:statuses", "read:notifications", "read:accounts"];
+const BROAD_READ_SCOPE_SET = ["read"];
+const FALLBACK_SCOPE_SET = ["profile"];
 
 function buildFallbackEndpoints(instanceOrigin: string) {
   return {
@@ -33,8 +34,19 @@ export function normalizeInstanceOrigin(input: string): string {
 
 function decideScopes(metadata: OAuthServerMetadata | null) {
   const supported = new Set(metadata?.scopes_supported ?? []);
-  const profileScopeSupported = supported.has("profile") || supported.size === 0;
-  const requestedScopes = profileScopeSupported ? DEFAULT_SCOPE_SET : FALLBACK_SCOPE_SET;
+  const hasScopeMetadata = supported.size > 0;
+  const granularReadScopesSupported = DEFAULT_SCOPE_SET.every((scope) => supported.has(scope));
+  const broadReadScopeSupported = supported.has("read");
+  const profileScopeSupported = supported.has("profile") || !hasScopeMetadata;
+  const supportedReadScopes = DEFAULT_SCOPE_SET.filter((scope) => supported.has(scope));
+  const requestedScopes =
+    !hasScopeMetadata || granularReadScopesSupported
+      ? DEFAULT_SCOPE_SET
+      : broadReadScopeSupported
+        ? BROAD_READ_SCOPE_SET
+        : supportedReadScopes.length > 0
+          ? supportedReadScopes
+          : FALLBACK_SCOPE_SET;
 
   return {
     requestedScopes,

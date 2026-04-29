@@ -1,6 +1,7 @@
-import { persistFetchQueueStatus } from '../db/fetch-queue-persistence';
+import type { FetchQueueStatusEvent } from '../db/fetch-queue-persistence';
 
 type InFlightMap = Map<string, Promise<unknown>>;
+type FetchQueuePersistenceModule = typeof import('../db/fetch-queue-persistence');
 
 export interface FetchQueueOptions {
   concurrency?: number;
@@ -10,6 +11,8 @@ export interface FetchQueueOptions {
   backoffMultiplier?: number;
   timeoutMs?: number;
   jitterMs?: number;
+  retryAfterCapMs?: number;
+  persistStatus?: boolean;
 }
 
 export interface FetchRunOptions {
@@ -19,6 +22,8 @@ export interface FetchRunOptions {
   backoffMultiplier?: number;
   timeoutMs?: number;
   jitterMs?: number;
+  retryAfterCapMs?: number;
+  persistStatus?: boolean;
 }
 
 type QueueEntry = {
@@ -34,8 +39,12 @@ const defaultOptions: Required<FetchQueueOptions> = {
   retryDelayMs: 400,
   backoffMultiplier: 2,
   timeoutMs: 10_000,
-  jitterMs: 150
+  jitterMs: 150,
+  retryAfterCapMs: 10_000,
+  persistStatus: true
 };
+
+let persistenceModulePromise: Promise<FetchQueuePersistenceModule> | null = null;
 
 export class FetchQueue {
   private active = 0;
@@ -64,13 +73,13 @@ export class FetchQueue {
 
     const host = options.host ?? 'unknown';
 
-    void persistFetchQueueStatus({
+    this.persistStatus({
       id: key,
       url: key,
       host,
       status: 'pending',
       attempts: 0
-    });
+    }, options);
 
     this.queue.push({
       key,
@@ -79,24 +88,24 @@ export class FetchQueue {
         try {
           const result = await this.executeWithRetry(key, task, options);
 
-          void persistFetchQueueStatus({
+          this.persistStatus({
             id: key,
             url: key,
             host,
             status: 'completed',
             attempts: 1
-          });
+          }, options);
 
           resolvePromise(result);
         } catch (error) {
-          void persistFetchQueueStatus({
+          this.persistStatus({
             id: key,
             url: key,
             host,
             status: 'failed',
             attempts: 1,
             error: error instanceof Error ? error.message : String(error)
-          });
+          }, options);
 
           rejectPromise(error);
         } finally {
@@ -138,23 +147,27 @@ export class FetchQueue {
       const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        void persistFetchQueueStatus({
+        this.persistStatus({
           id: key,
           url: key,
           host: options.host ?? 'unknown',
           status: 'processing',
           attempts: attempt + 1,
           lastAttemptAt: new Date().toISOString()
-        });
+        }, options);
 
         return await task(controller.signal);
       } catch (error) {
         const shouldRetry = attempt < retries && isRetryableError(error);
         if (!shouldRetry) throw error;
 
-        const nextAttemptAt = new Date(Date.now() + delayMs).toISOString();
+        const retryAfterMs = getRetryAfterMs(error, options.retryAfterCapMs ?? this.options.retryAfterCapMs);
+        const jitterMs = options.jitterMs ?? this.options.jitterMs;
+        const jitter = retryAfterMs == null ? Math.floor(Math.random() * jitterMs) : 0;
+        const waitMs = retryAfterMs ?? delayMs + jitter;
+        const nextAttemptAt = new Date(Date.now() + waitMs).toISOString();
 
-        void persistFetchQueueStatus({
+        this.persistStatus({
           id: key,
           url: key,
           host: options.host ?? 'unknown',
@@ -162,10 +175,9 @@ export class FetchQueue {
           attempts: attempt + 1,
           lastAttemptAt: new Date().toISOString(),
           nextAttemptAt
-        });
+        }, options);
 
-        const jitter = Math.floor(Math.random() * this.options.jitterMs);
-        await wait(delayMs + jitter);
+        await wait(waitMs);
         delayMs *= backoffMultiplier;
       } finally {
         globalThis.clearTimeout(timeoutId);
@@ -191,6 +203,11 @@ export class FetchQueue {
 
     this.activeByHost.set(host, nextCount);
   }
+
+  private persistStatus(event: FetchQueueStatusEvent, options: FetchRunOptions = {}): void {
+    if (!(options.persistStatus ?? this.options.persistStatus)) return;
+    void persistFetchQueueStatusSafely(event);
+  }
 }
 
 function isRetryableError(error: unknown): boolean {
@@ -209,8 +226,42 @@ function isRetryableError(error: unknown): boolean {
   return false;
 }
 
+function getRetryAfterMs(error: unknown, capMs: number): number | null {
+  if (!(error instanceof Error) || !('retryAfterMs' in error)) {
+    return null;
+  }
+
+  const retryAfterMs = Number((error as { retryAfterMs?: unknown }).retryAfterMs);
+  if (!Number.isFinite(retryAfterMs) || retryAfterMs <= 0) {
+    return null;
+  }
+
+  return Math.min(retryAfterMs, capMs);
+}
+
 function wait(durationMs: number): Promise<void> {
   return new Promise((resolve) => {
     globalThis.setTimeout(resolve, durationMs);
   });
+}
+
+async function persistFetchQueueStatusSafely(event: FetchQueueStatusEvent): Promise<void> {
+  try {
+    const module = await loadFetchQueuePersistence();
+    await module.persistFetchQueueStatus(event);
+  } catch {
+    // Queue persistence is optional observability. Network work must remain
+    // usable in runtimes where IndexedDB-backed RxDB is unavailable.
+  }
+}
+
+function loadFetchQueuePersistence(): Promise<FetchQueuePersistenceModule> {
+  if (!persistenceModulePromise) {
+    persistenceModulePromise = import('../db/fetch-queue-persistence').catch((error: unknown) => {
+      persistenceModulePromise = null;
+      throw error;
+    });
+  }
+
+  return persistenceModulePromise;
 }
