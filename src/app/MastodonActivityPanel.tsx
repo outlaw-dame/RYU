@@ -39,13 +39,19 @@ export function MastodonActivityPanel({
   const notificationItems = notifications.data?.items ?? [];
   const accountStatusItems = accountStatuses.data?.items ?? [];
   const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_BOOKTOK_TRENDS;
-  const activityError = [
+  const activityError = useMemo(() => [
     getMastodonActivityErrorState(session.error),
     getMastodonActivityErrorState(homeTimeline.error),
     getMastodonActivityErrorState(notifications.error),
     getMastodonActivityErrorState(accountStatuses.error),
     getMastodonActivityErrorState(bookTokTrends.error)
-  ].find(Boolean) ?? null;
+  ].find(Boolean) ?? null, [
+    session.error,
+    homeTimeline.error,
+    notifications.error,
+    accountStatuses.error,
+    bookTokTrends.error
+  ]);
   const isLoadingSession = session.isLoading || session.isPending;
   const isLoadingActivity = connected && (
     homeTimeline.isLoading || notifications.isLoading || accountStatuses.isLoading ||
@@ -230,20 +236,24 @@ function ActivityList({ title, children }: { title: string; children: ReactNode 
 }
 
 function ActivityStatusRow({ status }: { status: MastodonStatus }) {
-  const href = sanitizeUrl(status.url ?? status.uri ?? null);
+  const href = useMemo(() => sanitizeUrl(status.url ?? status.uri ?? null), [status.url, status.uri]);
+  const text = useMemo(() => mastodonStatusText(status), [status]);
 
   return (
     <article style={activityCardStyle}>
       <ActivityCardHeader label={mastodonAccountLabel(status.account)} createdAt={status.created_at} />
-      <p style={activityTextStyle}>{mastodonStatusText(status)}</p>
+      <p style={activityTextStyle}>{text}</p>
       {href ? <ActivityLink href={href} label="Open post" /> : null}
     </article>
   );
 }
 
 function ActivityNotificationRow({ notification }: { notification: MastodonNotification }) {
-  const statusText = notification.status ? mastodonStatusText(notification.status) : null;
-  const href = sanitizeUrl(notification.status?.url ?? notification.status?.uri ?? null);
+  const statusText = useMemo(() => notification.status ? mastodonStatusText(notification.status) : null, [notification.status]);
+  const href = useMemo(
+    () => sanitizeUrl(notification.status?.url ?? notification.status?.uri ?? null),
+    [notification.status?.url, notification.status?.uri]
+  );
 
   return (
     <article style={activityCardStyle}>
@@ -312,15 +322,17 @@ function ActivityLink({ href, label }: { href: string; label: string }) {
   );
 }
 
+const activityDateFormatter = new Intl.DateTimeFormat([], {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
+
 function formatActivityDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  return activityDateFormatter.format(date);
 }
 
 function mastodonAccountLabel(account: MastodonStatus["account"]): string {
