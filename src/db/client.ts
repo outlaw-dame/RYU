@@ -37,6 +37,10 @@ let dbPromise: Promise<RyuDatabase> | null = null;
 let devModePluginRegistered = false;
 let migrationPluginRegistered = false;
 
+function isDevelopmentRuntime(): boolean {
+  return Boolean(import.meta.env?.DEV);
+}
+
 function registerCorePlugins(): void {
   if (migrationPluginRegistered) return;
   addRxPlugin(RxDBMigrationSchemaPlugin);
@@ -44,7 +48,7 @@ function registerCorePlugins(): void {
 }
 
 function registerDevelopmentPlugins(): void {
-  if (!import.meta.env.DEV || devModePluginRegistered) return;
+  if (!isDevelopmentRuntime() || devModePluginRegistered) return;
   addRxPlugin(RxDBDevModePlugin);
   devModePluginRegistered = true;
 }
@@ -70,7 +74,7 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
         name: 'ryu',
         storage: getRxStorageDexie(),
         multiInstance: true,
-        ignoreDuplicate: import.meta.env.DEV
+        ignoreDuplicate: isDevelopmentRuntime()
       });
 
       await db.addCollections(collections as any);
