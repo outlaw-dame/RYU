@@ -47,9 +47,16 @@ function toKnowledgeCandidate(entity: CanonicalApEntity) {
   }
 }
 
+function maybeEnrich(entity: CanonicalApEntity, enabled: boolean): void {
+  if (!enabled) return;
+  const candidate = toKnowledgeCandidate(entity);
+  if (candidate) void enrichKnowledgeEntity(candidate);
+}
+
 export function createRxDBActivityPubStore(
   db: RyuDatabase,
-  searchIndexQueue: SearchIndexQueue = importedSearchIndexQueue
+  searchIndexQueue: SearchIndexQueue = importedSearchIndexQueue,
+  enableEnrichment = true
 ): ActivityPubEntityStore {
   return {
     async upsertAuthor(entity) {
@@ -65,8 +72,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       searchIndexQueue.enqueue(db, entity, timestamp);
       await enqueueAuthorSearchDependents(db, entity.id, timestamp, searchIndexQueue);
-      const candidate = toKnowledgeCandidate(entity);
-      if (candidate) void enrichKnowledgeEntity(candidate);
+      maybeEnrich(entity, enableEnrichment);
     },
     async upsertWork(entity) {
       const timestamp = nowIso();
@@ -82,8 +88,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       await upsertSearchIndexDependenciesForEntity(db, 'work', entity.id, entity.authorIds, timestamp);
       searchIndexQueue.enqueue(db, entity, timestamp);
-      const candidate = toKnowledgeCandidate(entity);
-      if (candidate) void enrichKnowledgeEntity(candidate);
+      maybeEnrich(entity, enableEnrichment);
     },
     async upsertEdition(entity) {
       const timestamp = nowIso();
@@ -104,8 +109,7 @@ export function createRxDBActivityPubStore(
       await writeEntityResolution(db, entity);
       await upsertSearchIndexDependenciesForEntity(db, 'edition', entity.id, entity.authorIds, timestamp);
       searchIndexQueue.enqueue(db, entity, timestamp);
-      const candidate = toKnowledgeCandidate(entity);
-      if (candidate) void enrichKnowledgeEntity(candidate);
+      maybeEnrich(entity, enableEnrichment);
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
