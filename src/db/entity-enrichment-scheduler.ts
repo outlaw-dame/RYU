@@ -17,6 +17,11 @@ export type EntityEnrichmentScheduler = {
   idle(): Promise<void>;
 };
 
+type EnrichmentJob = {
+  key: string;
+  candidate: KnowledgeEntityCandidate;
+};
+
 const DEFAULT_CONCURRENCY = 1;
 const DEFAULT_MAX_SIZE = 250;
 
@@ -29,7 +34,8 @@ export function createEntityEnrichmentScheduler(options: EntityEnrichmentSchedul
   const maxSize = options.maxSize ?? DEFAULT_MAX_SIZE;
   const enrich = options.enrich ?? enrichKnowledgeEntity;
   const logger = options.logger ?? console;
-  const queue: KnowledgeEntityCandidate[] = [];
+  const queue: EnrichmentJob[] = [];
+  const activeKeys = new Set<string>();
   const idleResolvers: Array<() => void> = [];
   let activeJobs = 0;
 
@@ -39,24 +45,27 @@ export function createEntityEnrichmentScheduler(options: EntityEnrichmentSchedul
     for (const resolve of resolvers) resolve();
   }
 
-  async function run(candidate: KnowledgeEntityCandidate): Promise<void> {
+  async function run(job: EnrichmentJob): Promise<void> {
+    activeKeys.add(job.key);
     try {
-      await enrich(candidate);
+      await enrich(job.candidate);
     } catch (error) {
       logger.error('Knowledge enrichment failed', {
-        entityId: candidate.id,
-        entityKind: candidate.kind,
+        entityId: job.candidate.id,
+        entityKind: job.candidate.kind,
         error
       });
+    } finally {
+      activeKeys.delete(job.key);
     }
   }
 
   function drain(): void {
     while (activeJobs < concurrency && queue.length > 0) {
-      const candidate = queue.shift();
-      if (!candidate) continue;
+      const job = queue.shift();
+      if (!job) continue;
       activeJobs += 1;
-      void run(candidate).finally(() => {
+      void run(job).finally(() => {
         activeJobs -= 1;
         drain();
       });
@@ -67,7 +76,9 @@ export function createEntityEnrichmentScheduler(options: EntityEnrichmentSchedul
 
   function enqueue(candidate: KnowledgeEntityCandidate): void {
     const key = jobKey(candidate);
-    const existingIndex = queue.findIndex((queued) => jobKey(queued) === key);
+    if (activeKeys.has(key)) return;
+
+    const existingIndex = queue.findIndex((queued) => queued.key === key);
 
     if (existingIndex >= 0) {
       queue.splice(existingIndex, 1);
@@ -75,13 +86,13 @@ export function createEntityEnrichmentScheduler(options: EntityEnrichmentSchedul
       const dropped = queue.shift();
       if (dropped) {
         logger.warn('Knowledge enrichment queue reached capacity; dropping oldest pending job', {
-          entityId: dropped.id,
-          entityKind: dropped.kind
+          entityId: dropped.candidate.id,
+          entityKind: dropped.candidate.kind
         });
       }
     }
 
-    queue.push(candidate);
+    queue.push({ key, candidate });
     drain();
   }
 
