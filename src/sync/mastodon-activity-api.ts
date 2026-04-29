@@ -146,8 +146,6 @@ async function requestProxy(
 
     try {
       const response = await fetchImpl(path, { ...init, signal: controller.signal });
-      clearTimeout(timeout);
-      options.signal?.removeEventListener("abort", onAbort);
 
       if (response.ok) return response;
 
@@ -161,9 +159,6 @@ async function requestProxy(
 
       throw apiError;
     } catch (error) {
-      clearTimeout(timeout);
-      options.signal?.removeEventListener("abort", onAbort);
-
       if (options.signal?.aborted) throw error;
       if (error instanceof MastodonActivityApiError || error instanceof MastodonSessionApiError) throw error;
 
@@ -172,6 +167,9 @@ async function requestProxy(
         await sleep(backoffMs(attempt));
         continue;
       }
+    } finally {
+      clearTimeout(timeout);
+      options.signal?.removeEventListener("abort", onAbort);
     }
   }
 
