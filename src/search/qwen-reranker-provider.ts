@@ -1,8 +1,22 @@
 import type { RerankerProvider } from './reranker-provider';
 import type { RankedSearchResult } from './types';
 
-let qwenTokenizer: any = null;
-let qwenModel: any = null;
+type QwenTokenizer = {
+  (prompt: string, options: { truncation: boolean; max_length: number }): unknown;
+  convert_tokens_to_ids?: (token: string) => number | undefined;
+};
+
+type QwenModelOutput = {
+  logits?: {
+    data?: ArrayLike<number>;
+  } | null;
+};
+
+type QwenModel = (inputs: unknown) => Promise<QwenModelOutput>;
+
+let qwenTokenizer: QwenTokenizer | null = null;
+let qwenModel: QwenModel | null = null;
+let missingLogitsWarned = false;
 
 function docText(doc: RankedSearchResult): string {
   return [doc.title, doc.authorText, doc.description, doc.enrichmentText]
@@ -15,8 +29,12 @@ async function getQwenRuntime() {
   if (!qwenTokenizer || !qwenModel) {
     const { loadQwenRerankerRuntime } = await import('./qwen-reranker-runtime');
     const runtime = await loadQwenRerankerRuntime();
-    qwenTokenizer = runtime.tokenizer;
-    qwenModel = runtime.model;
+    if (typeof runtime.tokenizer !== 'function' || typeof runtime.model !== 'function') {
+      throw new Error('Qwen runtime returned unexpected tokenizer/model types.');
+    }
+
+    qwenTokenizer = runtime.tokenizer as QwenTokenizer;
+    qwenModel = runtime.model as QwenModel;
   }
 
   return { tokenizer: qwenTokenizer, model: qwenModel };
@@ -39,6 +57,10 @@ async function scoreWithQwen(query: string, doc: RankedSearchResult): Promise<nu
 
   const logits = output?.logits?.data;
   if (!logits) {
+    if (!missingLogitsWarned) {
+      console.warn('Qwen reranker returned no logits; falling back to lexical score for this candidate set.');
+      missingLogitsWarned = true;
+    }
     return 0;
   }
 
