@@ -36,6 +36,12 @@ type StorePayload = {
   entries: Record<string, Credentials>;
 };
 
+class MastodonProxyRequestError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+  }
+}
+
 type ConnectNext = (err?: unknown) => void;
 export type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: ConnectNext) => void;
 
@@ -638,7 +644,6 @@ async function handleExchange(
 async function handleMastodonProxy(
   req: IncomingMessage,
   res: ServerResponse,
-  url: URL,
   sessKey: Buffer,
   fetchPage: (client: MastodonClient, session: SessionPayload) => Promise<unknown>
 ): Promise<void> {
@@ -697,10 +702,25 @@ function sendMastodonProxyError(req: IncomingMessage, res: ServerResponse, error
     return;
   }
 
-  const message = error instanceof Error ? error.message.slice(0, 200) : "Mastodon request failed";
-  sendJson(res, 400, {
+  if (error instanceof z.ZodError) {
+    sendJson(res, 400, {
+      error: "invalid_query",
+      message: "Activity request parameters are invalid."
+    });
+    return;
+  }
+
+  if (error instanceof MastodonProxyRequestError) {
+    sendJson(res, error.status, {
+      error: error.code,
+      message: error.message
+    });
+    return;
+  }
+
+  sendJson(res, 502, {
     error: "mastodon_proxy_error",
-    message
+    message: "Mastodon activity could not be loaded."
   });
 }
 
@@ -763,6 +783,27 @@ async function dispatch(
         return;
       }
       await handleSession(req, res, sessKey);
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/timelines/home") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchHomeTimeline(parsePaginationQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/notifications") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchNotifications(parseNotificationsQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/account/statuses") {
+      await handleMastodonProxy(req, res, sessKey, (client, session) => {
+        if (!session.account?.id) {
+          throw new z.ZodError([]);
+        }
+
+        return client.fetchAccountStatuses(session.account.id, parsePaginationQuery(url));
+      });
       return;
     }
 
