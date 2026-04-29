@@ -10,10 +10,12 @@ export type SearchIndexJob = {
   timestamp: string;
 };
 
+export type SearchIndexer = (doc: SearchDocument, db: RyuDatabase) => Promise<void> | void;
+
 export type SearchIndexQueueOptions = {
   concurrency?: number;
   maxSize?: number;
-  indexer?: (doc: SearchDocument) => Promise<void>;
+  indexer?: SearchIndexer;
   logger?: Pick<Console, 'error' | 'warn'>;
 };
 
@@ -31,10 +33,14 @@ function jobKey(job: SearchIndexJob): string {
   return `${job.entity.kind}:${job.entity.id}`;
 }
 
+async function defaultIndexer(doc: SearchDocument, db: RyuDatabase): Promise<void> {
+  await indexDocument(doc, db);
+}
+
 export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): SearchIndexQueue {
   const concurrency = options.concurrency ?? DEFAULT_INDEX_QUEUE_CONCURRENCY;
   const maxSize = options.maxSize ?? DEFAULT_INDEX_QUEUE_MAX_SIZE;
-  const indexer = options.indexer ?? indexDocument;
+  const indexer = options.indexer ?? defaultIndexer;
   const logger = options.logger ?? console;
   const queue: SearchIndexJob[] = [];
   const idleResolvers: Array<() => void> = [];
@@ -50,7 +56,7 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
     const doc = await canonicalEntityToSearchDocument(job.db, job.entity, job.timestamp);
     if (!doc) return;
 
-    await indexer(doc).catch((error) => {
+    await Promise.resolve(indexer(doc, job.db)).catch((error) => {
       logger.error('Failed to index imported search document', {
         entityId: doc.id,
         entityType: doc.type,
