@@ -51,6 +51,9 @@ jobs:
       - name: Search indexing guardrails
         run: npm run search:indexing-eval
 
+      - name: Search health repair guardrails
+        run: npm run search:health-eval
+
       - name: Build
         run: npm run build
 
