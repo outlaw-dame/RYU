@@ -1,136 +1,63 @@
 import { create, insert, search as oramaSearch } from '@orama/orama';
-import { initializeDatabase } from '../db/client';
+import { initializeDatabase, type RyuDatabase } from '../db/client';
+import type { AuthorDoc, EditionDoc, WorkDoc } from '../db/schema';
 import { rankLexical, dedupe } from './ranking';
+import {
+  authorDocToSearchDocument,
+  editionDocToSearchDocument,
+  workDocToSearchDocument
+} from './search-document-projection';
 import { indexDocument } from './vector-index';
 import type { SearchDocument } from './types';
 
-let orama: any;
-let initialized = false;
-
-function mapEdition(d: any): SearchDocument {
-  return {
-    id: d.id,
-    type: 'edition',
-    title: d.title,
-    description: d.description || '',
-    authorText: '',
-    isbnText: `${d.isbn10 || ''} ${d.isbn13 || ''}`.trim(),
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: d.updatedAt
-  };
-}
-
-function mapWork(w: any): SearchDocument {
-  return {
-    id: w.id,
-    type: 'work',
-    title: w.title,
-    description: w.summary || '',
-    authorText: '',
-    isbnText: '',
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: w.updatedAt
-  };
-}
-
-function mapAuthor(a: any): SearchDocument {
-  return {
-    id: a.id,
-    type: 'author',
-    title: a.name,
-    description: '',
-    authorText: a.name,
-    isbnText: '',
-    enrichmentText: '',
-    source: 'local',
-    updatedAt: a.updatedAt
-  };
-}
-
-async function buildIndex() {
-  const db = await initializeDatabase();
-
-  const editions = await db.editions.find().exec();
-  const works = await db.works.find().exec();
-  const authors = await db.authors.find().exec();
-
-  for (const d of editions) {
-    const doc = mapEdition(d);
-    await insert(orama, doc);
-    indexDocument(doc);
-  }
-
-  for (const w of works) {
-    const doc = mapWork(w);
-    await insert(orama, doc);
-    indexDocument(doc);
-  }
-
-  for (const a of authors) {
-    const doc = mapAuthor(a);
-    await insert(orama, doc);
-    indexDocument(doc);
-  }
-}
-
-async function setupReactiveIndex() {
-  const db = await initializeDatabase();
-
-  db.editions.$.subscribe(async (change: any) => {
-    if (change.operation === 'INSERT') {
-      const doc = mapEdition(change.documentData);
-      await insert(orama, doc);
-      indexDocument(doc);
-    }
-  });
-
-  db.works.$.subscribe(async (change: any) => {
-    if (change.operation === 'INSERT') {
-      const doc = mapWork(change.documentData);
-      await insert(orama, doc);
-      indexDocument(doc);
-    }
-  });
-
-  db.authors.$.subscribe(async (change: any) => {
-    if (change.operation === 'INSERT') {
-      const doc = mapAuthor(change.documentData);
-      await insert(orama, doc);
-      indexDocument(doc);
-    }
-  });
-}
-
-export async function getOrama() {
-  if (orama) return orama;
-
-  orama = await create({
+async function createIndex() {
+  return create({
     schema: {
       id: 'string',
       type: 'string',
       title: 'string',
-      description: 'string'
+      description: 'string',
+      authorText: 'string',
+      isbnText: 'string',
+      enrichmentText: 'string'
     }
   });
-
-  await buildIndex();
-
-  if (!initialized) {
-    initialized = true;
-    setupReactiveIndex().catch(() => {});
-  }
-
-  return orama;
 }
 
-export async function searchOrama(query: string) {
+async function addDoc(index: any, db: RyuDatabase, doc: SearchDocument): Promise<void> {
+  await insert(index, doc);
+  await indexDocument(doc, db);
+}
+
+export async function getOrama(db?: RyuDatabase) {
+  const database = db ?? await initializeDatabase();
+  const index = await createIndex();
+
+  const editions = await database.editions.find().exec() as EditionDoc[];
+  const works = await database.works.find().exec() as WorkDoc[];
+  const authors = await database.authors.find().exec() as AuthorDoc[];
+
+  for (const edition of editions) {
+    await addDoc(index, database, await editionDocToSearchDocument(database, edition));
+  }
+
+  for (const work of works) {
+    await addDoc(index, database, await workDocToSearchDocument(database, work));
+  }
+
+  for (const author of authors) {
+    await addDoc(index, database, authorDocToSearchDocument(author));
+  }
+
+  return index;
+}
+
+export async function searchOrama(query: string, db?: RyuDatabase) {
   if (!query || query.length < 2) return [];
 
-  const db = await getOrama();
+  const index = await getOrama(db);
 
-  const res = await oramaSearch(db, {
+  const res = await oramaSearch(index, {
     term: query,
     limit: 20
   });
