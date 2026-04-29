@@ -106,11 +106,13 @@ export function applySearchRuntimeSettings(settings: SearchRuntimeSettings = get
         }
 
         const message = reportRuntimeInitializationError(requestedEmbeddingRuntime, error);
+        const message = reportRuntimeInitializationError(requestedEmbeddingRuntime, error);
 
         resetEmbeddingProvider();
         updateSearchRuntimeStatus({
           activeEmbeddingProvider: 'deterministic-fallback',
           lastFallbackReason: `Unable to initialize ${requestedEmbeddingRuntime}. Falling back to deterministic embeddings.`,
+          lastError: message,
           lastError: message,
           lastAppliedAt: new Date().toISOString()
         });
@@ -137,11 +139,13 @@ export function applySearchRuntimeSettings(settings: SearchRuntimeSettings = get
         }
 
         const message = reportRuntimeInitializationError(settings.rerankerRuntime, error);
+        const message = reportRuntimeInitializationError(settings.rerankerRuntime, error);
 
         clearRerankerProvider();
         updateSearchRuntimeStatus({
           activeRerankerProvider: 'off',
           lastFallbackReason: `Unable to initialize ${settings.rerankerRuntime}.`,
+          lastError: message,
           lastError: message,
           lastAppliedAt: new Date().toISOString()
         });
