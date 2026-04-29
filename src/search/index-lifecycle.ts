@@ -1,4 +1,4 @@
-import { initializeDatabase, type RyuDatabase } from '../db/client';
+import { DEFAULT_RYU_DATABASE_NAME, initializeDatabase, type RyuDatabase } from '../db/client';
 import type { AuthorDoc, EditionDoc, SearchVectorDoc, WorkDoc } from '../db/schema';
 import { searchableText } from './embeddings';
 import { getEmbeddingProvider } from './embedding-provider';
@@ -10,7 +10,6 @@ import { hashText, vectorId } from './vector-utils';
 const REINDEX_CONCURRENCY = 4;
 const SEARCH_INDEX_BATCH_SIZE = 50;
 const HEALTH_CHECK_STARTUP_DELAY_MS = 5_000;
-const DEFAULT_DB_KEY = 'default';
 const healthPromises = new Map<string, Promise<SearchIndexHealth>>();
 const repairPromises = new Map<string, Promise<void>>();
 const scheduledHealthChecks = new Set<string>();
@@ -42,7 +41,7 @@ async function getDatabase(db?: RyuDatabase): Promise<RyuDatabase> {
 }
 
 function dbKey(db?: RyuDatabase): string {
-  return db?.name ?? DEFAULT_DB_KEY;
+  return db?.name ?? DEFAULT_RYU_DATABASE_NAME;
 }
 
 function tick(): Promise<void> {

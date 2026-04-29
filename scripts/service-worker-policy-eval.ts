@@ -16,7 +16,8 @@ type MockCache = {
 
 class MockResponse {
   constructor(readonly body = '', readonly init: { status?: number; statusText?: string } = {}) {}
-  get ok(): boolean { return (this.init.status ?? 200) >= 200 && (this.init.status ?? 200) < 300; }
+  get status(): number { return this.init.status ?? 200; }
+  get ok(): boolean { return this.status >= 200 && this.status < 300; }
   clone(): MockResponse { return new MockResponse(this.body, this.init); }
 }
 

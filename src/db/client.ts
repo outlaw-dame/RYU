@@ -17,6 +17,8 @@ import type {
   WriteQueueDoc
 } from './schema';
 
+export const DEFAULT_RYU_DATABASE_NAME = 'ryu';
+
 export type RyuCollections = {
   authors: RxCollection<AuthorDoc>;
   works: RxCollection<WorkDoc>;
@@ -71,7 +73,7 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
       await requestPersistentStorage();
 
       const db = await createRxDatabase<RyuCollections>({
-        name: 'ryu',
+        name: DEFAULT_RYU_DATABASE_NAME,
         storage: getRxStorageDexie(),
         multiInstance: true,
         ignoreDuplicate: isDevelopmentRuntime()
