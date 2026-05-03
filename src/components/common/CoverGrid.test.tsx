@@ -1,3 +1,5 @@
+/* @vitest-environment jsdom */
+
 import { render, screen } from "@testing-library/react";
 import type { HTMLAttributes } from "react";
 import { describe, expect, it, vi } from "vitest";

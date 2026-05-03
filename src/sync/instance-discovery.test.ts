@@ -4,9 +4,21 @@ vi.mock("./bookwyrm-instances", () => ({
   fetchBookWyrmInstances: vi.fn()
 }));
 
+const originalFetch = globalThis.fetch;
+
 describe("discoverFediverseInstances", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    if (originalFetch) {
+      Object.defineProperty(globalThis, "fetch", {
+        configurable: true,
+        writable: true,
+        value: originalFetch
+      });
+    } else {
+      Reflect.deleteProperty(globalThis, "fetch");
+    }
+
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
