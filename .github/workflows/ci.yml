@@ -39,6 +39,9 @@ jobs:
       - name: Auth backend smoke
         run: npm run auth:smoke
 
+      - name: Auth error mapping guardrails
+        run: npm run auth:errors
+
       - name: Schema migration guardrails
         run: npm run schema:eval
 

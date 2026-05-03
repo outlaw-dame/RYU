@@ -34,6 +34,7 @@
     "test:e2e:headed": "playwright test --headed",
     "auth:contracts": "tsx scripts/auth-contract-harness.ts",
     "auth:smoke": "tsx scripts/auth-backend-smoke.ts",
+    "auth:errors": "tsx scripts/auth-error-mapping-eval.ts",
     "auth:server": "tsx server/start-mastodon-auth-server.ts",
     "schema:eval": "tsx scripts/schema-eval.ts",
     "db:schema-smoke": "tsx scripts/rxdb-authorids-smoke.ts",
