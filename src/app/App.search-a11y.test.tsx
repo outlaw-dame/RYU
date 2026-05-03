@@ -52,6 +52,14 @@ vi.mock("../search/search", () => ({
   searchAll: vi.fn().mockResolvedValue({ all: [], editions: [], works: [], authors: [] })
 }));
 
+vi.mock("../sync/mastodon-activity-api", async () => {
+  const actual = await vi.importActual<typeof import("../sync/mastodon-activity-api")>("../sync/mastodon-activity-api");
+  return {
+    ...actual,
+    searchDiscoveryStatuses: vi.fn().mockResolvedValue({ items: [], links: {} })
+  };
+});
+
 import { App } from "./App";
 
 afterEach(() => {
@@ -118,5 +126,26 @@ describe("Search autocomplete accessibility", () => {
     expect(screen.getByRole("heading", { name: "Create account" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in with this server" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Browse servers" })).toBeInTheDocument();
+  });
+
+  it("renders Books/Writing/Fediverse facet chips and toggles pressed state", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: "Search" }));
+
+    const booksChip = screen.getByRole("button", { name: "Books" });
+    const writingChip = screen.getByRole("button", { name: "Writing" });
+    const fediverseChip = screen.getByRole("button", { name: "Fediverse" });
+
+    expect(booksChip).toHaveAttribute("aria-pressed", "true");
+    expect(writingChip).toHaveAttribute("aria-pressed", "false");
+    expect(fediverseChip).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(writingChip);
+    expect(booksChip).toHaveAttribute("aria-pressed", "false");
+    expect(writingChip).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(fediverseChip);
+    expect(fediverseChip).toHaveAttribute("aria-pressed", "true");
   });
 });

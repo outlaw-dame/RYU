@@ -35,6 +35,7 @@ import {
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
+import { searchDiscoveryStatuses } from "../sync/mastodon-activity-api";
 
 const sampleBooks = [
   { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
@@ -47,6 +48,7 @@ const sampleBooks = [
 
 type ExplainedSearchResult = RankedSearchResult & { explanation?: SearchExplanation };
 type ExplainedGroupedResults = GroupedSearchResults<ExplainedSearchResult>;
+type SearchFacet = "books" | "writing" | "fediverse";
 
 const DEFAULT_MASTODON_REGISTER_ENDPOINT = "/api/auth/mastodon/register";
 const DEFAULT_MASTODON_EXCHANGE_ENDPOINT = "/api/auth/mastodon/exchange";
@@ -298,6 +300,78 @@ function SearchResultsSection({
         ))}
       </div>
     </section>
+  );
+}
+
+function SearchFacetChip({
+  id,
+  label,
+  selected,
+  onSelect
+}: {
+  id: SearchFacet;
+  label: string;
+  selected: boolean;
+  onSelect: (facet: SearchFacet) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(id)}
+      aria-pressed={selected}
+      style={{
+        minHeight: "calc(var(--touch-min) - 10px)",
+        borderRadius: "999px",
+        border: selected
+          ? "1px solid color-mix(in srgb, var(--color-accent) 70%, transparent)"
+          : "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+        background: selected
+          ? "color-mix(in srgb, var(--color-accent) 24%, var(--color-bg))"
+          : "var(--color-bg-secondary)",
+        color: "var(--color-text)",
+        padding: "0 var(--space-3)",
+        fontSize: "var(--text-footnote)",
+        fontWeight: 650,
+        letterSpacing: "0.01em"
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function DiscoveryStatusRow({ status }: { status: MastodonStatus }) {
+  const href = sanitizeUrl(status.url ?? status.uri ?? null);
+  return (
+    <article
+      style={{
+        borderRadius: "var(--radius-lg)",
+        background: "var(--color-bg-secondary)",
+        color: "var(--color-text)",
+        padding: "var(--space-4)",
+        boxShadow: "var(--shadow-card)",
+        display: "grid",
+        gap: "var(--space-2)"
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-2)", alignItems: "baseline" }}>
+        <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+        <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>{formatActivityDate(status.created_at)}</span>
+      </div>
+      <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: 1.35 }}>
+        {mastodonStatusText(status).slice(0, 420)}
+      </p>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", textDecoration: "none", fontWeight: 600 }}
+        >
+          Open post
+        </a>
+      ) : null}
+    </article>
   );
 }
 
@@ -1274,6 +1348,10 @@ export function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<ExplainedGroupedResults | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchFacet, setSearchFacet] = useState<SearchFacet>("books");
+  const [discoveryStatuses, setDiscoveryStatuses] = useState<MastodonStatus[]>([]);
+  const [discoveryLoading, setDiscoveryLoading] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
   const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1616,6 +1694,59 @@ export function App() {
       window.clearTimeout(timeout);
     };
   }, [searchQuery, state]);
+
+  useEffect(() => {
+    const query = normalizeSearchQuery(searchQuery);
+
+    if (searchFacet !== "fediverse") {
+      setDiscoveryStatuses([]);
+      setDiscoveryError(null);
+      setDiscoveryLoading(false);
+      return;
+    }
+
+    if (query.length < 2) {
+      setDiscoveryStatuses([]);
+      setDiscoveryError(null);
+      setDiscoveryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      setDiscoveryLoading(true);
+      setDiscoveryError(null);
+
+      const lowered = query.toLowerCase();
+      const facetTag = /\b(write|writer|writing|author|poetry|novel|wip)\b/.test(lowered)
+        ? "#writing"
+        : "#bookstodon";
+      const scopedQuery = [query, facetTag].filter(Boolean).join(" ");
+
+      void searchDiscoveryStatuses(scopedQuery, { limit: 16 })
+        .then((page) => {
+          if (!cancelled) {
+            setDiscoveryStatuses(page.items);
+          }
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setDiscoveryStatuses([]);
+            setDiscoveryError(error instanceof Error ? error.message : String(error));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setDiscoveryLoading(false);
+          }
+        });
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [searchFacet, searchQuery]);
 
   const handleSearchResultSelect = useCallback((result: ExplainedSearchResult) => {
     const query = normalizeSearchQuery(searchQuery);
@@ -2097,6 +2228,20 @@ export function App() {
                         fontSize: "var(--text-body)"
                       }}
                     />
+                    <div
+                      role="group"
+                      aria-label="Search facets"
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "var(--space-2)",
+                        alignItems: "center"
+                      }}
+                    >
+                      <SearchFacetChip id="books" label="Books" selected={searchFacet === "books"} onSelect={setSearchFacet} />
+                      <SearchFacetChip id="writing" label="Writing" selected={searchFacet === "writing"} onSelect={setSearchFacet} />
+                      <SearchFacetChip id="fediverse" label="Fediverse" selected={searchFacet === "fediverse"} onSelect={setSearchFacet} />
+                    </div>
                     {visibleAutocompleteResults.length > 0 ? (
                       <div
                         id={SEARCH_AUTOCOMPLETE_LIST_ID}
@@ -2191,23 +2336,40 @@ export function App() {
                   </section>
                   <div style={{ height: "var(--space-6)" }} />
                   {searchError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{searchError}</p> : null}
-                  {isSearching ? <SkeletonCoverGrid count={3} /> : null}
-                  {searchResults && searchResults.all.length > 0 ? (
+                  {searchFacet === "fediverse" ? (
+                    <>
+                      {discoveryLoading ? <SkeletonCoverGrid count={3} /> : null}
+                      {discoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{discoveryError}</p> : null}
+                      {discoveryStatuses.length > 0 ? (
+                        <section style={{ display: "grid", gap: "var(--space-3)" }}>
+                          <SectionHeader title="Fediverse Discovery" />
+                          <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                            {discoveryStatuses.map((status) => (
+                              <DiscoveryStatusRow key={status.id} status={status} />
+                            ))}
+                          </div>
+                        </section>
+                      ) : normalizeSearchQuery(searchQuery).length >= 2 && !discoveryLoading ? (
+                        <EmptyState title="No federated results" description="Try another phrase, hashtag, author, or book title." />
+                      ) : null}
+                    </>
+                  ) : isSearching ? <SkeletonCoverGrid count={3} /> : null}
+                  {searchFacet !== "fediverse" && searchResults && searchResults.all.length > 0 ? (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
                       <SearchResultsSection title="Editions" query={normalizeSearchQuery(searchQuery)} results={searchResults.editions} onSelect={handleSearchResultSelect} />
                       <SearchResultsSection title="Works" query={normalizeSearchQuery(searchQuery)} results={searchResults.works} onSelect={handleSearchResultSelect} />
                       <SearchResultsSection title="Authors" query={normalizeSearchQuery(searchQuery)} results={searchResults.authors} onSelect={handleSearchResultSelect} />
                     </div>
-                  ) : normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
+                  ) : searchFacet !== "fediverse" && normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
                     <EmptyState title="No results" description="Try another title, author, ISBN, or theme." />
-                  ) : importedBooks.length > 0 ? (
+                  ) : searchFacet !== "fediverse" && importedBooks.length > 0 ? (
                     <>
                       <SectionHeader title="Imported Editions" />
                       <CoverGrid books={importedBooks} />
                     </>
-                  ) : (
+                  ) : searchFacet !== "fediverse" ? (
                     <EmptyState title="No imported books yet" description="BookWyrm editions you import will appear here." />
-                  )}
+                  ) : null}
                 </TabPanel>
               )}
               {activeTab === "shelves" && (
