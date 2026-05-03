@@ -8,7 +8,8 @@ import {
   getBookTokTrends,
   getHomeTimeline,
   getMastodonSession,
-  getNotifications
+  getNotifications,
+  searchDiscoveryStatuses
 } from "./mastodon-activity-api";
 
 function jsonResponse(payload: unknown, init: ResponseInit = {}): Response {
@@ -38,7 +39,7 @@ describe("mastodon-activity-api", () => {
     expect(JSON.stringify(session)).not.toContain("access_token");
   });
 
-  it("loads timeline, notifications, account statuses, shelves, trends, and disconnect through same-origin proxy paths", async () => {
+  it("loads timeline, notifications, account statuses, shelves, discovery search, trends, and disconnect through same-origin proxy paths", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.startsWith("/api/auth/mastodon/timelines/home")) {
@@ -59,6 +60,9 @@ describe("mastodon-activity-api", () => {
       if (path === "/api/auth/mastodon/lists") {
         return jsonResponse([{ id: "list-1", title: "Book Clubs" }]);
       }
+      if (path.startsWith("/api/auth/mastodon/search/statuses")) {
+        return jsonResponse({ items: [statusPayload("91")], links: {} });
+      }
       if (path === "/api/trends/booktok") {
         return jsonResponse({ items: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 1 }] });
       }
@@ -74,6 +78,7 @@ describe("mastodon-activity-api", () => {
     await expect(getBookmarks({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "71" }] });
     await expect(getFavourites({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "81" }] });
     await expect(getLists({ fetchImpl })).resolves.toMatchObject([{ id: "list-1" }]);
+    await expect(searchDiscoveryStatuses("#bookstodon", { limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "91" }] });
     await expect(getBookTokTrends({ fetchImpl })).resolves.toMatchObject([{ id: "trend-1" }]);
     await expect(disconnectMastodon({ fetchImpl })).resolves.toBeUndefined();
 

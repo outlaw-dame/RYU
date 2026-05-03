@@ -11,6 +11,7 @@ import {
   parseMastodonRegisterRequest,
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
+import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
 import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
@@ -81,6 +82,11 @@ const mastodonNotificationsQuerySchema = mastodonPaginationQuerySchema.extend({
   accountId: mastodonCursorSchema.optional(),
   types: z.array(z.string().min(1).max(48)).max(8).optional(),
   excludeTypes: z.array(z.string().min(1).max(48)).max(8).optional()
+});
+
+const mastodonDiscoverySearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(240),
+  limit: z.coerce.number().int().min(1).max(30).default(20)
 });
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -440,6 +446,13 @@ function parseNotificationsQuery(url: URL): z.infer<typeof mastodonNotifications
     accountId: readOptionalQuery(url, "account_id"),
     types: readArrayQuery(url, "types"),
     excludeTypes: readArrayQuery(url, "exclude_types")
+  });
+}
+
+function parseDiscoverySearchQuery(url: URL): z.infer<typeof mastodonDiscoverySearchQuerySchema> {
+  return mastodonDiscoverySearchQuerySchema.parse({
+    q: readOptionalQuery(url, "q"),
+    limit: readOptionalQuery(url, "limit")
   });
 }
 
@@ -957,6 +970,53 @@ async function handleNowReadingTrends(req: IncomingMessage, res: ServerResponse,
   sendJson(res, 200, { items, links: {} });
 }
 
+async function handleMastodonDiscoverySearch(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer,
+  url: URL
+): Promise<void> {
+  const { q, limit } = parseDiscoverySearchQuery(url);
+
+  await handleMastodonProxy(req, res, sessKey, async (client) => {
+    const plan = buildDiscoveryQueryPlan(q, { maxVariants: 8 });
+    const perVariantLimit = Math.min(limit, 10);
+    const variantPromises = plan.variants.map((variant) =>
+      client.fetchSearchStatuses({ query: variant, limit: perVariantLimit, resolve: true })
+    );
+
+    const results = await Promise.allSettled(variantPromises);
+    const deduped = new Map<string, MastodonStatus>();
+
+    for (const result of results) {
+      if (result.status !== "fulfilled") {
+        continue;
+      }
+
+      for (const status of result.value) {
+        const key = status.url ?? status.uri ?? status.id;
+        if (!deduped.has(key)) {
+          deduped.set(key, status);
+        }
+      }
+    }
+
+    const items = Array.from(deduped.values())
+      .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+      .slice(0, limit);
+
+    return {
+      items,
+      links: {},
+      query: {
+        normalized: plan.normalizedQuery,
+        variants: plan.variants,
+        entities: plan.matchedEntities
+      }
+    };
+  });
+}
+
 // ─── Request Dispatcher ───────────────────────────────────────────────────────
 
 async function dispatch(
@@ -1031,6 +1091,11 @@ async function dispatch(
 
     if (url.pathname === "/api/auth/mastodon/lists") {
       await handleMastodonProxy(req, res, sessKey, (client) => client.fetchLists());
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/search/statuses") {
+      await handleMastodonDiscoverySearch(req, res, sessKey, url);
       return;
     }
 

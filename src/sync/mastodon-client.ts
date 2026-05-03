@@ -32,6 +32,12 @@ export type MastodonNotificationsParams = MastodonPaginationParams & {
   excludeTypes?: string[];
 };
 
+export type MastodonSearchStatusesParams = {
+  query: string;
+  limit?: number;
+  resolve?: boolean;
+};
+
 export type MastodonPaginationLinks = {
   next?: MastodonPaginationParams;
   prev?: MastodonPaginationParams;
@@ -136,6 +142,25 @@ export class MastodonClient {
 
   fetchNotifications(params: MastodonNotificationsParams = {}): Promise<MastodonPage<MastodonNotification>> {
     return this.fetchArray("/api/v1/notifications", mastodonNotificationSchema, params);
+  }
+
+  async fetchSearchStatuses(params: MastodonSearchStatusesParams): Promise<MastodonStatus[]> {
+    const url = this.buildUrl("/api/v2/search", {
+      q: params.query,
+      type: "statuses",
+      limit: params.limit,
+      resolve: params.resolve ?? false
+    });
+
+    const { json } = await this.queue.run(url.toString(), (signal) => this.fetchJson(url, signal), {
+      host: url.host
+    });
+
+    const parsed = z.object({
+      statuses: z.array(mastodonStatusSchema).default([])
+    }).parse(json);
+
+    return parsed.statuses;
   }
 
   fetchBookmarks(params: MastodonPaginationParams = {}): Promise<MastodonPage<MastodonStatus>> {

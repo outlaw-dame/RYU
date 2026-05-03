@@ -21,6 +21,7 @@ export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/st
 export const MASTODON_BOOKMARKS_ENDPOINT = "/api/auth/mastodon/bookmarks";
 export const MASTODON_FAVOURITES_ENDPOINT = "/api/auth/mastodon/favourites";
 export const MASTODON_LISTS_ENDPOINT = "/api/auth/mastodon/lists";
+export const MASTODON_DISCOVERY_SEARCH_ENDPOINT = "/api/auth/mastodon/search/statuses";
 export const BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
 export type MastodonSessionState = {
@@ -136,6 +137,19 @@ export async function getLists(options: MastodonActivityApiOptions = {}): Promis
   }).passthrough()).parse(await response.json());
 }
 
+export async function searchDiscoveryStatuses(
+  query: string,
+  params: { limit?: number } = {},
+  options: MastodonActivityApiOptions = {}
+): Promise<MastodonPage<MastodonStatus>> {
+  const url = new URL(MASTODON_DISCOVERY_SEARCH_ENDPOINT, "https://ryu.local");
+  url.searchParams.set("q", query);
+  appendOptional(url, "limit", params.limit);
+
+  const response = await requestProxy(`${url.pathname}${url.search}`, { method: "GET" }, options);
+  return parseMastodonStatusPageResponse(response);
+}
+
 export async function getBookTokTrends(options: MastodonActivityApiOptions = {}): Promise<BookTokTrend[]> {
   const response = await requestProxy(BOOKTOK_TRENDING_ENDPOINT, { method: "GET" }, { ...options, attempts: options.attempts ?? 2 });
   return parseBookTokTrendingPayload(await response.json());
@@ -234,6 +248,7 @@ function normalizeProxyPath(endpoint: string): string {
     MASTODON_BOOKMARKS_ENDPOINT,
     MASTODON_FAVOURITES_ENDPOINT,
     MASTODON_LISTS_ENDPOINT,
+    MASTODON_DISCOVERY_SEARCH_ENDPOINT,
     BOOKTOK_TRENDING_ENDPOINT
   ]);
 

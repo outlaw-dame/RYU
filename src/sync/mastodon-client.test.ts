@@ -68,6 +68,26 @@ describe("MastodonClient", () => {
     expect(page.items).toEqual([notificationPayload]);
   });
 
+  it("searches statuses for reading and writing discovery queries", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ statuses: [statusPayload] }));
+    const client = new MastodonClient({
+      instanceOrigin: "https://books.example",
+      accessToken: "token-123",
+      fetchImpl,
+      queueOptions: { retries: 0, jitterMs: 0, persistStatus: false }
+    });
+
+    const statuses = await client.fetchSearchStatuses({ query: "#bookstodon", limit: 15, resolve: true });
+
+    const [url] = fetchImpl.mock.calls[0] as [URL, RequestInit];
+    expect(url.pathname).toBe("/api/v2/search");
+    expect(url.searchParams.get("q")).toBe("#bookstodon");
+    expect(url.searchParams.get("type")).toBe("statuses");
+    expect(url.searchParams.get("limit")).toBe("15");
+    expect(url.searchParams.get("resolve")).toBe("true");
+    expect(statuses).toEqual([statusPayload]);
+  });
+
   it("surfaces non-ok responses as retry-aware Mastodon API errors", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("rate limited", {
       status: 429,
