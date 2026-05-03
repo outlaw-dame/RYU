@@ -6,6 +6,7 @@ import {
   setSearchRuntimeSettings,
   type SearchRuntimeSettings
 } from '../../search/runtime-settings';
+import { getSearchUiPreferences, setSearchUiPreferences } from '../../search/ui-preferences';
 
 function ToggleRow({
   label,
@@ -40,6 +41,7 @@ function ToggleRow({
 
 export function SearchRuntimeSettingsPanel() {
   const [settings, setSettingsState] = useState<SearchRuntimeSettings>(() => getSearchRuntimeSettings());
+  const [uiPreferences, setUiPreferences] = useState(() => getSearchUiPreferences());
 
   const update = useCallback((patch: Partial<SearchRuntimeSettings>) => {
     const previous = getSearchRuntimeSettings();
@@ -50,6 +52,11 @@ export function SearchRuntimeSettingsPanel() {
     if (previous.embeddingRuntime !== next.embeddingRuntime) {
       scheduleSearchVectorRebuild();
     }
+  }, []);
+
+  const updateUiPreferences = useCallback((manualFacetControls: boolean) => {
+    const next = setSearchUiPreferences({ manualFacetControls });
+    setUiPreferences(next);
   }, []);
 
   return (
@@ -90,6 +97,13 @@ export function SearchRuntimeSettingsPanel() {
           description="Helps interpret longer, more natural searches when local AI is available."
           checked={settings.webLLMIntentRefinement}
           onChange={(checked) => update({ webLLMIntentRefinement: checked })}
+        />
+
+        <ToggleRow
+          label="Manual Search Facets"
+          description="Power-user control: expose Books, Writing, and Fediverse facet chips in Search."
+          checked={uiPreferences.manualFacetControls}
+          onChange={updateUiPreferences}
         />
       </div>
     </section>

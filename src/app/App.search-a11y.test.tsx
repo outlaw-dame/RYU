@@ -61,9 +61,11 @@ vi.mock("../sync/mastodon-activity-api", async () => {
 });
 
 import { App } from "./App";
+import { setSearchUiPreferences } from "../search/ui-preferences";
 
 afterEach(() => {
   cleanup();
+  setSearchUiPreferences({ manualFacetControls: false });
 });
 
 describe("Search autocomplete accessibility", () => {
@@ -128,7 +130,17 @@ describe("Search autocomplete accessibility", () => {
     expect(screen.getByRole("button", { name: "Browse servers" })).toBeInTheDocument();
   });
 
-  it("renders Books/Writing/Fediverse facet chips and toggles pressed state", async () => {
+  it("hides manual facet chips by default", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("tab", { name: "Search" }));
+
+    expect(screen.queryByRole("group", { name: "Search facets" })).not.toBeInTheDocument();
+  });
+
+  it("renders Books/Writing/Fediverse facet chips and toggles pressed state for power users", async () => {
+    setSearchUiPreferences({ manualFacetControls: true });
+
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("tab", { name: "Search" }));

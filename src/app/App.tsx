@@ -36,6 +36,7 @@ import {
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
 import { searchDiscoveryStatuses } from "../sync/mastodon-activity-api";
+import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
 
 const sampleBooks = [
   { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
@@ -1349,6 +1350,7 @@ export function App() {
   const [searchResults, setSearchResults] = useState<ExplainedGroupedResults | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchFacet, setSearchFacet] = useState<SearchFacet>("books");
+  const [manualFacetControls, setManualFacetControls] = useState<boolean>(() => getSearchUiPreferences().manualFacetControls);
   const [discoveryStatuses, setDiscoveryStatuses] = useState<MastodonStatus[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -1404,6 +1406,22 @@ export function App() {
   const shelves = useMastodonShelves(connectedAccount !== null);
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
+  const usingManualFediverseFacet = manualFacetControls && searchFacet === "fediverse";
+  const showFacetControls = manualFacetControls;
+  const showLocalSearchResults = !usingManualFediverseFacet;
+  const showFederatedDiscoveryResults = !manualFacetControls || searchFacet === "fediverse";
+
+  useEffect(() => {
+    return subscribeSearchUiPreferences((preferences) => {
+      setManualFacetControls(preferences.manualFacetControls);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!manualFacetControls && searchFacet !== "books") {
+      setSearchFacet("books");
+    }
+  }, [manualFacetControls, searchFacet]);
 
   const buildActivityEndpoint = useCallback((endpoint: string, limit: number) => {
     const url = new URL(endpoint, window.location.origin);
@@ -1661,7 +1679,7 @@ export function App() {
   useEffect(() => {
     const query = normalizeSearchQuery(searchQuery);
 
-    if (query.length < 2 || state !== "ready") {
+    if (!showLocalSearchResults || query.length < 2 || state !== "ready") {
       setSearchResults(null);
       setSearchError(null);
       setIsSearching(false);
@@ -1693,12 +1711,12 @@ export function App() {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [searchQuery, state]);
+  }, [searchQuery, showLocalSearchResults, state]);
 
   useEffect(() => {
     const query = normalizeSearchQuery(searchQuery);
 
-    if (searchFacet !== "fediverse") {
+    if (!showFederatedDiscoveryResults) {
       setDiscoveryStatuses([]);
       setDiscoveryError(null);
       setDiscoveryLoading(false);
@@ -1718,9 +1736,10 @@ export function App() {
       setDiscoveryError(null);
 
       const lowered = query.toLowerCase();
-      const facetTag = /\b(write|writer|writing|author|poetry|novel|wip)\b/.test(lowered)
-        ? "#writing"
-        : "#bookstodon";
+      const writingPattern = /\b(write|writer|writing|author|poetry|novel|wip)\b/;
+      const facetTag = manualFacetControls
+        ? (searchFacet === "writing" ? "#writing" : searchFacet === "books" ? "#bookstodon" : (writingPattern.test(lowered) ? "#writing" : "#bookstodon"))
+        : (writingPattern.test(lowered) ? "#writing" : "#bookstodon");
       const scopedQuery = [query, facetTag].filter(Boolean).join(" ");
 
       void searchDiscoveryStatuses(scopedQuery, { limit: 16 })
@@ -1746,7 +1765,7 @@ export function App() {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [searchFacet, searchQuery]);
+  }, [manualFacetControls, searchFacet, searchQuery, showFederatedDiscoveryResults]);
 
   const handleSearchResultSelect = useCallback((result: ExplainedSearchResult) => {
     const query = normalizeSearchQuery(searchQuery);
@@ -2228,20 +2247,26 @@ export function App() {
                         fontSize: "var(--text-body)"
                       }}
                     />
-                    <div
-                      role="group"
-                      aria-label="Search facets"
-                      style={{
-                        display: "flex",
-                        flexWrap: "wrap",
-                        gap: "var(--space-2)",
-                        alignItems: "center"
-                      }}
-                    >
-                      <SearchFacetChip id="books" label="Books" selected={searchFacet === "books"} onSelect={setSearchFacet} />
-                      <SearchFacetChip id="writing" label="Writing" selected={searchFacet === "writing"} onSelect={setSearchFacet} />
-                      <SearchFacetChip id="fediverse" label="Fediverse" selected={searchFacet === "fediverse"} onSelect={setSearchFacet} />
-                    </div>
+                    {showFacetControls ? (
+                      <div
+                        role="group"
+                        aria-label="Search facets"
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: "var(--space-2)",
+                          alignItems: "center"
+                        }}
+                      >
+                        <SearchFacetChip id="books" label="Books" selected={searchFacet === "books"} onSelect={setSearchFacet} />
+                        <SearchFacetChip id="writing" label="Writing" selected={searchFacet === "writing"} onSelect={setSearchFacet} />
+                        <SearchFacetChip id="fediverse" label="Fediverse" selected={searchFacet === "fediverse"} onSelect={setSearchFacet} />
+                      </div>
+                    ) : (
+                      <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+                        Smart Search blends your library with federated reading and writing discussion.
+                      </p>
+                    )}
                     {visibleAutocompleteResults.length > 0 ? (
                       <div
                         id={SEARCH_AUTOCOMPLETE_LIST_ID}
@@ -2335,8 +2360,8 @@ export function App() {
                     </div>
                   </section>
                   <div style={{ height: "var(--space-6)" }} />
-                  {searchError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{searchError}</p> : null}
-                  {searchFacet === "fediverse" ? (
+                  {showLocalSearchResults && searchError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{searchError}</p> : null}
+                  {showFederatedDiscoveryResults ? (
                     <>
                       {discoveryLoading ? <SkeletonCoverGrid count={3} /> : null}
                       {discoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{discoveryError}</p> : null}
@@ -2353,21 +2378,22 @@ export function App() {
                         <EmptyState title="No federated results" description="Try another phrase, hashtag, author, or book title." />
                       ) : null}
                     </>
-                  ) : isSearching ? <SkeletonCoverGrid count={3} /> : null}
-                  {searchFacet !== "fediverse" && searchResults && searchResults.all.length > 0 ? (
+                  ) : null}
+                  {showLocalSearchResults && isSearching ? <SkeletonCoverGrid count={3} /> : null}
+                  {showLocalSearchResults && searchResults && searchResults.all.length > 0 ? (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
                       <SearchResultsSection title="Editions" query={normalizeSearchQuery(searchQuery)} results={searchResults.editions} onSelect={handleSearchResultSelect} />
                       <SearchResultsSection title="Works" query={normalizeSearchQuery(searchQuery)} results={searchResults.works} onSelect={handleSearchResultSelect} />
                       <SearchResultsSection title="Authors" query={normalizeSearchQuery(searchQuery)} results={searchResults.authors} onSelect={handleSearchResultSelect} />
                     </div>
-                  ) : searchFacet !== "fediverse" && normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
+                  ) : showLocalSearchResults && normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
                     <EmptyState title="No results" description="Try another title, author, ISBN, or theme." />
-                  ) : searchFacet !== "fediverse" && importedBooks.length > 0 ? (
+                  ) : showLocalSearchResults && importedBooks.length > 0 ? (
                     <>
                       <SectionHeader title="Imported Editions" />
                       <CoverGrid books={importedBooks} />
                     </>
-                  ) : searchFacet !== "fediverse" ? (
+                  ) : showLocalSearchResults ? (
                     <EmptyState title="No imported books yet" description="BookWyrm editions you import will appear here." />
                   ) : null}
                 </TabPanel>
