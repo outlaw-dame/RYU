@@ -1019,6 +1019,21 @@ async function dispatch(
       return;
     }
 
+    if (url.pathname === "/api/auth/mastodon/bookmarks") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchBookmarks(parsePaginationQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/favourites") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchFavourites(parsePaginationQuery(url)));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/lists") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchLists());
+      return;
+    }
+
     if (req.method !== "POST") {
       sendJson(res, 405, { error: "method_not_allowed" });
       return;

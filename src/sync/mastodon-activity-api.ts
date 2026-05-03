@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseBookTokTrendingPayload, type BookTokTrend } from "./booktok-trending";
 import {
+  type MastodonList,
   type MastodonNotification,
   type MastodonPage,
   type MastodonPaginationParams,
@@ -17,6 +18,9 @@ export const MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
 export const MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
 export const MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
 export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/statuses";
+export const MASTODON_BOOKMARKS_ENDPOINT = "/api/auth/mastodon/bookmarks";
+export const MASTODON_FAVOURITES_ENDPOINT = "/api/auth/mastodon/favourites";
+export const MASTODON_LISTS_ENDPOINT = "/api/auth/mastodon/lists";
 export const BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
 export type MastodonSessionState = {
@@ -105,6 +109,31 @@ export async function getAccountStatuses(
 ): Promise<MastodonPage<MastodonStatus>> {
   const response = await requestProxy(withPagination(MASTODON_ACCOUNT_STATUSES_ENDPOINT, params), { method: "GET" }, options);
   return parseMastodonStatusPageResponse(response);
+}
+
+export async function getBookmarks(
+  params: MastodonPaginationParams = {},
+  options: MastodonActivityApiOptions = {}
+): Promise<MastodonPage<MastodonStatus>> {
+  const response = await requestProxy(withPagination(MASTODON_BOOKMARKS_ENDPOINT, params), { method: "GET" }, options);
+  return parseMastodonStatusPageResponse(response);
+}
+
+export async function getFavourites(
+  params: MastodonPaginationParams = {},
+  options: MastodonActivityApiOptions = {}
+): Promise<MastodonPage<MastodonStatus>> {
+  const response = await requestProxy(withPagination(MASTODON_FAVOURITES_ENDPOINT, params), { method: "GET" }, options);
+  return parseMastodonStatusPageResponse(response);
+}
+
+export async function getLists(options: MastodonActivityApiOptions = {}): Promise<MastodonList[]> {
+  const response = await requestProxy(MASTODON_LISTS_ENDPOINT, { method: "GET" }, options);
+  return z.array(z.object({
+    id: z.string().min(1),
+    title: z.string().min(1),
+    replies_policy: z.string().optional()
+  }).passthrough()).parse(await response.json());
 }
 
 export async function getBookTokTrends(options: MastodonActivityApiOptions = {}): Promise<BookTokTrend[]> {
@@ -202,6 +231,9 @@ function normalizeProxyPath(endpoint: string): string {
     MASTODON_HOME_TIMELINE_ENDPOINT,
     MASTODON_NOTIFICATIONS_ENDPOINT,
     MASTODON_ACCOUNT_STATUSES_ENDPOINT,
+    MASTODON_BOOKMARKS_ENDPOINT,
+    MASTODON_FAVOURITES_ENDPOINT,
+    MASTODON_LISTS_ENDPOINT,
     BOOKTOK_TRENDING_ENDPOINT
   ]);
 

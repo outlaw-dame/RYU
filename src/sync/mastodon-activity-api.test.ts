@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  getBookmarks,
   disconnectMastodon,
+  getFavourites,
+  getLists,
   getAccountStatuses,
   getBookTokTrends,
   getHomeTimeline,
@@ -35,7 +38,7 @@ describe("mastodon-activity-api", () => {
     expect(JSON.stringify(session)).not.toContain("access_token");
   });
 
-  it("loads timeline, notifications, account statuses, trends, and disconnect through same-origin proxy paths", async () => {
+  it("loads timeline, notifications, account statuses, shelves, trends, and disconnect through same-origin proxy paths", async () => {
     const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
       if (path.startsWith("/api/auth/mastodon/timelines/home")) {
@@ -46,6 +49,15 @@ describe("mastodon-activity-api", () => {
       }
       if (path.startsWith("/api/auth/mastodon/account/statuses")) {
         return jsonResponse({ items: [statusPayload("61")], links: {} });
+      }
+      if (path.startsWith("/api/auth/mastodon/bookmarks")) {
+        return jsonResponse({ items: [statusPayload("71")], links: {} });
+      }
+      if (path.startsWith("/api/auth/mastodon/favourites")) {
+        return jsonResponse({ items: [statusPayload("81")], links: {} });
+      }
+      if (path === "/api/auth/mastodon/lists") {
+        return jsonResponse([{ id: "list-1", title: "Book Clubs" }]);
       }
       if (path === "/api/trends/booktok") {
         return jsonResponse({ items: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 1 }] });
@@ -59,6 +71,9 @@ describe("mastodon-activity-api", () => {
     await expect(getHomeTimeline({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "41" }] });
     await expect(getNotifications({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "51" }] });
     await expect(getAccountStatuses({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "61" }] });
+    await expect(getBookmarks({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "71" }] });
+    await expect(getFavourites({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "81" }] });
+    await expect(getLists({ fetchImpl })).resolves.toMatchObject([{ id: "list-1" }]);
     await expect(getBookTokTrends({ fetchImpl })).resolves.toMatchObject([{ id: "trend-1" }]);
     await expect(disconnectMastodon({ fetchImpl })).resolves.toBeUndefined();
 
