@@ -39,6 +39,9 @@ export async function buildSearchQueryExpansionPlan(query: string, db?: RyuDatab
 }
 
 async function resolveKnowledgeVariants(normalizedQuery: string, db: RyuDatabase): Promise<string[]> {
+  if (!db.entitylinks) {
+    return [];
+  }
   const docs = await db.entitylinks.find({
     selector: {
       source: { $in: ["wikidata", "dbpedia", "open_library", "google_books"] },
