@@ -11,8 +11,9 @@ import {
   parseMastodonRegisterRequest,
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
-import { MastodonApiResponseError, MastodonClient } from "../src/sync/mastodon-client";
+import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
+import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ const STORE_PATH = resolve(process.cwd(), ".data/mastodon-credentials.enc");
 const DEV_KEY_PATH = resolve(process.cwd(), ".data/dev-store-key.hex");
 const SESSION_COOKIE = "ryu_masto_session";
 const SESSION_MAX_AGE_SECONDS = 2_592_000; // 30 days
+const NOW_READING_DEFAULT_ORIGINS = ["https://bookwyrm.social", "https://mastodon.social"];
+const NOW_READING_DEFAULT_TAGS = ["nowreading", "currentlyreading", "amreading", "bookstodon"];
+const NOW_READING_DEFAULT_LIMIT = 12;
 // Domain strings for key derivation — changing these invalidates all stored data.
 const CREDENTIAL_CONTEXT = "ryu:credentials:v1";
 const SESSION_CONTEXT = "ryu:session:v1";
@@ -348,6 +352,63 @@ function normalizePublicHttpsUrl(input: string): string {
 
 function sanitizeUpstreamError(text: string): string {
   return text.slice(0, 400).replace(/[\r\n\t]+/g, " ").trim();
+}
+
+function parseBooleanQuery(url: URL, key: string, fallback: boolean): boolean {
+  const value = readOptionalQuery(url, key);
+  if (!value) return fallback;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return fallback;
+}
+
+function parsePositiveIntegerQuery(url: URL, key: string, fallback: number, max = 100): number {
+  const value = readOptionalQuery(url, key);
+  if (!value) return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+function parseNowReadingOrigins(): string[] {
+  const raw = process.env.NOW_READING_PUBLIC_ORIGINS;
+  const candidates = raw
+    ? raw.split(",").map((value) => value.trim()).filter(Boolean)
+    : NOW_READING_DEFAULT_ORIGINS;
+
+  const normalized = new Set<string>();
+  for (const candidate of candidates) {
+    try {
+      normalized.add(normalizePublicHttpsUrl(candidate));
+    } catch {
+      // Skip invalid origins rather than failing the whole feed.
+    }
+  }
+
+  return Array.from(normalized);
+}
+
+function parseNowReadingTags(url: URL): string[] {
+  const queryTags = readArrayQuery(url, "tags");
+  const configuredTags = process.env.NOW_READING_TAGS
+    ? process.env.NOW_READING_TAGS.split(",").map((value) => value.trim())
+    : NOW_READING_DEFAULT_TAGS;
+  const source = queryTags && queryTags.length > 0 ? queryTags : configuredTags;
+
+  const tags = new Set<string>();
+  for (const tag of source) {
+    const normalized = tag.replace(/^#/, "").trim().toLowerCase();
+    if (normalized) {
+      tags.add(normalized);
+    }
+  }
+
+  return Array.from(tags);
+}
+
+function parseNowReadingLimit(url: URL): number {
+  return parsePositiveIntegerQuery(url, "limit", NOW_READING_DEFAULT_LIMIT, 40);
 }
 
 function readOptionalQuery(url: URL, key: string): string | undefined {
@@ -810,6 +871,92 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
   }
 }
 
+async function handleInstanceDiscovery(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  try {
+    const instances = await discoverFediverseInstances({
+      signupOnly: parseBooleanQuery(url, "signupOnly", true),
+      mastodonApiCompatibleOnly: parseBooleanQuery(url, "mastodonApiCompatibleOnly", true),
+      preferredCountry: readOptionalQuery(url, "preferredCountry"),
+      preferredSoftwareSlugs: readArrayQuery(url, "preferredSoftwareSlugs"),
+      searchQuery: readOptionalQuery(url, "searchQuery"),
+      limit: parsePositiveIntegerQuery(url, "limit", 80, 200),
+      force: parseBooleanQuery(url, "force", false)
+    });
+
+    sendJson(res, 200, {
+      instances,
+      ...getInstanceDiscoverySnapshot(instances)
+    });  } catch (error) {
+    sendJson(res, 503, {
+      error: "instance_discovery_unavailable",
+      message: error instanceof Error && error.message.trim()
+        ? error.message
+        : "Server directory is temporarily unavailable. You can still enter your server manually."
+    });
+  }
+}
+
+async function handleNowReadingTrends(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const origins = parseNowReadingOrigins();
+  const tags = parseNowReadingTags(url);
+  const limit = parseNowReadingLimit(url);
+
+  if (origins.length === 0 || tags.length === 0) {
+    sendJson(res, 200, { items: [], links: {} });
+    return;
+  }
+
+  const timelinePromises = origins.flatMap((origin) => tags.map(async (tag) => {
+    const timelineUrl = new URL(`/api/v1/timelines/tag/${encodeURIComponent(tag)}`, origin);
+    timelineUrl.searchParams.set("limit", String(limit));
+
+    const response = await fetchWithRetry(timelineUrl.toString(), {
+      method: "GET",
+      headers: { Accept: "application/json" }
+    });
+
+    if (!response.ok) {
+      return [] as MastodonStatus[];
+    }
+
+    const payload = await response.json().catch(() => null);
+    const parsed = z.array(mastodonStatusSchema).safeParse(payload);
+    return parsed.success ? parsed.data : [];
+  }));
+
+  const timelineBatches = await Promise.allSettled(timelinePromises);
+  const deduped = new Map<string, MastodonStatus>();
+
+  for (const batch of timelineBatches) {
+    if (batch.status !== "fulfilled") {
+      continue;
+    }
+
+    for (const status of batch.value) {
+      const key = status.url ?? status.uri ?? status.id;
+      if (!deduped.has(key)) {
+        deduped.set(key, status);
+      }
+    }
+  }
+
+  const items = Array.from(deduped.values())
+    .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at))
+    .slice(0, limit);
+
+  sendJson(res, 200, { items, links: {} });
+}
+
 // ─── Request Dispatcher ───────────────────────────────────────────────────────
 
 async function dispatch(
@@ -820,6 +967,16 @@ async function dispatch(
   sessKeyPromise: Promise<Buffer>
 ): Promise<void> {
   try {
+    if (url.pathname === "/api/discovery/instances") {
+      await handleInstanceDiscovery(req, res, url);
+      return;
+    }
+
+    if (url.pathname === "/api/trends/now-reading") {
+      await handleNowReadingTrends(req, res, url);
+      return;
+    }
+
     if (url.pathname === "/api/trends/booktok") {
       await handleBookTokTrends(req, res);
       return;
@@ -920,7 +1077,12 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
     if (!req.url) { next(); return; }
 
     const url = new URL(req.url, "http://localhost");
-    if (!url.pathname.startsWith("/api/auth/mastodon/") && url.pathname !== "/api/trends/booktok") { next(); return; }
+    if (
+      !url.pathname.startsWith("/api/auth/mastodon/") &&
+      url.pathname !== "/api/trends/booktok" &&
+      url.pathname !== "/api/trends/now-reading" &&
+      url.pathname !== "/api/discovery/instances"
+    ) { next(); return; }
 
     const ip = clientAddress(req);
     if (!allowRequest(ip)) {

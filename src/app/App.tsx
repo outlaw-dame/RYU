@@ -1489,6 +1489,8 @@ export function App() {
       if (!cancelled) {
         setAuthError("Authentication callback was received, but no active login transaction was found.");
       }
+      callbackUrl.search = "";
+      window.history.replaceState({}, "", callbackUrl.toString());
       return () => {
         cancelled = true;
       };

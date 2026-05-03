@@ -6,6 +6,8 @@
   - POST /api/auth/mastodon/register
   - POST /api/auth/mastodon/exchange
   - POST /api/auth/mastodon/revoke
+  - GET /api/discovery/instances
+  - GET /api/media/cover
 - Standalone API scaffold using same handlers:
   - `npm run auth:server`
 - End-to-end backend smoke test against a local mock Mastodon server:
@@ -17,6 +19,8 @@
   - request size limits
   - same-origin check for Origin header
   - basic rate limiting by client IP
+  - server-side instance discovery with Oliphant Tier 0 blocklist filtering before results reach the browser
+  - public HTTPS-only media proxy with private-network, credentialed-URL, content-type, redirect, and byte-size guards
 - Upstream resilience:
   - timeout and retry with exponential backoff + jitter for transient failures.
 - Privacy and security defaults:

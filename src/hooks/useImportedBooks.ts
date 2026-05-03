@@ -7,6 +7,8 @@ type ImportedBook = {
   title: string;
   author?: string;
   coverUrl?: string;
+  sourceUrl?: string;
+  authorUrl?: string;
 };
 
 function toPlainDoc<T>(doc: { toJSON: () => unknown }): T {
@@ -39,16 +41,19 @@ export function useImportedBooks(enabled: boolean) {
         .map((doc) => toPlainDoc<EditionDoc>(doc))
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
         .map((edition) => {
-          const author = edition.authorIds
-            .map((authorId) => authorsById.get(authorId)?.name)
-            .filter((name): name is string => Boolean(name))
-            .join(", ");
+          const authorRecords = edition.authorIds
+            .map((authorId) => authorsById.get(authorId))
+            .filter((author): author is AuthorDoc => Boolean(author));
+          const author = authorRecords.map((record) => record.name).join(", ");
+          const authorUrl = authorRecords.find((record) => record.url)?.url;
 
           return {
             id: edition.id,
             title: edition.title,
             author: author || undefined,
-            coverUrl: edition.coverUrl
+            coverUrl: edition.coverUrl,
+            sourceUrl: edition.sourceUrl,
+            authorUrl
           };
         });
 

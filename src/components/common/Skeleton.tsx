@@ -8,7 +8,7 @@ export function SkeletonCover() {
 
 export function SkeletonCoverGrid({ count = 6 }: { count?: number }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 128px))", justifyContent: "start", alignItems: "start", gap: "var(--space-4) var(--space-3)", padding: "0 var(--space-4)" }}>
       {Array.from({ length: count }, (_, index) => <SkeletonCover key={index} />)}
     </div>
   );

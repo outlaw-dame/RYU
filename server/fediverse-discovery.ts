@@ -1,6 +1,20 @@
+/**
+ * Server-side fediverse instance discovery.
+ *
+ * This is a self-contained module with NO imports that use the @/db path alias.
+ * It is intentionally separate from src/sync/instance-discovery.ts so that
+ * vite.config.ts can import the auth middleware without pulling in browser-only
+ * RxDB code via the @/db alias chain.
+ *
+ * Fetches instances from FediDB + Oliphant Tier 0 blocklist only.
+ * BookWyrm database instances (browser-only) are skipped on the server.
+ */
+
 import { z } from "zod";
-import { fetchBookWyrmInstances } from "./bookwyrm-instances";
-import { computeBackoffMs } from "../db/write-queue";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const FEDIDB_SERVERS_URL = "https://api.fedidb.org/v1/servers";
 const OLIPHANT_TIER0_URLS = [
@@ -12,6 +26,10 @@ const FEDIDB_DEFAULT_LIMIT = 40;
 const FEDIDB_CACHE_TTL_MS = 1000 * 60 * 60;
 const OLIPHANT_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 const FEDIDB_COMPATIBLE_SOFTWARE = new Set(["mastodon", "bookwyrm", "hometown", "glitch-soc"]);
+
+// ---------------------------------------------------------------------------
+// Types (mirrors src/sync/instance-discovery.ts)
+// ---------------------------------------------------------------------------
 
 export type DiscoveryRegistrationStatus = "open" | "invite" | "closed" | "unknown";
 
@@ -42,13 +60,9 @@ export type DiscoverFediverseInstancesOptions = {
   limit?: number;
 };
 
-type Tier0Cache = {
-  fetchedAt: number;
-  domains: Set<string>;
-};
-
-let tier0Cache: Tier0Cache | null = null;
-let fedidbCache: { fetchedAt: number; servers: z.infer<typeof fedidbServerSchema>[] } | null = null;
+// ---------------------------------------------------------------------------
+// Schemas
+// ---------------------------------------------------------------------------
 
 const fedidbServerSchema = z.object({
   domain: z.string().min(1),
@@ -85,6 +99,24 @@ const fedidbServersResponseSchema = z.object({
     .optional()
 });
 
+// ---------------------------------------------------------------------------
+// Module-level caches
+// ---------------------------------------------------------------------------
+
+type Tier0Cache = { fetchedAt: number; domains: Set<string> };
+let tier0Cache: Tier0Cache | null = null;
+let fedidbCache: { fetchedAt: number; servers: z.infer<typeof fedidbServerSchema>[] } | null = null;
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+
+function computeBackoffMs(attempts: number, baseMs = 300, maxMs = 2500): number {
+  const exponential = Math.min(maxMs, baseMs * 2 ** attempts);
+  const jitter = Math.floor(Math.random() * Math.min(1000, exponential * 0.25));
+  return exponential + jitter;
+}
+
 function normalizeDomain(value: string): string {
   const trimmed = value.trim().toLowerCase().replace(/^"|"$/g, "").replace(/^\*\./, "");
   if (!trimmed) return "";
@@ -103,25 +135,6 @@ function normalizeDomain(value: string): string {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function parseTier0Csv(csv: string): Set<string> {
-  const domains = new Set<string>();
-  const lines = csv.split(/\r?\n/);
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    if (trimmed.startsWith("#")) continue;
-
-    const firstField = parseCsvFirstField(trimmed);
-    const domain = normalizeDomain(firstField);
-    if (!domain || domain === "domain") continue;
-
-    domains.add(domain);
-  }
-
-  return domains;
 }
 
 function parseCsvFirstField(line: string): string {
@@ -153,12 +166,29 @@ function parseCsvFirstField(line: string): string {
   return field.trim();
 }
 
+function parseTier0Csv(csv: string): Set<string> {
+  const domains = new Set<string>();
+  const lines = csv.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const firstField = parseCsvFirstField(trimmed);
+    const domain = normalizeDomain(firstField);
+    if (!domain || domain === "domain") continue;
+
+    domains.add(domain);
+  }
+
+  return domains;
+}
+
 function isDomainBlocked(domain: string, blockedDomains: Set<string>): boolean {
   let candidate = normalizeDomain(domain);
 
   while (candidate) {
     if (blockedDomains.has(candidate)) return true;
-
     const dotIndex = candidate.indexOf(".");
     if (dotIndex < 0) break;
     candidate = candidate.slice(dotIndex + 1);
@@ -177,7 +207,7 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
 
       if (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500) {
         if (attempt < attempts) {
-          await new Promise((resolve) => setTimeout(resolve, computeBackoffMs(attempt, 300, 2500)));
+          await new Promise((resolve) => setTimeout(resolve, computeBackoffMs(attempt)));
           continue;
         }
       }
@@ -186,7 +216,7 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < attempts) {
-        await new Promise((resolve) => setTimeout(resolve, computeBackoffMs(attempt, 300, 2500)));
+        await new Promise((resolve) => setTimeout(resolve, computeBackoffMs(attempt)));
       }
     }
   }
@@ -203,9 +233,7 @@ async function fetchOliphantTier0Domains(force = false): Promise<Set<string>> {
 
   for (const url of OLIPHANT_TIER0_URLS) {
     try {
-      const response = await fetchWithRetry(url, {
-        headers: { Accept: "text/csv,text/plain" }
-      });
+      const response = await fetchWithRetry(url, { headers: { Accept: "text/csv,text/plain" } });
 
       if (!response.ok) {
         lastError = new Error(`Failed to fetch Oliphant Tier 0 blocklist (${response.status})`);
@@ -243,9 +271,7 @@ async function fetchFedidbServers(force = false): Promise<z.infer<typeof fedidbS
   let pages = 0;
 
   while (nextUrl && pages < FEDIDB_MAX_PAGES) {
-    const response = await fetchWithRetry(nextUrl, {
-      headers: { Accept: "application/json" }
-    });
+    const response = await fetchWithRetry(nextUrl, { headers: { Accept: "application/json" } });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch FediDB servers (${response.status})`);
@@ -257,11 +283,7 @@ async function fetchFedidbServers(force = false): Promise<z.infer<typeof fedidbS
     pages += 1;
   }
 
-  fedidbCache = {
-    fetchedAt: Date.now(),
-    servers
-  };
-
+  fedidbCache = { fetchedAt: Date.now(), servers };
   return servers;
 }
 
@@ -286,28 +308,6 @@ function fromFedidbServer(server: z.infer<typeof fedidbServerSchema>): Fediverse
     registrationStatus: openRegistration ? "open" : "closed",
     openRegistration,
     mastodonApiCompatible,
-    blockedByTier0: false
-  };
-}
-
-function fromBookWyrmRecord(record: any): FediverseInstance {
-  const domain = normalizeDomain(String(record.domain ?? record.id ?? ""));
-  const registrationStatus = (record.registrationStatus ?? "unknown") as DiscoveryRegistrationStatus;
-
-  return {
-    domain,
-    url: String(record.url ?? `https://${domain}`),
-    name: String(record.name ?? domain),
-    description: record.description ? String(record.description) : undefined,
-    country: undefined,
-    city: undefined,
-    softwareName: "BookWyrm",
-    softwareSlug: "bookwyrm",
-    userCount: typeof record.users === "number" ? record.users : undefined,
-    source: "bookwyrm",
-    registrationStatus,
-    openRegistration: registrationStatus === "open",
-    mastodonApiCompatible: true,
     blockedByTier0: false
   };
 }
@@ -345,21 +345,6 @@ function mergeInstances(instances: FediverseInstance[]): FediverseInstance[] {
   }
 
   return Array.from(byDomain.values());
-}
-
-function rankInstances(instances: FediverseInstance[], options: DiscoverFediverseInstancesOptions): FediverseInstance[] {
-  const preferredSoftware = new Set((options.preferredSoftwareSlugs ?? []).map((slug) => slug.toLowerCase()));
-  const preferredCountry = options.preferredCountry?.trim().toLowerCase();
-  const search = options.searchQuery?.trim().toLowerCase();
-
-  return [...instances].sort((a, b) => {
-    const scoreA = scoreInstance(a, preferredSoftware, preferredCountry, search);
-    const scoreB = scoreInstance(b, preferredSoftware, preferredCountry, search);
-    if (scoreA !== scoreB) return scoreB - scoreA;
-    const userDelta = (b.userCount ?? 0) - (a.userCount ?? 0);
-    if (userDelta !== 0) return userDelta;
-    return a.domain.localeCompare(b.domain);
-  });
 }
 
 function scoreInstance(
@@ -401,14 +386,32 @@ function scoreInstance(
   return score;
 }
 
+function rankInstances(instances: FediverseInstance[], options: DiscoverFediverseInstancesOptions): FediverseInstance[] {
+  const preferredSoftware = new Set((options.preferredSoftwareSlugs ?? []).map((slug) => slug.toLowerCase()));
+  const preferredCountry = options.preferredCountry?.trim().toLowerCase();
+  const search = options.searchQuery?.trim().toLowerCase();
+
+  return [...instances].sort((a, b) => {
+    const scoreA = scoreInstance(a, preferredSoftware, preferredCountry, search);
+    const scoreB = scoreInstance(b, preferredSoftware, preferredCountry, search);
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    const userDelta = (b.userCount ?? 0) - (a.userCount ?? 0);
+    if (userDelta !== 0) return userDelta;
+    return a.domain.localeCompare(b.domain);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export async function discoverFediverseInstances(
   options: DiscoverFediverseInstancesOptions = {}
 ): Promise<FediverseInstance[]> {
   const signupOnly = options.signupOnly ?? true;
   const mastodonApiCompatibleOnly = options.mastodonApiCompatibleOnly ?? true;
 
-  const [bookwyrmResult, fedidbResult, tier0Result] = await Promise.allSettled([
-    fetchBookWyrmInstances(options.force === true),
+  const [fedidbResult, tier0Result] = await Promise.allSettled([
     fetchFedidbServers(options.force === true),
     fetchOliphantTier0Domains(options.force === true)
   ]);
@@ -418,10 +421,6 @@ export async function discoverFediverseInstances(
   }
 
   const candidates: FediverseInstance[] = [];
-
-  if (bookwyrmResult.status === "fulfilled") {
-    candidates.push(...bookwyrmResult.value.map(fromBookWyrmRecord));
-  }
 
   if (fedidbResult.status === "fulfilled") {
     candidates.push(...fedidbResult.value.map(fromFedidbServer));
