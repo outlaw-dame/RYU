@@ -13,6 +13,7 @@ import {
 } from "../src/auth/contracts";
 import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
 import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
+import type { UnifiedShelf, UnifiedShelvesPayload } from "../src/sync/shelf-model";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
 
@@ -102,6 +103,8 @@ const NOW_READING_DEFAULT_LIMIT = 12;
 // Domain strings for key derivation — changing these invalidates all stored data.
 const CREDENTIAL_CONTEXT = "ryu:credentials:v1";
 const SESSION_CONTEXT = "ryu:session:v1";
+const SHELVES_CACHE_TTL_MS = 1000 * 60 * 5;
+const shelvesCache = new Map<string, { expiresAt: number; payload: UnifiedShelvesPayload }>();
 
 // ─── Key Management ───────────────────────────────────────────────────────────
 
@@ -473,6 +476,234 @@ function createSessionMastodonClient(session: SessionPayload): MastodonClient {
       persistStatus: false
     }
   });
+}
+
+function isLikelyBookWyrmSession(session: SessionPayload): boolean {
+  const origin = session.instanceOrigin.toLowerCase();
+  const acct = session.account?.acct?.toLowerCase() ?? "";
+  const accountUrl = session.account?.url?.toLowerCase() ?? "";
+  return origin.includes("bookwyrm") || acct.includes("bookwyrm") || accountUrl.includes("bookwyrm");
+}
+
+function normalizeShelfTitle(value: string): string {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function dedupeUnifiedShelves(shelves: UnifiedShelf[]): UnifiedShelf[] {
+  const map = new Map<string, UnifiedShelf>();
+  for (const shelf of shelves) {
+    const key = normalizeShelfTitle(shelf.title).toLowerCase();
+    const existing = map.get(key);
+    if (!existing || (shelf.itemCount ?? 0) > (existing.itemCount ?? 0)) {
+      map.set(key, shelf);
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) => {
+    const countDelta = (b.itemCount ?? 0) - (a.itemCount ?? 0);
+    if (countDelta !== 0) return countDelta;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+async function fetchBookWyrmShelvesApi(session: SessionPayload): Promise<UnifiedShelf[]> {
+  const response = await fetchWithRetry(`${session.instanceOrigin}/api/v1/shelves`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+      Authorization: `${session.tokenType} ${session.accessToken}`
+    }
+  }, 2);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const payload = await response.json().catch(() => null);
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const object = entry as Record<string, unknown>;
+      const id = typeof object.id === "string" ? object.id : typeof object.slug === "string" ? object.slug : null;
+      const title = typeof object.name === "string"
+        ? object.name
+        : typeof object.title === "string"
+          ? object.title
+          : null;
+      if (!id || !title) return null;
+
+      return {
+        id: `bookwyrm-api-${id}`,
+        title: normalizeShelfTitle(title),
+        source: "bookwyrm_api" as const,
+        itemCount: typeof object.book_count === "number" ? object.book_count : undefined,
+        url: typeof object.url === "string" ? object.url : undefined
+      };
+    })
+    .filter((entry): entry is UnifiedShelf => Boolean(entry));
+}
+
+async function fetchBookWyrmShelvesHtml(session: SessionPayload): Promise<UnifiedShelf[]> {
+  const profileUrl = session.account?.url;
+  if (!profileUrl) {
+    return [];
+  }
+
+  const response = await fetchWithRetry(profileUrl, {
+    method: "GET",
+    headers: { Accept: "text/html,application/xhtml+xml" }
+  }, 2);
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const html = await response.text().catch(() => "");
+  if (!html) {
+    return [];
+  }
+
+  const hrefRegex = /href=["']([^"']*\/shelves?\/[^"']+)["']/gi;
+  const matched = new Set<string>();
+  let match: RegExpExecArray | null = hrefRegex.exec(html);
+
+  while (match) {
+    const rawHref = match[1]?.trim();
+    if (rawHref) {
+      try {
+        const resolved = new URL(rawHref, session.instanceOrigin);
+        if (resolved.origin === new URL(session.instanceOrigin).origin) {
+          matched.add(resolved.toString());
+        }
+      } catch {
+        // Ignore malformed HTML links.
+      }
+    }
+
+    match = hrefRegex.exec(html);
+  }
+
+  return Array.from(matched).map((url) => {
+    const parts = new URL(url).pathname.split("/").filter(Boolean);
+    const last = parts[parts.length - 1] ?? "shelf";
+    const title = normalizeShelfTitle(last.replace(/[-_]+/g, " "));
+    return {
+      id: `bookwyrm-html-${last.toLowerCase()}`,
+      title,
+      source: "bookwyrm_html" as const,
+      url
+    };
+  });
+}
+
+async function inferBookWyrmShelvesFromActivity(client: MastodonClient, session: SessionPayload): Promise<UnifiedShelf[]> {
+  if (!session.account?.id) {
+    return [];
+  }
+
+  const page = await client.fetchAccountStatuses(session.account.id, { limit: 40 }).catch(() => ({ items: [] as MastodonStatus[] }));
+  const counters = new Map<string, number>([
+    ["Now Reading", 0],
+    ["To Read", 0],
+    ["Read", 0],
+    ["Writing Updates", 0]
+  ]);
+
+  for (const status of page.items ?? []) {
+    const text = `${status.content ?? ""} ${(status.spoiler_text ?? "")}`.toLowerCase();
+    if (/nowreading|currentlyreading|reading sprint/.test(text)) {
+      counters.set("Now Reading", (counters.get("Now Reading") ?? 0) + 1);
+    }
+    if (/\btbr\b|toread|bookrecommendation/.test(text)) {
+      counters.set("To Read", (counters.get("To Read") ?? 0) + 1);
+    }
+    if (/bookreview|finished|\bread\b/.test(text)) {
+      counters.set("Read", (counters.get("Read") ?? 0) + 1);
+    }
+    if (/amwriting|wip|writers?/.test(text)) {
+      counters.set("Writing Updates", (counters.get("Writing Updates") ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counters.entries())
+    .filter(([, count]) => count > 0)
+    .map(([title, itemCount]) => ({
+      id: `bookwyrm-activity-${title.toLowerCase().replace(/\s+/g, "-")}`,
+      title,
+      source: "bookwyrm_activitypub" as const,
+      itemCount
+    }));
+}
+
+async function loadUnifiedShelves(client: MastodonClient, session: SessionPayload): Promise<UnifiedShelvesPayload> {
+  const cacheKey = `${session.instanceOrigin}:${session.account?.id ?? "anonymous"}`;
+  const cached = shelvesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.payload;
+  }
+
+  const [bookmarksResult, favouritesResult, listsResult] = await Promise.allSettled([
+    client.fetchBookmarks({ limit: 20 }),
+    client.fetchFavourites({ limit: 20 }),
+    client.fetchLists()
+  ]);
+
+  const bookmarks = bookmarksResult.status === "fulfilled"
+    ? bookmarksResult.value
+    : { items: [], links: {} };
+  const favourites = favouritesResult.status === "fulfilled"
+    ? favouritesResult.value
+    : { items: [], links: {} };
+  const lists = listsResult.status === "fulfilled" ? listsResult.value : [];
+
+  const unifiedFromMastodon: UnifiedShelf[] = lists.map((list) => ({
+    id: list.id,
+    title: list.title,
+    source: "mastodon",
+    itemCount: undefined
+  }));
+
+  const bookwyrmEnabled = isLikelyBookWyrmSession(session);
+  let bookwyrmShelves: UnifiedShelf[] = [];
+
+  if (bookwyrmEnabled) {
+    const [apiShelves, htmlShelves, activityShelves] = await Promise.allSettled([
+      fetchBookWyrmShelvesApi(session),
+      fetchBookWyrmShelvesHtml(session),
+      inferBookWyrmShelvesFromActivity(client, session)
+    ]);
+
+    bookwyrmShelves = dedupeUnifiedShelves([
+      ...(apiShelves.status === "fulfilled" ? apiShelves.value : []),
+      ...(htmlShelves.status === "fulfilled" ? htmlShelves.value : []),
+      ...(activityShelves.status === "fulfilled" ? activityShelves.value : [])
+    ]);
+  }
+
+  const payload: UnifiedShelvesPayload = {
+    bookmarks,
+    favourites,
+    lists: dedupeUnifiedShelves([...unifiedFromMastodon, ...bookwyrmShelves]).map((entry) => ({
+      id: entry.id,
+      title: entry.itemCount != null ? `${entry.title} (${entry.itemCount})` : entry.title
+    })),
+    unified: dedupeUnifiedShelves([...unifiedFromMastodon, ...bookwyrmShelves]),
+    sources: {
+      mastodon: true,
+      bookwyrm: bookwyrmShelves.length > 0
+    }
+  };
+
+  shelvesCache.set(cacheKey, {
+    expiresAt: Date.now() + SHELVES_CACHE_TTL_MS,
+    payload
+  });
+
+  return payload;
 }
 
 // Exponential backoff with full jitter; cap at 8 s.
@@ -1091,6 +1322,11 @@ async function dispatch(
 
     if (url.pathname === "/api/auth/mastodon/lists") {
       await handleMastodonProxy(req, res, sessKey, (client) => client.fetchLists());
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/shelves") {
+      await handleMastodonProxy(req, res, sessKey, (client, session) => loadUnifiedShelves(client, session));
       return;
     }
 

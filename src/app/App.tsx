@@ -2214,7 +2214,7 @@ export function App() {
                 <TabPanel id="shelves" activeTab={activeTab}>
                   <ScreenTitle title="Shelves" />
                   {!connectedAccount ? (
-                    <EmptyState title="Sign in to load shelves" description="Your Mastodon bookmarks, favourites, and lists will appear here." />
+                    <EmptyState title="Sign in to load shelves" description="Your Mastodon and BookWyrm shelves will appear here." />
                   ) : (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>

@@ -4,6 +4,7 @@ import {
   disconnectMastodon,
   getFavourites,
   getLists,
+  getShelves,
   getAccountStatuses,
   getBookTokTrends,
   getHomeTimeline,
@@ -60,6 +61,14 @@ describe("mastodon-activity-api", () => {
       if (path === "/api/auth/mastodon/lists") {
         return jsonResponse([{ id: "list-1", title: "Book Clubs" }]);
       }
+      if (path === "/api/auth/mastodon/shelves") {
+        return jsonResponse({
+          bookmarks: { items: [statusPayload("71")], links: {} },
+          favourites: { items: [statusPayload("81")], links: {} },
+          lists: [{ id: "list-1", title: "Book Clubs" }],
+          sources: { mastodon: true, bookwyrm: true }
+        });
+      }
       if (path.startsWith("/api/auth/mastodon/search/statuses")) {
         return jsonResponse({ items: [statusPayload("91")], links: {} });
       }
@@ -78,6 +87,12 @@ describe("mastodon-activity-api", () => {
     await expect(getBookmarks({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "71" }] });
     await expect(getFavourites({ limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "81" }] });
     await expect(getLists({ fetchImpl })).resolves.toMatchObject([{ id: "list-1" }]);
+    await expect(getShelves({ fetchImpl })).resolves.toMatchObject({
+      bookmarks: { items: [{ id: "71" }] },
+      favourites: { items: [{ id: "81" }] },
+      lists: [{ id: "list-1" }],
+      sources: { mastodon: true, bookwyrm: true }
+    });
     await expect(searchDiscoveryStatuses("#bookstodon", { limit: 5 }, { fetchImpl })).resolves.toMatchObject({ items: [{ id: "91" }] });
     await expect(getBookTokTrends({ fetchImpl })).resolves.toMatchObject([{ id: "trend-1" }]);
     await expect(disconnectMastodon({ fetchImpl })).resolves.toBeUndefined();

@@ -52,6 +52,35 @@ type DBpediaLookupResponse = {
   }>;
 };
 
+type OpenLibrarySearchResponse = {
+  docs?: Array<{
+    key?: string;
+    title?: string;
+    author_name?: string[];
+    first_sentence?: Array<string | { value?: string }> | string;
+    isbn?: string[];
+  }>;
+};
+
+type OpenLibraryFirstSentence = string | Array<string | { value?: string }> | undefined;
+
+type GoogleBooksResponse = {
+  items?: Array<{
+    id?: string;
+    volumeInfo?: {
+      title?: string;
+      subtitle?: string;
+      authors?: string[];
+      description?: string;
+      infoLink?: string;
+      industryIdentifiers?: Array<{
+        type?: string;
+        identifier?: string;
+      }>;
+    };
+  }>;
+};
+
 const ENRICHMENT_TTL_MS = 1000 * 60 * 60 * 24 * 14;
 
 const queue = new FetchQueue({
@@ -236,6 +265,71 @@ async function queryDBpedia(candidate: KnowledgeEntityCandidate, query: string):
     }));
 }
 
+function extractFirstSentence(value: OpenLibraryFirstSentence): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return undefined;
+
+  const first = value[0];
+  if (typeof first === "string") return first;
+  if (first && typeof first === "object" && typeof first.value === "string") return first.value;
+  return undefined;
+}
+
+async function queryOpenLibrary(candidate: KnowledgeEntityCandidate, query: string): Promise<ExternalLinkCandidate[]> {
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5`;
+  const response = await fetchJson<OpenLibrarySearchResponse>(url, "openlibrary.org");
+  const docs = response.docs ?? [];
+
+  return docs
+    .filter((item) => typeof item.key === "string" && item.key.startsWith("/"))
+    .map((item) => {
+      const uri = `https://openlibrary.org${item.key}`;
+      const isbnMatch = candidate.kind === "edition" && Array.isArray(item.isbn)
+        ? item.isbn.some((isbn) => normalizeIsbn(isbn) === normalizeIsbn(candidate.isbn13) || normalizeIsbn(isbn) === normalizeIsbn(candidate.isbn10))
+        : false;
+
+      return {
+        source: "open_library" as const,
+        externalId: item.key!.replace(/^\//, ""),
+        externalUri: uri,
+        label: item.title,
+        description: extractFirstSentence(item.first_sentence),
+        confidence: isbnMatch ? 0.98 : labelConfidence(candidate.label, item.title),
+        query
+      };
+    });
+}
+
+async function queryGoogleBooks(candidate: KnowledgeEntityCandidate, query: string): Promise<ExternalLinkCandidate[]> {
+  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5&fields=items(id,volumeInfo/title,volumeInfo/subtitle,volumeInfo/authors,volumeInfo/description,volumeInfo/infoLink,volumeInfo/industryIdentifiers)`;
+  const response = await fetchJson<GoogleBooksResponse>(url, "www.googleapis.com");
+  const items = response.items ?? [];
+
+  return items
+    .filter((item) => item.id && item.volumeInfo)
+    .map((item) => {
+      const info = item.volumeInfo!;
+      const identifiers = info.industryIdentifiers ?? [];
+      const isbnMatch = candidate.kind === "edition"
+        ? identifiers.some((identifier) => {
+            const normalized = normalizeIsbn(identifier.identifier);
+            return normalized === normalizeIsbn(candidate.isbn13) || normalized === normalizeIsbn(candidate.isbn10);
+          })
+        : false;
+
+      return {
+        source: "google_books" as const,
+        externalId: item.id!,
+        externalUri: info.infoLink || `https://books.google.com/books?id=${encodeURIComponent(item.id!)}`,
+        label: info.title,
+        description: info.description || info.subtitle,
+        confidence: isbnMatch ? 0.98 : labelConfidence(candidate.label, info.title),
+        query
+      };
+    });
+}
+
 function dedupeCandidates(candidates: ExternalLinkCandidate[]): ExternalLinkCandidate[] {
   const byKey = new Map<string, ExternalLinkCandidate>();
 
@@ -259,24 +353,28 @@ export async function enrichKnowledgeEntity(candidate: KnowledgeEntityCandidate)
 
   if (!(await shouldRefreshEntityLinks(candidate.id))) return;
 
-  const [isbnMatches, wikidata, dbpedia] = await Promise.allSettled([
+  const [openLibrary, googleBooks, isbnMatches, wikidata, dbpedia] = await Promise.allSettled([
+    queryOpenLibrary(candidate, query),
+    queryGoogleBooks(candidate, query),
     queryWikidataByIsbn(candidate),
     queryWikidata(candidate, query),
     queryDBpedia(candidate, query)
   ]);
 
-  const candidates = dedupeCandidates([
+  const enrichedCandidates = dedupeCandidates([
+    ...(openLibrary.status === 'fulfilled' ? openLibrary.value : []),
+    ...(googleBooks.status === 'fulfilled' ? googleBooks.value : []),
     ...(isbnMatches.status === 'fulfilled' ? isbnMatches.value : []),
     ...(wikidata.status === 'fulfilled' ? wikidata.value : []),
     ...(dbpedia.status === 'fulfilled' ? dbpedia.value : [])
   ]);
 
-  if (candidates.length === 0) return;
+  if (enrichedCandidates.length === 0) return;
 
   const db = await initializeDatabase();
   const timestamp = nowIso();
 
-  for (const link of candidates) {
+  for (const link of enrichedCandidates) {
     try {
       await db.entitylinks.upsert({
         id: `${candidate.id}:${link.source}:${link.externalId}`,

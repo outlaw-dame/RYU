@@ -13,19 +13,26 @@ import { getAdaptiveAlpha } from './weights';
 import { applyExploration } from './exploration';
 import { applyFeedbackBoosts } from './feedback-ranking';
 import { normalizeSearchQuery } from './query-normalize';
+import { buildSearchQueryExpansionPlan } from './query-expansion';
 import type { SearchOptions } from './types';
 
 export async function searchAll(query: string, options: SearchOptions = {}) {
   const normalizedQuery = normalizeSearchQuery(query);
   if (normalizedQuery.length < 2) return null;
 
-  let intent = classifyQueryIntent(normalizedQuery);
-  intent = await refineIntentWithLLM(normalizedQuery, intent);
+  const expansion = await buildSearchQueryExpansionPlan(normalizedQuery, options.db);
+  if (expansion.normalizedQuery.length < 2) return null;
+
+  const primaryQuery = expansion.normalizedQuery;
+  const semanticQuery = expansion.semanticQuery || primaryQuery;
+
+  let intent = classifyQueryIntent(primaryQuery);
+  intent = await refineIntentWithLLM(primaryQuery, intent);
 
   const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
-  const lexical = await searchOrama(normalizedQuery, options.db);
-  const semantic = await semanticSearchLocal(normalizedQuery, 20, options.db);
+  const lexical = await searchOrama(primaryQuery, options.db);
+  const semantic = await semanticSearchLocal(semanticQuery, 20, options.db);
 
   const fused = fuseResults(lexical, semantic, adaptiveAlpha);
 
@@ -33,7 +40,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
 
   const withContext = applyContextBoosts(cleaned, options.context);
 
-  const withFeedback = applyFeedbackBoosts(normalizedQuery, withContext);
+  const withFeedback = applyFeedbackBoosts(primaryQuery, withContext);
 
   const prefs = getSearchPreferences();
 
@@ -49,7 +56,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   const explored = applyExploration(reranked);
 
   const provider = getRerankerProvider();
-  const finalResults = provider ? await provider.rerank(normalizedQuery, explored) : explored;
+  const finalResults = provider ? await provider.rerank(primaryQuery, explored) : explored;
 
   return groupResults(attachExplanations(finalResults, { ...intent, alpha: adaptiveAlpha }, options.context));
 }

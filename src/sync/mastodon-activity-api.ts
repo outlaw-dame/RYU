@@ -21,6 +21,7 @@ export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/st
 export const MASTODON_BOOKMARKS_ENDPOINT = "/api/auth/mastodon/bookmarks";
 export const MASTODON_FAVOURITES_ENDPOINT = "/api/auth/mastodon/favourites";
 export const MASTODON_LISTS_ENDPOINT = "/api/auth/mastodon/lists";
+export const MASTODON_SHELVES_ENDPOINT = "/api/auth/mastodon/shelves";
 export const MASTODON_DISCOVERY_SEARCH_ENDPOINT = "/api/auth/mastodon/search/statuses";
 export const BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
@@ -137,6 +138,56 @@ export async function getLists(options: MastodonActivityApiOptions = {}): Promis
   }).passthrough()).parse(await response.json());
 }
 
+export async function getShelves(options: MastodonActivityApiOptions = {}): Promise<{
+  bookmarks: MastodonPage<MastodonStatus>;
+  favourites: MastodonPage<MastodonStatus>;
+  lists: MastodonList[];
+  sources?: {
+    mastodon: boolean;
+    bookwyrm: boolean;
+  };
+}> {
+  const response = await requestProxy(MASTODON_SHELVES_ENDPOINT, { method: "GET" }, options);
+  return z.object({
+    bookmarks: z.object({
+      items: z.array(z.unknown()),
+      links: z.record(z.unknown()).optional().default({})
+    }),
+    favourites: z.object({
+      items: z.array(z.unknown()),
+      links: z.record(z.unknown()).optional().default({})
+    }),
+    lists: z.array(z.object({
+      id: z.string().min(1),
+      title: z.string().min(1),
+      replies_policy: z.string().optional()
+    }).passthrough()),
+    sources: z.object({
+      mastodon: z.boolean(),
+      bookwyrm: z.boolean()
+    }).optional()
+  }).transform((value) => ({
+    bookmarks: {
+      items: z.array(z.object({
+        id: z.string().min(1),
+        created_at: z.string().min(1),
+        account: z.object({ id: z.string().min(1), acct: z.string().optional() }).passthrough()
+      }).passthrough()).parse(value.bookmarks.items),
+      links: value.bookmarks.links as Record<string, unknown>
+    } as MastodonPage<MastodonStatus>,
+    favourites: {
+      items: z.array(z.object({
+        id: z.string().min(1),
+        created_at: z.string().min(1),
+        account: z.object({ id: z.string().min(1), acct: z.string().optional() }).passthrough()
+      }).passthrough()).parse(value.favourites.items),
+      links: value.favourites.links as Record<string, unknown>
+    } as MastodonPage<MastodonStatus>,
+    lists: value.lists,
+    sources: value.sources
+  })).parse(await response.json());
+}
+
 export async function searchDiscoveryStatuses(
   query: string,
   params: { limit?: number } = {},
@@ -248,6 +299,7 @@ function normalizeProxyPath(endpoint: string): string {
     MASTODON_BOOKMARKS_ENDPOINT,
     MASTODON_FAVOURITES_ENDPOINT,
     MASTODON_LISTS_ENDPOINT,
+    MASTODON_SHELVES_ENDPOINT,
     MASTODON_DISCOVERY_SEARCH_ENDPOINT,
     BOOKTOK_TRENDING_ENDPOINT
   ]);
