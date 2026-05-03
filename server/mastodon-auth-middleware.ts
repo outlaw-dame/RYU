@@ -31,7 +31,7 @@ type SessionPayload = {
   accessToken: string;
   tokenType: string;
   scope?: string;
-  account: { id: string; username: string; acct: string; url?: string } | null;
+  account: { id: string; username: string; acct: string; display_name?: string; avatar?: string; url?: string } | null;
   createdAt: number;
 };
 
@@ -68,6 +68,8 @@ const accountResponseSchema = z.object({
   id: z.string().min(1),
   username: z.string().min(1),
   acct: z.string().min(1),
+  display_name: z.string().optional(),
+  avatar: z.string().url().optional(),
   url: z.string().url().optional()
 });
 

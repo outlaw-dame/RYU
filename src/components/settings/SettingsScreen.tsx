@@ -67,7 +67,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
   );
 }
 
-export function SettingsScreen() {
+export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }) {
   const [page, setPage] = useState<SettingsPage>('root');
   const openIntelligence = useCallback(() => setPage('intelligence'), []);
   const openRoot = useCallback(() => setPage('root'), []);
@@ -104,8 +104,8 @@ export function SettingsScreen() {
       />
       <SettingsRow
         title="Account"
-        description="BookWyrm sign-in and profile controls will live here."
-        onSelect={() => {}}
+        description="Manage your connected Mastodon or BookWyrm account."
+        onSelect={onOpenAccount ?? (() => {})}
       />
       <SettingsRow
         title="Privacy"

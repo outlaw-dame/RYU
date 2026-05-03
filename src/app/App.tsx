@@ -1366,7 +1366,7 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
   const [isAuthWorking, setIsAuthWorking] = useState(false);
-  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string } | null>(null);
+  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string } | null>(null);
   const [activityTimeline, setActivityTimeline] = useState<MastodonStatus[]>([]);
   const [activityNotifications, setActivityNotifications] = useState<MastodonNotification[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
@@ -1437,9 +1437,15 @@ export function App() {
     void fetchWithBackoff(endpoint, {}, 2, 8000)
       .then(async (r) => {
         if (!r.ok || cancelled) return;
-        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; account?: { acct: string } | null };
+        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
         if (!cancelled && data.connected && data.instanceOrigin && data.account?.acct) {
-          setConnectedAccount({ instanceOrigin: data.instanceOrigin, acct: data.account.acct });
+          setConnectedAccount({
+            instanceOrigin: data.instanceOrigin,
+            acct: data.account.acct,
+            displayName: data.account.display_name || undefined,
+            avatar: data.account.avatar || undefined,
+            profileUrl: data.account.url || undefined
+          });
           setAuthInfo(`Connected as ${data.account.acct}`);
         }
       })
@@ -2560,32 +2566,90 @@ export function App() {
                     }}>
                       {connectedAccount !== null ? (
                         <>
-                          <p style={{ margin: 0, fontWeight: 600, fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>
-                            {connectedAccount.acct}
-                          </p>
-                          <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-footnote)" }}>
-                            {connectedAccount.instanceOrigin}
-                          </p>
-                          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                            Disconnect to switch to another server or account.
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => void disconnectMastodon()}
-                            disabled={isAuthWorking}
-                            style={{
-                              minHeight: "var(--touch-min)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 20%, transparent)",
-                              borderRadius: "var(--radius-md)",
-                              background: "transparent",
-                              color: "var(--color-text)",
-                              fontWeight: 700,
-                              padding: "0 var(--space-4)",
-                              opacity: isAuthWorking ? 0.6 : 1
-                            }}
-                          >
-                            {isAuthWorking ? "Disconnecting..." : "Disconnect account"}
-                          </button>
+                          <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+                            <div
+                              style={{
+                                width: "52px",
+                                height: "52px",
+                                borderRadius: "999px",
+                                overflow: "hidden",
+                                background: "color-mix(in srgb, var(--color-accent) 18%, var(--color-bg))",
+                                display: "grid",
+                                placeItems: "center",
+                                fontSize: "var(--text-headline)",
+                                fontWeight: 700,
+                                color: "var(--color-accent)",
+                                position: "relative",
+                                flex: "0 0 auto"
+                              }}
+                            >
+                              <span aria-hidden="true">
+                                {(connectedAccount.displayName || connectedAccount.acct).slice(0, 2).toUpperCase()}
+                              </span>
+                              {connectedAccount.avatar ? (
+                                <img
+                                  src={connectedAccount.avatar}
+                                  alt={`${connectedAccount.displayName || connectedAccount.acct} avatar`}
+                                  loading="lazy"
+                                  decoding="async"
+                                  referrerPolicy="no-referrer"
+                                  onError={(event) => { retryImageViaProxy(event); }}
+                                  style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
+                                />
+                              ) : null}
+                            </div>
+                            <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+                              <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {connectedAccount.displayName || connectedAccount.acct}
+                              </strong>
+                              <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                @{connectedAccount.acct}
+                              </span>
+                              <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {connectedAccount.instanceOrigin}
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", borderTop: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)", paddingTop: "var(--space-3)" }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setConnectedAccount(null);
+                                setAuthInfo(null);
+                                setInstanceInput("");
+                              }}
+                              disabled={isAuthWorking}
+                              style={{
+                                minHeight: "var(--touch-min)",
+                                border: 0,
+                                borderRadius: "var(--radius-md)",
+                                background: "var(--color-accent)",
+                                color: "white",
+                                fontWeight: 700,
+                                padding: "0 var(--space-4)",
+                                opacity: isAuthWorking ? 0.6 : 1
+                              }}
+                            >
+                              Switch account
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void disconnectMastodon()}
+                              disabled={isAuthWorking}
+                              style={{
+                                minHeight: "var(--touch-min)",
+                                border: "1px solid color-mix(in srgb, var(--color-text) 20%, transparent)",
+                                borderRadius: "var(--radius-md)",
+                                background: "transparent",
+                                color: "var(--color-text)",
+                                fontWeight: 600,
+                                padding: "0 var(--space-4)",
+                                opacity: isAuthWorking ? 0.6 : 1
+                              }}
+                            >
+                              {isAuthWorking ? "Signing out..." : "Sign out"}
+                            </button>
+                          </div>
                         </>
                       ) : (
                         <div style={{ display: "grid", gap: "var(--space-4)" }}>
