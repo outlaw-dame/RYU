@@ -121,6 +121,7 @@ function parseDeleteStatusPath(pathname: string): string | null {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_BODY_BYTES = 24 * 1024;
+const MAX_COVER_IMAGE_BYTES = 4 * 1024 * 1024;
 const STORE_PATH = resolve(process.cwd(), ".data/mastodon-credentials.enc");
 const DEV_KEY_PATH = resolve(process.cwd(), ".data/dev-store-key.hex");
 const SESSION_COOKIE = "ryu_masto_session";
@@ -1275,6 +1276,100 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
   }
 }
 
+async function handleMediaCover(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const requested = readOptionalQuery(url, "url");
+  if (!requested) {
+    sendJson(res, 400, { error: "invalid_request", message: "Missing required `url` query parameter." });
+    return;
+  }
+
+  let upstreamUrl: string;
+  try {
+    upstreamUrl = normalizePublicHttpsUrl(requested);
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof Error && error.message ? error.message : "Invalid media URL"
+    });
+    return;
+  }
+
+  try {
+    const response = await fetchWithRetry(upstreamUrl, {
+      method: req.method,
+      headers: {
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+      }
+    }, 2);
+
+    if (!response.ok) {
+      const upstreamText = await response.text().catch(() => "");
+      sendJson(res, 502, {
+        error: "upstream_cover_failed",
+        message: upstreamText
+          ? sanitizeUpstreamError(upstreamText)
+          : `Cover upstream returned ${response.status}`
+      });
+      return;
+    }
+
+    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.startsWith("image/")) {
+      sendJson(res, 415, {
+        error: "unsupported_media_type",
+        message: "Upstream resource is not an image."
+      });
+      return;
+    }
+
+    const contentLengthRaw = response.headers.get("content-length");
+    if (contentLengthRaw) {
+      const contentLength = Number.parseInt(contentLengthRaw, 10);
+      if (Number.isFinite(contentLength) && contentLength > MAX_COVER_IMAGE_BYTES) {
+        sendJson(res, 413, {
+          error: "payload_too_large",
+          message: "Cover image exceeds maximum allowed size."
+        });
+        return;
+      }
+    }
+
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.byteLength > MAX_COVER_IMAGE_BYTES) {
+      sendJson(res, 413, {
+        error: "payload_too_large",
+        message: "Cover image exceeds maximum allowed size."
+      });
+      return;
+    }
+
+    res.statusCode = 200;
+    res.setHeader("Content-Type", contentType || "image/jpeg");
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    if (contentLengthRaw) {
+      res.setHeader("Content-Length", String(body.byteLength));
+    }
+
+    if (req.method === "HEAD") {
+      res.end();
+      return;
+    }
+
+    res.end(body);
+  } catch (error) {
+    sendJson(res, 502, {
+      error: "upstream_cover_unavailable",
+      message: error instanceof Error ? sanitizeUpstreamError(error.message) : "Failed to fetch cover image"
+    });
+  }
+}
+
 async function handleInstanceDiscovery(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   if (req.method !== "GET" && req.method !== "HEAD") {
     sendJson(res, 405, { error: "method_not_allowed" });
@@ -1418,6 +1513,11 @@ async function dispatch(
   sessKeyPromise: Promise<Buffer>
 ): Promise<void> {
   try {
+    if (url.pathname === "/api/media/cover") {
+      await handleMediaCover(req, res, url);
+      return;
+    }
+
     if (url.pathname === "/api/discovery/instances") {
       await handleInstanceDiscovery(req, res, url);
       return;
@@ -1590,6 +1690,7 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
     const url = new URL(req.url, "http://localhost");
     if (
       !url.pathname.startsWith("/api/auth/mastodon/") &&
+      url.pathname !== "/api/media/cover" &&
       url.pathname !== "/api/trends/booktok" &&
       url.pathname !== "/api/trends/now-reading" &&
       url.pathname !== "/api/discovery/instances"
