@@ -74,8 +74,24 @@ export const mastodonStatusSchema = z.object({
   reblogs_count: z.number().optional(),
   favourites_count: z.number().optional(),
   replies_count: z.number().optional(),
-  reblog: z.unknown().nullable().optional()
+  reblog: z.unknown().nullable().optional(),
+  favourited: z.boolean().optional(),
+  bookmarked: z.boolean().optional(),
+  reblogged: z.boolean().optional()
 }).passthrough();
+
+export const mastodonAccountFullSchema = mastodonAccountSchema.extend({
+  note: z.string().optional(),
+  followers_count: z.number().int().min(0).optional(),
+  following_count: z.number().int().min(0).optional(),
+  statuses_count: z.number().int().min(0).optional(),
+  header: z.string().nullable().optional(),
+  fields: z.array(z.object({
+    name: z.string(),
+    value: z.string(),
+    verified_at: z.string().nullable().optional()
+  }).passthrough()).optional()
+});
 
 export const mastodonNotificationSchema = z.object({
   id: z.string().min(1),
@@ -92,9 +108,26 @@ export const mastodonListSchema = z.object({
 }).passthrough();
 
 export type MastodonAccount = z.infer<typeof mastodonAccountSchema>;
+export type MastodonAccountFull = z.infer<typeof mastodonAccountFullSchema>;
 export type MastodonStatus = z.infer<typeof mastodonStatusSchema>;
 export type MastodonNotification = z.infer<typeof mastodonNotificationSchema>;
 export type MastodonList = z.infer<typeof mastodonListSchema>;
+
+export type MastodonPostStatusParams = {
+  status: string;
+  visibility?: "public" | "unlisted" | "private" | "direct";
+  spoilerText?: string;
+  inReplyToId?: string;
+  sensitive?: boolean;
+};
+
+export function validateStatusId(id: string): string {
+  const trimmed = typeof id === "string" ? id.trim() : "";
+  if (!trimmed || !/^[\w-]{1,64}$/.test(trimmed)) {
+    throw new Error("Invalid Mastodon status ID");
+  }
+  return trimmed;
+}
 
 export class MastodonApiResponseError extends Error {
   readonly retryable: boolean;
@@ -174,6 +207,118 @@ export class MastodonClient {
   async fetchLists(): Promise<MastodonList[]> {
     const page = await this.fetchArray("/api/v1/lists", mastodonListSchema, {});
     return page.items;
+  }
+
+  async verifyCredentials(): Promise<MastodonAccountFull> {
+    const url = this.buildUrl("/api/v1/accounts/verify_credentials", {});
+    const { json } = await this.queue.run(
+      url.toString(),
+      (signal) => this.fetchJson(url, signal),
+      { host: url.host }
+    );
+    return mastodonAccountFullSchema.parse(json);
+  }
+
+  async favouriteStatus(id: string): Promise<MastodonStatus> {
+    return this.statusAction(validateStatusId(id), "favourite");
+  }
+
+  async unfavouriteStatus(id: string): Promise<MastodonStatus> {
+    return this.statusAction(validateStatusId(id), "unfavourite");
+  }
+
+  async bookmarkStatus(id: string): Promise<MastodonStatus> {
+    return this.statusAction(validateStatusId(id), "bookmark");
+  }
+
+  async unbookmarkStatus(id: string): Promise<MastodonStatus> {
+    return this.statusAction(validateStatusId(id), "unbookmark");
+  }
+
+  async postStatus(params: MastodonPostStatusParams): Promise<MastodonStatus> {
+    const content = params.status.trim();
+    if (!content) throw new Error("Status content cannot be empty");
+    if (content.length > 500) throw new Error("Status content exceeds 500 characters");
+
+    const url = this.buildUrl("/api/v1/statuses", {});
+    const body: Record<string, unknown> = {
+      status: content,
+      visibility: params.visibility ?? "public"
+    };
+    if (params.spoilerText?.trim()) body.spoiler_text = params.spoilerText.trim();
+    if (params.inReplyToId) body.in_reply_to_id = validateStatusId(params.inReplyToId);
+    if (params.sensitive != null) body.sensitive = params.sensitive;
+
+    // Unique key prevents queue from deduplicating distinct post calls.
+    const mutationKey = `post:${url.toString()}:${Date.now()}:${Math.random().toString(36).slice(2, 9)}`;
+    const { json } = await this.queue.run(
+      mutationKey,
+      (signal) => this.mutate(url, "POST", body, signal),
+      { host: url.host, retries: 0, persistStatus: false }
+    );
+    return mastodonStatusSchema.parse(json);
+  }
+
+  async deleteStatus(id: string): Promise<void> {
+    const safeId = validateStatusId(id);
+    const url = this.buildUrl(`/api/v1/statuses/${encodeURIComponent(safeId)}`, {});
+    const mutationKey = `delete:${url.toString()}:${Date.now()}`;
+    await this.queue.run(
+      mutationKey,
+      (signal) => this.mutate(url, "DELETE", undefined, signal),
+      { host: url.host, retries: 1, persistStatus: false }
+    );
+  }
+
+  private async statusAction(
+    id: string,
+    action: "favourite" | "unfavourite" | "bookmark" | "unbookmark"
+  ): Promise<MastodonStatus> {
+    const url = this.buildUrl(`/api/v1/statuses/${encodeURIComponent(id)}/${action}`, {});
+    // Deduplicates rapid double-taps on the same action; idempotent so safe to retry once.
+    const { json } = await this.queue.run(
+      `${action}:${url.toString()}`,
+      (signal) => this.mutate(url, "POST", undefined, signal),
+      { host: url.host, retries: 1, persistStatus: false }
+    );
+    return mastodonStatusSchema.parse(json);
+  }
+
+  private async mutate(
+    url: URL,
+    method: "POST" | "DELETE",
+    body: Record<string, unknown> | undefined,
+    signal: AbortSignal
+  ): Promise<{ json: unknown; links: MastodonPaginationLinks }> {
+    const response = await this.fetchImpl(url, {
+      method,
+      signal,
+      headers: {
+        Accept: "application/json",
+        Authorization: this.authorizationHeader,
+        ...(body != null ? { "Content-Type": "application/json" } : {})
+      },
+      ...(body != null ? { body: JSON.stringify(body) } : {})
+    });
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(
+        url.toString(),
+        response.status,
+        sanitizeResponseText(await response.text().catch(() => "")),
+        { retryAfterMs: parseRetryAfterMs(response.headers.get("Retry-After")) }
+      );
+    }
+
+    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("application/json")) {
+      return { json: {}, links: {} };
+    }
+
+    return {
+      json: await response.json(),
+      links: parseMastodonLinkHeader(response.headers.get("Link"))
+    };
   }
 
   private async fetchArray<T>(path: string, itemSchema: ZodType<T>, params: Record<string, unknown>): Promise<MastodonPage<T>> {

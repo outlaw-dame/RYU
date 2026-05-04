@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
@@ -35,7 +35,16 @@ import {
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
-import { searchDiscoveryStatuses } from "../sync/mastodon-activity-api";
+import {
+  searchDiscoveryStatuses,
+  getMastodonProfile,
+  favouriteStatus as apiFavouriteStatus,
+  unfavouriteStatus as apiUnfavouriteStatus,
+  bookmarkStatus as apiBookmarkStatus,
+  unbookmarkStatus as apiUnbookmarkStatus
+} from "../sync/mastodon-activity-api";
+import type { MastodonAccountFull } from "../sync/mastodon-client";
+import { ComposeSheet } from "../components/activity/ComposeSheet";
 import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
 
 const sampleBooks = [
@@ -1276,8 +1285,39 @@ function notificationVerb(type: string): string {
   }
 }
 
-function ActivityStatusRow({ status }: { status: MastodonStatus }) {
+/** Returns true when a token grants the needed write scope (or scopes are unknown, treated optimistically). */
+function hasWriteScope(grantedScopes: string[] | undefined, needed: string): boolean {
+  if (!grantedScopes || grantedScopes.length === 0) return true;
+  const base = needed.split(":")[0];
+  return grantedScopes.some((s) => s === needed || s === base || s === "write" || s === "read write");
+}
+
+type StatusAction = { label: string; pendingLabel: string; handler: () => Promise<void> };
+
+function ActivityStatusRow({
+  status,
+  interaction,
+  onFavourite,
+  onBookmark,
+  actions
+}: {
+  status: MastodonStatus;
+  interaction?: { favourited: boolean; bookmarked: boolean };
+  onFavourite?: (id: string, current: boolean) => void;
+  onBookmark?: (id: string, current: boolean) => void;
+  actions?: StatusAction[];
+}) {
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
+  const [pendingIdx, setPendingIdx] = useState<number | null>(null);
+  const favourited = interaction?.favourited ?? status.favourited ?? false;
+  const bookmarked = interaction?.bookmarked ?? status.bookmarked ?? false;
+  const showSocialActions = Boolean(onFavourite || onBookmark);
+
+  async function handleAction(action: StatusAction, idx: number) {
+    if (pendingIdx !== null) return;
+    setPendingIdx(idx);
+    try { await action.handler(); } finally { setPendingIdx(null); }
+  }
 
   return (
     <article style={{
@@ -1298,10 +1338,92 @@ function ActivityStatusRow({ status }: { status: MastodonStatus }) {
       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
         {mastodonStatusText(status)}
       </p>
-      {href ? (
-        <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
-          Open post
-        </a>
+      {showSocialActions || href ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+          {href ? (
+            <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
+              Open post
+            </a>
+          ) : null}
+          {showSocialActions ? (
+            <div style={{ display: "flex", gap: "var(--space-1)", marginLeft: "auto" }}>
+              {onFavourite ? (
+                <button
+                  type="button"
+                  aria-pressed={favourited}
+                  aria-label={favourited ? "Remove favourite" : "Favourite"}
+                  onClick={() => onFavourite(status.id, favourited)}
+                  style={{
+                    border: 0,
+                    borderRadius: "var(--radius-sm)",
+                    background: "transparent",
+                    color: favourited ? "var(--color-rating)" : "var(--color-text-tertiary)",
+                    fontSize: "var(--text-subhead)",
+                    padding: "4px var(--space-2)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    minHeight: "32px",
+                    lineHeight: 1
+                  }}
+                >
+                  <span aria-hidden="true">{favourited ? "★" : "☆"}</span>
+                  {typeof status.favourites_count === "number" && status.favourites_count > 0 ? (
+                    <span style={{ fontSize: "var(--text-caption1)" }}>{status.favourites_count}</span>
+                  ) : null}
+                </button>
+              ) : null}
+              {onBookmark ? (
+                <button
+                  type="button"
+                  aria-pressed={bookmarked}
+                  aria-label={bookmarked ? "Remove bookmark" : "Bookmark"}
+                  onClick={() => onBookmark(status.id, bookmarked)}
+                  style={{
+                    border: 0,
+                    borderRadius: "var(--radius-sm)",
+                    background: "transparent",
+                    color: bookmarked ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                    fontSize: "var(--text-footnote)",
+                    fontWeight: bookmarked ? 700 : 500,
+                    padding: "4px var(--space-2)",
+                    cursor: "pointer",
+                    minHeight: "32px"
+                  }}
+                >
+                  {bookmarked ? "Saved" : "Save"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {actions && actions.length > 0 ? (
+        <div style={{ display: "flex", gap: "var(--space-2)", paddingTop: "var(--space-2)", borderTop: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)", flexWrap: "wrap" }}>
+          {actions.map((action, idx) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={pendingIdx !== null}
+              onClick={() => void handleAction(action, idx)}
+              style={{
+                minHeight: "var(--touch-min)",
+                border: "1px solid color-mix(in srgb, var(--color-text) 18%, transparent)",
+                borderRadius: "var(--radius-md)",
+                background: "transparent",
+                color: "var(--color-text)",
+                fontSize: "var(--text-footnote)",
+                fontWeight: 600,
+                padding: "0 var(--space-3)",
+                opacity: pendingIdx !== null ? 0.6 : 1,
+                cursor: pendingIdx !== null ? "default" : "pointer"
+              }}
+            >
+              {pendingIdx === idx ? action.pendingLabel : action.label}
+            </button>
+          ))}
+        </div>
       ) : null}
     </article>
   );
@@ -1366,7 +1488,7 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
   const [isAuthWorking, setIsAuthWorking] = useState(false);
-  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string } | null>(null);
+  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string; grantedScopes?: string[] } | null>(null);
   const [activityTimeline, setActivityTimeline] = useState<MastodonStatus[]>([]);
   const [activityNotifications, setActivityNotifications] = useState<MastodonNotification[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
@@ -1385,6 +1507,11 @@ export function App() {
   const [bookTokRefreshNonce, setBookTokRefreshNonce] = useState(0);
   const [activeReaderProfile, setActiveReaderProfile] = useState<InAppReaderProfile | null>(null);
   const [activeNowReadingStatus, setActiveNowReadingStatus] = useState<MastodonStatus | null>(null);
+  const [mastodonProfileFull, setMastodonProfileFull] = useState<MastodonAccountFull | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileFetched, setProfileFetched] = useState(false);
+  const [statusInteractions, setStatusInteractions] = useState<Map<string, { favourited: boolean; bookmarked: boolean }>>(() => new Map());
+  const [composeOpen, setComposeOpen] = useState(false);
   const { state } = useDatabase();
   const autocompleteResults = useAutocomplete(searchQuery);
   const preferredSoftwareSlugs = useMemo(() => (preferredSoftware ? [preferredSoftware] : []), [preferredSoftware]);
@@ -1404,6 +1531,9 @@ export function App() {
   });
   const { books: importedBooks, loading: importedBooksLoading, reload: reloadImportedBooks } = useImportedBooks(state === "ready");
   const shelves = useMastodonShelves(connectedAccount !== null);
+  const discoverySearchCacheRef = useRef(new Map<string, { data: MastodonStatus[]; ts: number }>());
+  const discoveryInFlightRef = useRef(new Map<string, Promise<MastodonStatus[]>>());
+  const DISCOVERY_CACHE_TTL_MS = 3 * 60 * 1000;
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
   const usingManualFediverseFacet = manualFacetControls && searchFacet === "fediverse";
@@ -1437,14 +1567,15 @@ export function App() {
     void fetchWithBackoff(endpoint, {}, 2, 8000)
       .then(async (r) => {
         if (!r.ok || cancelled) return;
-        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
+        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; scope?: string | null; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
         if (!cancelled && data.connected && data.instanceOrigin && data.account?.acct) {
           setConnectedAccount({
             instanceOrigin: data.instanceOrigin,
             acct: data.account.acct,
             displayName: data.account.display_name || undefined,
             avatar: data.account.avatar || undefined,
-            profileUrl: data.account.url || undefined
+            profileUrl: data.account.url || undefined,
+            grantedScopes: data.scope ? data.scope.split(" ").filter(Boolean) : undefined
           });
           setAuthInfo(`Connected as ${data.account.acct}`);
         }
@@ -1461,6 +1592,10 @@ export function App() {
     setActivityError(null);
     setActivityLoadedAt(null);
     setActivityLoading(false);
+    setMastodonProfileFull(null);
+    setProfileFetched(false);
+    setStatusInteractions(new Map());
+    setComposeOpen(false);
   }, [connectedAccount]);
 
   useEffect(() => {
@@ -1529,6 +1664,26 @@ export function App() {
       controller.abort();
     };
   }, [activeTab, buildActivityEndpoint, connectedAccount, activityRefreshNonce]);
+
+  useEffect(() => {
+    if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
+    let cancelled = false;
+    setProfileLoading(true);
+    void getMastodonProfile()
+      .then((profile) => {
+        if (!cancelled) {
+          setMastodonProfileFull(profile);
+          setProfileFetched(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProfileFetched(true);
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, connectedAccount, profileFetched, profileLoading]);
 
   useEffect(() => {
     if (activeTab !== "home") {
@@ -1654,7 +1809,12 @@ export function App() {
         if (!cancelled) {
           setAuthInfo(`Account connected${accountText}. Token exchange completed.`);
           if (payload.account && payload.instanceOrigin) {
-            setConnectedAccount({ instanceOrigin: payload.instanceOrigin, acct: payload.account.acct });
+            setConnectedAccount({
+              instanceOrigin: payload.instanceOrigin,
+              acct: payload.account.acct,
+              displayName: (payload.account as { acct: string; display_name?: string }).display_name || undefined,
+              grantedScopes: (payload as { scope?: string }).scope ? ((payload as { scope?: string }).scope as string).split(" ").filter(Boolean) : undefined
+            });
           }
         }
         clearPendingAuthTransaction();
@@ -1748,22 +1908,36 @@ export function App() {
         : (writingPattern.test(lowered) ? "#writing" : "#bookstodon");
       const scopedQuery = [query, facetTag].filter(Boolean).join(" ");
 
-      void searchDiscoveryStatuses(scopedQuery, { limit: 16 })
-        .then((page) => {
-          if (!cancelled) {
-            setDiscoveryStatuses(page.items);
-          }
+      const cacheKey = scopedQuery;
+      const cached = discoverySearchCacheRef.current.get(cacheKey);
+      if (cached && Date.now() - cached.ts < DISCOVERY_CACHE_TTL_MS) {
+        if (!cancelled) {
+          setDiscoveryStatuses(cached.data);
+          setDiscoveryLoading(false);
+        }
+        return;
+      }
+
+      const existing = discoveryInFlightRef.current.get(cacheKey);
+      const request: Promise<MastodonStatus[]> = existing ??
+        searchDiscoveryStatuses(scopedQuery, { limit: 16 }).then((page) => page.items);
+      if (!existing) discoveryInFlightRef.current.set(cacheKey, request);
+
+      void request
+        .then((items) => {
+          discoverySearchCacheRef.current.set(cacheKey, { data: items, ts: Date.now() });
+          discoveryInFlightRef.current.delete(cacheKey);
+          if (!cancelled) setDiscoveryStatuses(items);
         })
         .catch((error) => {
+          discoveryInFlightRef.current.delete(cacheKey);
           if (!cancelled) {
             setDiscoveryStatuses([]);
             setDiscoveryError(error instanceof Error ? error.message : String(error));
           }
         })
         .finally(() => {
-          if (!cancelled) {
-            setDiscoveryLoading(false);
-          }
+          if (!cancelled) setDiscoveryLoading(false);
         });
     }, 200);
 
@@ -1972,6 +2146,64 @@ export function App() {
   const openNowReadingStatus = useCallback((status: MastodonStatus) => {
     setActiveNowReadingStatus(status);
   }, []);
+
+  const handleFavourite = useCallback((statusId: string, currentFavourited: boolean) => {
+    setStatusInteractions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(statusId);
+      next.set(statusId, { favourited: !currentFavourited, bookmarked: existing?.bookmarked ?? false });
+      return next;
+    });
+    const apiCall = currentFavourited ? apiUnfavouriteStatus : apiFavouriteStatus;
+    void apiCall(statusId)
+      .then((updated) => {
+        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        if (!currentFavourited) shelves.addFavourite(updated);
+        else shelves.removeFavourite(statusId);
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          next.delete(statusId);
+          return next;
+        });
+      })
+      .catch(() => {
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(statusId);
+          if (existing) next.set(statusId, { ...existing, favourited: currentFavourited });
+          return next;
+        });
+      });
+  }, [shelves]);
+
+  const handleBookmark = useCallback((statusId: string, currentBookmarked: boolean) => {
+    setStatusInteractions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(statusId);
+      next.set(statusId, { favourited: existing?.favourited ?? false, bookmarked: !currentBookmarked });
+      return next;
+    });
+    const apiCall = currentBookmarked ? apiUnbookmarkStatus : apiBookmarkStatus;
+    void apiCall(statusId)
+      .then((updated) => {
+        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        if (!currentBookmarked) shelves.addBookmark(updated);
+        else shelves.removeBookmark(statusId);
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          next.delete(statusId);
+          return next;
+        });
+      })
+      .catch(() => {
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(statusId);
+          if (existing) next.set(statusId, { ...existing, bookmarked: currentBookmarked });
+          return next;
+        });
+      });
+  }, [shelves]);
 
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
@@ -2425,7 +2657,18 @@ export function App() {
                             </>
                           ) : shelves.bookmarks.length > 0 ? (
                             shelves.bookmarks.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                actions={[{
+                                  label: "Remove bookmark",
+                                  pendingLabel: "Removing...",
+                                  handler: async () => {
+                                    await apiUnbookmarkStatus(status.id);
+                                    shelves.removeBookmark(status.id);
+                                  }
+                                }]}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2444,7 +2687,18 @@ export function App() {
                             </>
                           ) : shelves.favourites.length > 0 ? (
                             shelves.favourites.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                actions={[{
+                                  label: "Unfavourite",
+                                  pendingLabel: "Removing...",
+                                  handler: async () => {
+                                    await apiUnfavouriteStatus(status.id);
+                                    shelves.removeFavourite(status.id);
+                                  }
+                                }]}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2496,6 +2750,43 @@ export function App() {
                     <EmptyState title="Sign in to load activity" description="Your home timeline, notifications, and reading updates will appear here." />
                   ) : (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
+                      {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
+                        <div style={{ padding: "0 var(--space-4)" }}>
+                          <button
+                            type="button"
+                            onClick={() => setComposeOpen(true)}
+                            style={{
+                              width: "100%",
+                              minHeight: "var(--touch-min)",
+                              border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
+                              borderRadius: "var(--radius-lg)",
+                              background: "var(--color-bg-secondary)",
+                              color: "var(--color-text-secondary)",
+                              fontSize: "var(--text-footnote)",
+                              textAlign: "left",
+                              padding: "0 var(--space-4)",
+                              cursor: "pointer"
+                            }}
+                          >
+                            What are you reading?
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{
+                          margin: "0 var(--space-4)",
+                          padding: "var(--space-3) var(--space-4)",
+                          borderRadius: "var(--radius-md)",
+                          background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-bg))",
+                          border: "1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)",
+                          display: "grid",
+                          gap: "var(--space-2)"
+                        }}>
+                          <strong style={{ fontSize: "var(--text-subhead)" }}>Enable posting</strong>
+                          <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                            Your current session does not include write permissions. Sign out and sign back in to enable posting.
+                          </p>
+                        </div>
+                      )}
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
                         <SectionHeader
                           title="Notifications"
@@ -2530,7 +2821,13 @@ export function App() {
                             </>
                           ) : activityTimeline.length > 0 ? (
                             activityTimeline.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                interaction={statusInteractions.get(status.id)}
+                                onFavourite={hasWriteScope(connectedAccount.grantedScopes, "write:favourites") ? handleFavourite : undefined}
+                                onBookmark={hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks") ? handleBookmark : undefined}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2610,7 +2907,57 @@ export function App() {
                               </span>
                             </div>
                           </div>
+                          {mastodonProfileFull ? (
+                            <>
+                              {mastodonProfileFull.note ? (
+                                <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+                                  {stripHtml(mastodonProfileFull.note).trim().slice(0, 280)}
+                                </p>
+                              ) : null}
+                              {(mastodonProfileFull.followers_count != null || mastodonProfileFull.following_count != null || mastodonProfileFull.statuses_count != null) ? (
+                                <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
+                                  {mastodonProfileFull.followers_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.followers_count.toLocaleString()}</strong> followers
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.following_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.following_count.toLocaleString()}</strong> following
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.statuses_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.statuses_count.toLocaleString()}</strong> posts
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : profileLoading ? (
+                            <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                              <Skeleton style={{ height: 16, width: "70%" }} />
+                              <Skeleton style={{ height: 12, width: "40%" }} />
+                            </div>
+                          ) : null}
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", borderTop: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)", paddingTop: "var(--space-3)" }}>
+                            {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
+                              <button
+                                type="button"
+                                onClick={() => setComposeOpen(true)}
+                                style={{
+                                  minHeight: "var(--touch-min)",
+                                  border: 0,
+                                  borderRadius: "var(--radius-md)",
+                                  background: "var(--color-accent)",
+                                  color: "white",
+                                  fontWeight: 700,
+                                  padding: "0 var(--space-4)"
+                                }}
+                              >
+                                Post Reading Update
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => {
@@ -2621,10 +2968,10 @@ export function App() {
                               disabled={isAuthWorking}
                               style={{
                                 minHeight: "var(--touch-min)",
-                                border: 0,
+                                border: "1px solid color-mix(in srgb, var(--color-text) 20%, transparent)",
                                 borderRadius: "var(--radius-md)",
-                                background: "var(--color-accent)",
-                                color: "white",
+                                background: "transparent",
+                                color: "var(--color-text)",
                                 fontWeight: 700,
                                 padding: "0 var(--space-4)",
                                 opacity: isAuthWorking ? 0.6 : 1
@@ -3057,6 +3404,16 @@ export function App() {
               <ReaderProfileSheet
                 profile={activeReaderProfile}
                 onClose={() => setActiveReaderProfile(null)}
+              />
+            ) : null}
+
+            {composeOpen && connectedAccount ? (
+              <ComposeSheet
+                onClose={() => setComposeOpen(false)}
+                onPost={(posted) => {
+                  setComposeOpen(false);
+                  setActivityTimeline((prev) => [posted, ...prev]);
+                }}
               />
             ) : null}
           </main>

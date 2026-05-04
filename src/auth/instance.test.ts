@@ -1,42 +1,45 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { discoverMastodonOAuth } from "./instance";
 
-const granularReadScopes = ["read:statuses", "read:notifications", "read:accounts"];
+const granularScopes = [
+  "read:statuses", "read:notifications", "read:accounts",
+  "write:statuses", "write:favourites", "write:bookmarks"
+];
 
 describe("discoverMastodonOAuth", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
-  it("requests granular read scopes when the server supports them", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
-      scopes_supported: [...granularReadScopes, "profile"]
-    })));
+  it("requests all granular read+write scopes when the server supports them", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
+      scopes_supported: [...granularScopes, "profile"]
+    }));
 
     const result = await discoverMastodonOAuth("https://books.example");
 
-    expect(result.scopeDecision.requestedScopes).toEqual(granularReadScopes);
-    expect(result.scopeDecision.authScope).toBe("read:statuses read:notifications read:accounts");
+    expect(result.scopeDecision.requestedScopes).toEqual(granularScopes);
+    expect(result.scopeDecision.authScope).toBe(granularScopes.join(" "));
   });
 
-  it("falls back to broad read when granular scopes are not advertised", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+  it("falls back to broad read+write when granular scopes are not advertised", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
       scopes_supported: ["read", "write", "follow"]
-    })));
+    }));
 
     const result = await discoverMastodonOAuth("books.example");
 
-    expect(result.scopeDecision.requestedScopes).toEqual(["read"]);
-    expect(result.scopeDecision.authScope).toBe("read");
+    expect(result.scopeDecision.requestedScopes).toEqual(["read", "write"]);
+    expect(result.scopeDecision.authScope).toBe("read write");
   });
 
-  it("uses granular read scopes when metadata is unavailable", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not found", { status: 404 })));
+  it("uses granular read+write scopes when metadata is unavailable", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
 
     const result = await discoverMastodonOAuth("books.example");
 
     expect(result.discovered).toBe(false);
-    expect(result.scopeDecision.requestedScopes).toEqual(granularReadScopes);
+    expect(result.scopeDecision.requestedScopes).toEqual(granularScopes);
   });
 });
 

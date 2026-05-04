@@ -92,6 +92,32 @@ const mastodonDiscoverySearchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(30).default(20)
 });
 
+const MASTODON_STATUS_ID_RE = /^[\w-]{1,64}$/;
+
+const mastodonStatusIdSchema = z.string().trim().regex(MASTODON_STATUS_ID_RE, "Invalid status ID");
+
+const mastodonPostStatusBodySchema = z.object({
+  status: z.string().trim().min(1, "Status cannot be empty").max(500, "Status exceeds 500 characters"),
+  visibility: z.enum(["public", "unlisted", "private", "direct"]).default("public"),
+  spoiler_text: z.string().max(240).optional(),
+  in_reply_to_id: mastodonStatusIdSchema.optional(),
+  sensitive: z.boolean().optional()
+});
+
+const STATUS_ACTION_PATH_RE = /^\/api\/auth\/mastodon\/statuses\/([\w-]{1,64})\/(favourite|unfavourite|bookmark|unbookmark)$/;
+const STATUS_DELETE_PATH_RE = /^\/api\/auth\/mastodon\/statuses\/([\w-]{1,64})$/;
+
+function parseStatusActionPath(pathname: string): { id: string; action: "favourite" | "unfavourite" | "bookmark" | "unbookmark" } | null {
+  const m = STATUS_ACTION_PATH_RE.exec(pathname);
+  if (!m) return null;
+  return { id: m[1]!, action: m[2] as "favourite" | "unfavourite" | "bookmark" | "unbookmark" };
+}
+
+function parseDeleteStatusPath(pathname: string): string | null {
+  const m = STATUS_DELETE_PATH_RE.exec(pathname);
+  return m ? m[1]! : null;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MAX_BODY_BYTES = 24 * 1024;
@@ -1044,6 +1070,112 @@ function sendMastodonProxyError(req: IncomingMessage, res: ServerResponse, error
   });
 }
 
+async function handlePostStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before posting." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonPostStatusBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = mastodonPostStatusBodySchema.parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const client = createSessionMastodonClient(session);
+    const status = await client.postStatus({
+      status: body.status,
+      visibility: body.visibility,
+      spoilerText: body.spoiler_text,
+      inReplyToId: body.in_reply_to_id,
+      sensitive: body.sensitive
+    });
+    sendJson(res, 200, status);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleDeleteStatus(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer,
+  id: string
+): Promise<void> {
+  await drainBody(req);
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before deleting." });
+    return;
+  }
+
+  try {
+    const client = createSessionMastodonClient(session);
+    await client.deleteStatus(id);
+    sendJson(res, 200, { deleted: true });
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleStatusMutation(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer,
+  parsed: { id: string; action: "favourite" | "unfavourite" | "bookmark" | "unbookmark" }
+): Promise<void> {
+  await drainBody(req);
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+    return;
+  }
+
+  try {
+    const client = createSessionMastodonClient(session);
+    let result: MastodonStatus;
+    switch (parsed.action) {
+      case "favourite":   result = await client.favouriteStatus(parsed.id);   break;
+      case "unfavourite": result = await client.unfavouriteStatus(parsed.id); break;
+      case "bookmark":    result = await client.bookmarkStatus(parsed.id);    break;
+      case "unbookmark":  result = await client.unbookmarkStatus(parsed.id);  break;
+    }
+
+    if (parsed.action === "bookmark" || parsed.action === "unbookmark") {
+      const cacheKey = `${session.instanceOrigin}:${session.account?.id ?? "anonymous"}`;
+      shelvesCache.delete(cacheKey);
+    }
+
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
 async function handleRevoke(
   req: IncomingMessage,
   res: ServerResponse,
@@ -1337,6 +1469,40 @@ async function dispatch(
       return;
     }
 
+    if (url.pathname === "/api/auth/mastodon/profile") {
+      await handleMastodonProxy(req, res, sessKey, (client) => client.verifyCredentials());
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/statuses") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handlePostStatus(req, res, sessKey);
+      return;
+    }
+
+    const statusAction = parseStatusActionPath(url.pathname);
+    if (statusAction) {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleStatusMutation(req, res, sessKey, statusAction);
+      return;
+    }
+
+    const deleteStatusId = parseDeleteStatusPath(url.pathname);
+    if (deleteStatusId) {
+      if (req.method !== "DELETE") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleDeleteStatus(req, res, sessKey, deleteStatusId);
+      return;
+    }
+
     if (req.method !== "POST") {
       sendJson(res, 405, { error: "method_not_allowed" });
       return;
@@ -1390,6 +1556,7 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
 
   const store = new CredentialStore(credKeyPromise);
   const allowRequest = createRateLimiter(80);
+  const allowWriteRequest = createRateLimiter(20);
 
   return (req, res, next) => {
     if (!req.url) { next(); return; }
@@ -1404,6 +1571,15 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
 
     const ip = clientAddress(req);
     if (!allowRequest(ip)) {
+      sendJson(res, 429, { error: "rate_limited", message: "Too many requests" });
+      return;
+    }
+
+    const isStatusWriteOp = (req.method === "POST" || req.method === "DELETE") && (
+      url.pathname === "/api/auth/mastodon/statuses" ||
+      url.pathname.startsWith("/api/auth/mastodon/statuses/")
+    );
+    if (isStatusWriteOp && !allowWriteRequest(ip)) {
       sendJson(res, 429, { error: "rate_limited", message: "Too many requests" });
       return;
     }

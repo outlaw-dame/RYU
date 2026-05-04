@@ -1,7 +1,10 @@
 import type { MastodonDiscoveryResult, OAuthServerMetadata } from "./types";
 
-const DEFAULT_SCOPE_SET = ["read:statuses", "read:notifications", "read:accounts"];
-const BROAD_READ_SCOPE_SET = ["read"];
+const DEFAULT_SCOPE_SET = [
+  "read:statuses", "read:notifications", "read:accounts",
+  "write:statuses", "write:favourites", "write:bookmarks"
+];
+const BROAD_WRITE_SCOPE_SET = ["read", "write"];
 const FALLBACK_SCOPE_SET = ["profile"];
 
 function buildFallbackEndpoints(instanceOrigin: string) {
@@ -35,17 +38,17 @@ export function normalizeInstanceOrigin(input: string): string {
 function decideScopes(metadata: OAuthServerMetadata | null) {
   const supported = new Set(metadata?.scopes_supported ?? []);
   const hasScopeMetadata = supported.size > 0;
-  const granularReadScopesSupported = DEFAULT_SCOPE_SET.every((scope) => supported.has(scope));
-  const broadReadScopeSupported = supported.has("read");
+  const allGranularSupported = DEFAULT_SCOPE_SET.every((scope) => supported.has(scope));
+  const broadWriteSupported = supported.has("read") && supported.has("write");
   const profileScopeSupported = supported.has("profile") || !hasScopeMetadata;
-  const supportedReadScopes = DEFAULT_SCOPE_SET.filter((scope) => supported.has(scope));
+  const supportedGranular = DEFAULT_SCOPE_SET.filter((scope) => supported.has(scope));
   const requestedScopes =
-    !hasScopeMetadata || granularReadScopesSupported
+    !hasScopeMetadata || allGranularSupported
       ? DEFAULT_SCOPE_SET
-      : broadReadScopeSupported
-        ? BROAD_READ_SCOPE_SET
-        : supportedReadScopes.length > 0
-          ? supportedReadScopes
+      : broadWriteSupported
+        ? BROAD_WRITE_SCOPE_SET
+        : supportedGranular.length > 0
+          ? supportedGranular
           : FALLBACK_SCOPE_SET;
 
   return {

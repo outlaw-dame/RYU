@@ -12,6 +12,14 @@ export type ShelvesState = {
   error: ShelvesError | null;
 };
 
+export type ShelvesActions = {
+  reload: () => void;
+  addBookmark: (status: MastodonStatus) => void;
+  removeBookmark: (id: string) => void;
+  addFavourite: (status: MastodonStatus) => void;
+  removeFavourite: (id: string) => void;
+};
+
 const INITIAL: ShelvesState = {
   bookmarks: [],
   favourites: [],
@@ -42,11 +50,33 @@ async function loadShelves(): Promise<Pick<ShelvesState, "bookmarks" | "favourit
   }
 }
 
-export function useMastodonShelves(connected: boolean): ShelvesState & { reload: () => void } {
+export function useMastodonShelves(connected: boolean): ShelvesState & ShelvesActions {
   const [state, setState] = useState<ShelvesState>(INITIAL);
   const [epoch, setEpoch] = useState(0);
 
   const reload = useCallback(() => setEpoch((e) => e + 1), []);
+
+  const addBookmark = useCallback((status: MastodonStatus) => {
+    setState((prev) => {
+      if (prev.bookmarks.some((b) => b.id === status.id)) return prev;
+      return { ...prev, bookmarks: [status, ...prev.bookmarks] };
+    });
+  }, []);
+
+  const removeBookmark = useCallback((id: string) => {
+    setState((prev) => ({ ...prev, bookmarks: prev.bookmarks.filter((b) => b.id !== id) }));
+  }, []);
+
+  const addFavourite = useCallback((status: MastodonStatus) => {
+    setState((prev) => {
+      if (prev.favourites.some((f) => f.id === status.id)) return prev;
+      return { ...prev, favourites: [status, ...prev.favourites] };
+    });
+  }, []);
+
+  const removeFavourite = useCallback((id: string) => {
+    setState((prev) => ({ ...prev, favourites: prev.favourites.filter((f) => f.id !== id) }));
+  }, []);
 
   useEffect(() => {
     if (!connected) {
@@ -71,5 +101,5 @@ export function useMastodonShelves(connected: boolean): ShelvesState & { reload:
     return () => { cancelled = true; };
   }, [connected, epoch]);
 
-  return { ...state, reload };
+  return { ...state, reload, addBookmark, removeBookmark, addFavourite, removeFavourite };
 }
