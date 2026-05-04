@@ -21,6 +21,7 @@ import {
 export const MASTODON_SESSION_ENDPOINT = "/api/auth/mastodon/session";
 export const MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
 export const MASTODON_PROFILE_ENDPOINT = "/api/auth/mastodon/profile";
+export const MASTODON_ACCOUNTS_ENDPOINT = "/api/auth/mastodon/accounts";
 export const MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
 export const MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
 export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/statuses";
@@ -222,6 +223,17 @@ export async function disconnectMastodon(options: MastodonActivityApiOptions = {
 
 export async function getMastodonProfile(options: MastodonActivityApiOptions = {}): Promise<MastodonAccountFull> {
   const response = await requestProxy(MASTODON_PROFILE_ENDPOINT, { method: "GET" }, options);
+  return mastodonAccountFullSchema.parse(await response.json());
+}
+
+export async function getMastodonAccountById(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonAccountFull> {
+  const safeId = id.trim();
+  if (!safeId || !/^[\w-]{1,64}$/.test(safeId)) {
+    throw new Error("Invalid Mastodon account ID");
+  }
+
+  const endpoint = `${MASTODON_ACCOUNTS_ENDPOINT}/${encodeURIComponent(safeId)}`;
+  const response = await requestProxy(endpoint, { method: "GET" }, options);
   return mastodonAccountFullSchema.parse(await response.json());
 }
 

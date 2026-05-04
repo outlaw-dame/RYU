@@ -106,6 +106,7 @@ const mastodonPostStatusBodySchema = z.object({
 
 const STATUS_ACTION_PATH_RE = /^\/api\/auth\/mastodon\/statuses\/([\w-]{1,64})\/(favourite|unfavourite|bookmark|unbookmark)$/;
 const STATUS_DELETE_PATH_RE = /^\/api\/auth\/mastodon\/statuses\/([\w-]{1,64})$/;
+const ACCOUNT_LOOKUP_PATH_RE = /^\/api\/auth\/mastodon\/accounts\/([\w-]{1,64})$/;
 
 function parseStatusActionPath(pathname: string): { id: string; action: "favourite" | "unfavourite" | "bookmark" | "unbookmark" } | null {
   const m = STATUS_ACTION_PATH_RE.exec(pathname);
@@ -115,6 +116,11 @@ function parseStatusActionPath(pathname: string): { id: string; action: "favouri
 
 function parseDeleteStatusPath(pathname: string): string | null {
   const m = STATUS_DELETE_PATH_RE.exec(pathname);
+  return m ? m[1]! : null;
+}
+
+function parseAccountLookupPath(pathname: string): string | null {
+  const m = ACCOUNT_LOOKUP_PATH_RE.exec(pathname);
   return m ? m[1]! : null;
 }
 
@@ -1597,6 +1603,17 @@ async function dispatch(
 
     if (url.pathname === "/api/auth/mastodon/profile") {
       await handleMastodonProxy(req, res, sessKey, (client) => client.verifyCredentials());
+      return;
+    }
+
+    const accountLookupId = parseAccountLookupPath(url.pathname);
+    if (accountLookupId) {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+
+      await handleMastodonProxy(req, res, sessKey, (client) => client.fetchAccountById(accountLookupId));
       return;
     }
 

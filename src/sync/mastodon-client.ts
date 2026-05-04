@@ -219,6 +219,21 @@ export class MastodonClient {
     return mastodonAccountFullSchema.parse(json);
   }
 
+  async fetchAccountById(accountId: string): Promise<MastodonAccountFull> {
+    const trimmed = accountId.trim();
+    if (!trimmed || !/^[\w-]{1,64}$/.test(trimmed)) {
+      throw new Error("Invalid Mastodon account ID");
+    }
+
+    const url = this.buildUrl(`/api/v1/accounts/${encodeURIComponent(trimmed)}`, {});
+    const { json } = await this.queue.run(
+      url.toString(),
+      (signal) => this.fetchJson(url, signal),
+      { host: url.host }
+    );
+    return mastodonAccountFullSchema.parse(json);
+  }
+
   async favouriteStatus(id: string): Promise<MastodonStatus> {
     return this.statusAction(validateStatusId(id), "favourite");
   }

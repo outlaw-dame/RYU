@@ -40,6 +40,7 @@ import { buildLocalRelayEntityCatalog } from "../sync/relay-entity-catalog";
 import {
   searchDiscoveryStatuses,
   getMastodonProfile,
+  getMastodonAccountById,
   favouriteStatus as apiFavouriteStatus,
   unfavouriteStatus as apiUnfavouriteStatus,
   bookmarkStatus as apiBookmarkStatus,
@@ -522,6 +523,12 @@ function escapedRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+type MentionedBookMatch = {
+  book: NowReadingImportedBook;
+  titleRanges: Array<{ start: number; end: number }>;
+  firstStart: number;
+};
+
 function findPhraseRanges(text: string, phrase: string): Array<{ start: number; end: number }> {
   const trimmed = phrase.trim();
   if (!trimmed || trimmed.length < 3) {
@@ -547,14 +554,8 @@ function findPhraseRanges(text: string, phrase: string): Array<{ start: number; 
   return ranges;
 }
 
-function findMentionedImportedBook(text: string, importedBooks: NowReadingImportedBook[]): NowReadingImportedBook | null {
-  const normalizedText = normalizeLookupText(text);
-  if (!normalizedText) {
-    return null;
-  }
-
-  let best: NowReadingImportedBook | null = null;
-  let bestScore = 0;
+function findMentionedImportedBooks(text: string, importedBooks: NowReadingImportedBook[]): MentionedBookMatch[] {
+  const rawMatches: MentionedBookMatch[] = [];
 
   for (const book of importedBooks) {
     const titleNorm = normalizeLookupText(book.title);
@@ -562,45 +563,68 @@ function findMentionedImportedBook(text: string, importedBooks: NowReadingImport
       continue;
     }
 
-    if (findPhraseRanges(text, book.title).length > 0) {
-      if (titleNorm.length > bestScore) {
-        best = book;
-        bestScore = titleNorm.length;
-      }
+    const titleRanges = findPhraseRanges(text, book.title);
+    if (titleRanges.length === 0) {
       continue;
     }
 
-    if (normalizedText.includes(titleNorm) && titleNorm.length > bestScore) {
-      best = book;
-      bestScore = titleNorm.length;
-    }
+    rawMatches.push({
+      book,
+      titleRanges,
+      firstStart: titleRanges[0]?.start ?? Number.MAX_SAFE_INTEGER
+    });
   }
 
-  return best;
+  rawMatches.sort((a, b) => {
+    if (a.firstStart !== b.firstStart) return a.firstStart - b.firstStart;
+    const lenDelta = b.book.title.length - a.book.title.length;
+    if (lenDelta !== 0) return lenDelta;
+    return a.book.id.localeCompare(b.book.id);
+  });
+
+  const selected: MentionedBookMatch[] = [];
+  const occupied: Array<{ start: number; end: number }> = [];
+
+  for (const match of rawMatches) {
+    const overlaps = match.titleRanges.some((range) =>
+      occupied.some((existing) => range.start < existing.end && range.end > existing.start)
+    );
+
+    if (overlaps) {
+      continue;
+    }
+
+    selected.push(match);
+    occupied.push(...match.titleRanges);
+  }
+
+  return selected;
 }
 
 function linkifyBookAndAuthorMentions(
   text: string,
-  book: NowReadingImportedBook | null
+  matches: MentionedBookMatch[]
 ): ReactNode {
-  if (!book) {
+  if (matches.length === 0) {
     return text;
   }
 
-  const bookHref = sanitizeUrl(book.sourceUrl) ?? openLibraryBookSearchUrl(book.title, book.author);
-  const authorHref = book.author
-    ? (sanitizeUrl(book.authorUrl) ?? openLibraryAuthorSearchUrl(book.author))
-    : null;
-
   const candidates: Array<{ start: number; end: number; href: string; priority: number }> = [];
 
-  for (const range of findPhraseRanges(text, book.title)) {
-    candidates.push({ ...range, href: bookHref, priority: 2 });
-  }
+  for (const match of matches) {
+    const bookHref = sanitizeUrl(match.book.sourceUrl) ?? openLibraryBookSearchUrl(match.book.title, match.book.author);
+    const authorHref = match.book.author
+      ? (sanitizeUrl(match.book.authorUrl) ?? openLibraryAuthorSearchUrl(match.book.author))
+      : null;
 
-  if (book.author && authorHref) {
-    for (const range of findPhraseRanges(text, book.author)) {
-      candidates.push({ ...range, href: authorHref, priority: 1 });
+    for (const range of match.titleRanges) {
+      candidates.push({ ...range, href: bookHref, priority: 2 });
+    }
+
+    if (match.book.author && authorHref) {
+      for (const range of findPhraseRanges(text, match.book.author)) {
+        candidates.push({ ...range, href: authorHref, priority: 1 });
+      }
     }
   }
 
@@ -653,6 +677,44 @@ function linkifyBookAndAuthorMentions(
   }
 
   return nodes;
+}
+
+function selectPrimaryMentionedBook(matches: MentionedBookMatch[]): NowReadingImportedBook | null {
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const sorted = [...matches].sort((a, b) => {
+    const aHasCover = a.book.coverUrl ? 1 : 0;
+    const bHasCover = b.book.coverUrl ? 1 : 0;
+    if (aHasCover !== bHasCover) return bHasCover - aHasCover;
+    if (a.firstStart !== b.firstStart) return a.firstStart - b.firstStart;
+    const lenDelta = b.book.title.length - a.book.title.length;
+    if (lenDelta !== 0) return lenDelta;
+    return a.book.id.localeCompare(b.book.id);
+  });
+
+  return sorted[0]?.book ?? null;
+}
+
+function buildAccountProfileHref(account: MastodonStatus["account"]): string | null {
+  const direct = sanitizeUrl(account.url ?? null);
+  if (direct) {
+    return direct;
+  }
+
+  const acct = (account.acct || "").trim();
+  const username = (account.username || "").trim();
+  const parts = acct.split("@").filter(Boolean);
+  if (parts.length >= 2) {
+    const domain = parts[parts.length - 1]!;
+    const user = username || parts[0]!;
+    if (domain && user) {
+      return `https://${domain}/@${encodeURIComponent(user)}`;
+    }
+  }
+
+  return null;
 }
 
 function extractBookTitleFromText(text: string): string | null {
@@ -1461,11 +1523,18 @@ function ActivityStatusRow({
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
   const text = mastodonStatusText(status);
   const card = statusCardData(status);
-  const mentionedBook = findMentionedImportedBook(text, importedBooks);
+  const mentionedBooks = findMentionedImportedBooks(text, importedBooks);
+  const primaryMentionedBook = selectPrimaryMentionedBook(mentionedBooks);
   const inferredCoverSrc = resolveCoverProxySrc(card.image)
     ?? resolveCoverProxySrc(statusMediaCover(status))
-    ?? resolveCoverProxySrc(mentionedBook?.coverUrl ?? null);
-  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBook);
+    ?? resolveCoverProxySrc(primaryMentionedBook?.coverUrl ?? null);
+  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBooks);
+  const accountHref = buildAccountProfileHref(status.account);
+  const [showAccountCard, setShowAccountCard] = useState(false);
+  const [hoverAccount, setHoverAccount] = useState<MastodonAccountFull | null>(null);
+  const [hoverLoading, setHoverLoading] = useState(false);
+  const [hoverError, setHoverError] = useState<string | null>(null);
+  const hoverFetchedRef = useRef(false);
   const [pendingIdx, setPendingIdx] = useState<number | null>(null);
   const favourited = interaction?.favourited ?? status.favourited ?? false;
   const bookmarked = interaction?.bookmarked ?? status.bookmarked ?? false;
@@ -1477,6 +1546,29 @@ function ActivityStatusRow({
     try { await action.handler(); } finally { setPendingIdx(null); }
   }
 
+  async function ensureHoverAccount(): Promise<void> {
+    if (hoverFetchedRef.current || !status.account.id) {
+      return;
+    }
+
+    hoverFetchedRef.current = true;
+    setHoverLoading(true);
+    setHoverError(null);
+    try {
+      const profile = await getMastodonAccountById(status.account.id, { attempts: 1, timeoutMs: 9000 });
+      setHoverAccount(profile);
+    } catch (error) {
+      setHoverError(error instanceof Error ? error.message : "Unable to load profile details.");
+    } finally {
+      setHoverLoading(false);
+    }
+  }
+
+  const hoverBio = hoverAccount?.note ? stripHtml(hoverAccount.note).trim() : "";
+  const hoverFollowers = hoverAccount?.followers_count;
+  const hoverFollowing = hoverAccount?.following_count;
+  const hoverStatuses = hoverAccount?.statuses_count;
+
   return (
     <article style={{
       borderRadius: "var(--radius-md)",
@@ -1487,8 +1579,72 @@ function ActivityStatusRow({
       gap: "var(--space-2)",
       boxShadow: "var(--shadow-card)"
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
-        <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline", position: "relative" }}>
+        <div
+          style={{ position: "relative", minWidth: 0 }}
+          onMouseEnter={() => {
+            setShowAccountCard(true);
+            void ensureHoverAccount();
+          }}
+          onMouseLeave={() => setShowAccountCard(false)}
+        >
+          {accountHref ? (
+            <a
+              href={accountHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "var(--text-subhead)", fontWeight: 700, color: "var(--color-text)", textDecoration: "none", overflowWrap: "anywhere" }}
+            >
+              {mastodonAccountLabel(status.account)}
+            </a>
+          ) : (
+            <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+          )}
+
+          {showAccountCard ? (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                left: 0,
+                zIndex: 8,
+                width: "min(320px, 80vw)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--color-bg-elevated)",
+                boxShadow: "var(--shadow-card)",
+                border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)",
+                padding: "var(--space-3)",
+                display: "grid",
+                gap: "var(--space-2)"
+              }}
+            >
+              <strong style={{ fontSize: "var(--text-footnote)", overflowWrap: "anywhere" }}>
+                {hoverAccount?.display_name || mastodonAccountLabel(status.account)}
+              </strong>
+              <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", overflowWrap: "anywhere" }}>
+                @{hoverAccount?.acct || status.account.acct || status.account.username || "unknown"}
+              </span>
+              {hoverLoading ? (
+                <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>Loading profile…</span>
+              ) : null}
+              {!hoverLoading && hoverBio ? (
+                <p style={{ margin: 0, fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+                  {hoverBio.slice(0, 240)}
+                </p>
+              ) : null}
+              {!hoverLoading && hoverError ? (
+                <span style={{ fontSize: "var(--text-caption1)", color: "#c23b3b" }}>{hoverError}</span>
+              ) : null}
+              {!hoverLoading && (hoverFollowers != null || hoverFollowing != null || hoverStatuses != null) ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)" }}>
+                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowers.toLocaleString()}</strong> followers</span> : null}
+                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowing.toLocaleString()}</strong> following</span> : null}
+                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverStatuses.toLocaleString()}</strong> posts</span> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
           {formatActivityDate(status.created_at)}
         </span>
