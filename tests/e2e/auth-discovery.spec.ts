@@ -1,54 +1,30 @@
 import { expect, test } from "@playwright/test";
 
-const FEDIDB_URL = "https://api.fedidb.org/v1/servers";
-const BOOKWYRM_SOURCE_URL = "https://joinbookwyrm.com/instances/";
-const OLIPHANT_URL = "https://codeberg.org/oliphant/blocklists/raw/branch/main/blocklists/_unified_tier0_blocklist.csv";
+const INSTANCE_DISCOVERY_URL = "**/api/discovery/instances**";
 
 test.beforeEach(async ({ page }) => {
-  await page.route(`${FEDIDB_URL}**`, async (route) => {
+  await page.route(INSTANCE_DISCOVERY_URL, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        data: [
+        instances: [
           {
             domain: "bookwyrm.social",
-            open_registration: true,
-            description: "Books and federated reading",
-            location: { city: "Berlin", country: "DE" },
-            software: { name: "BookWyrm", slug: "bookwyrm" },
-            stats: { user_count: 42000 }
-          },
-          {
-            domain: "blocked.example",
-            open_registration: true,
-            description: "Should be filtered by tier0",
-            location: { city: "Paris", country: "FR" },
-            software: { name: "Mastodon", slug: "mastodon" },
-            stats: { user_count: 1400 }
+            url: "https://bookwyrm.social",
+            softwareName: "BookWyrm",
+            softwareSlug: "bookwyrm",
+            country: "DE",
+            city: "Berlin",
+            userCount: 42000,
+            openRegistration: true,
+            localApprovalRequired: false,
+            registrationType: "open"
           }
         ],
-        links: { next: null }
+        generatedAt: new Date().toISOString(),
+        source: "test"
       })
-    });
-  });
-
-  await page.route(BOOKWYRM_SOURCE_URL, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "text/html",
-      body: `<html><body>
-        <a href="https://bookwyrm.social">Join instance: bookwyrm.social</a>
-        <a href="https://blocked.example">Join instance: blocked.example</a>
-      </body></html>`
-    });
-  });
-
-  await page.route(OLIPHANT_URL, async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "text/csv",
-      body: "domain,reason\nblocked.example,abuse"
     });
   });
 });

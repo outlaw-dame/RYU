@@ -12,6 +12,13 @@ export type ShelvesState = {
   error: ShelvesError | null;
 };
 
+type ShelvesMutators = {
+  addBookmark: (status: MastodonStatus) => void;
+  removeBookmark: (statusId: string) => void;
+  addFavourite: (status: MastodonStatus) => void;
+  removeFavourite: (statusId: string) => void;
+};
+
 const INITIAL: ShelvesState = {
   bookmarks: [],
   favourites: [],
@@ -42,11 +49,49 @@ async function loadShelves(): Promise<Pick<ShelvesState, "bookmarks" | "favourit
   }
 }
 
-export function useMastodonShelves(connected: boolean): ShelvesState & { reload: () => void } {
+export function useMastodonShelves(connected: boolean): ShelvesState & ShelvesMutators & { reload: () => void } {
   const [state, setState] = useState<ShelvesState>(INITIAL);
   const [epoch, setEpoch] = useState(0);
 
   const reload = useCallback(() => setEpoch((e) => e + 1), []);
+
+  const addBookmark = useCallback((status: MastodonStatus) => {
+    setState((prev) => {
+      const existingIndex = prev.bookmarks.findIndex((item) => item.id === status.id);
+      if (existingIndex >= 0) {
+        const next = prev.bookmarks.slice();
+        next[existingIndex] = status;
+        return { ...prev, bookmarks: next };
+      }
+      return { ...prev, bookmarks: [status, ...prev.bookmarks] };
+    });
+  }, []);
+
+  const removeBookmark = useCallback((statusId: string) => {
+    setState((prev) => ({
+      ...prev,
+      bookmarks: prev.bookmarks.filter((status) => status.id !== statusId)
+    }));
+  }, []);
+
+  const addFavourite = useCallback((status: MastodonStatus) => {
+    setState((prev) => {
+      const existingIndex = prev.favourites.findIndex((item) => item.id === status.id);
+      if (existingIndex >= 0) {
+        const next = prev.favourites.slice();
+        next[existingIndex] = status;
+        return { ...prev, favourites: next };
+      }
+      return { ...prev, favourites: [status, ...prev.favourites] };
+    });
+  }, []);
+
+  const removeFavourite = useCallback((statusId: string) => {
+    setState((prev) => ({
+      ...prev,
+      favourites: prev.favourites.filter((status) => status.id !== statusId)
+    }));
+  }, []);
 
   useEffect(() => {
     if (!connected) {
@@ -71,5 +116,12 @@ export function useMastodonShelves(connected: boolean): ShelvesState & { reload:
     return () => { cancelled = true; };
   }, [connected, epoch]);
 
-  return { ...state, reload };
+  return {
+    ...state,
+    reload,
+    addBookmark,
+    removeBookmark,
+    addFavourite,
+    removeFavourite
+  };
 }

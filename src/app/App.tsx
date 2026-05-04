@@ -393,12 +393,19 @@ function DiscoveryStatusRow({ status }: { status: MastodonStatus }) {
 function formatActivityDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  return activityDateFormatter.format(date);
+}
+
+function formatFullDate(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return fullDateFormatter.format(date);
+}
+
+function formatCount(value: number): string {
+  return numberFormatter.format(value);
 }
 
 function mastodonAccountLabel(account: MastodonStatus["account"]): string {
@@ -456,6 +463,21 @@ type EmojiToken = {
   shortcode: string;
   src: string;
 };
+
+const activityDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit"
+});
+
+const fullDateFormatter = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric"
+});
+
+const numberFormatter = new Intl.NumberFormat();
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
@@ -923,21 +945,11 @@ function profileJoinDateLabel(profile: MastodonAccountFull): string | null {
     return null;
   }
 
-  const date = new Date(profile.created_at);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+  return formatFullDate(profile.created_at);
 }
 
 function compactDateLabel(value: string): string | null {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-
-  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return formatFullDate(value);
 }
 
 function emojiTokensFromProfile(profile: MastodonAccountFull | null): Map<string, EmojiToken> {
@@ -1713,23 +1725,29 @@ function ActivityStatusRow({
   importedBooks?: NowReadingImportedBook[];
 }) {
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
-  const text = mastodonStatusText(status);
-  const card = statusCardData(status);
-  const mentionedBooks = findMentionedImportedBooks(text, importedBooks);
-  const primaryMentionedBook = selectPrimaryMentionedBook(mentionedBooks);
-  const statusInstanceOrigin = accountInstanceOrigin(status.account);
-  const inferredCoverSrc = resolveCoverProxySrc(card.image)
+  const text = useMemo(() => mastodonStatusText(status), [status]);
+  const card = useMemo(() => statusCardData(status), [status]);
+  const mentionedBooks = useMemo(() => findMentionedImportedBooks(text, importedBooks), [text, importedBooks]);
+  const primaryMentionedBook = useMemo(() => selectPrimaryMentionedBook(mentionedBooks), [mentionedBooks]);
+  const statusInstanceOrigin = useMemo(() => accountInstanceOrigin(status.account), [status.account]);
+  const inferredCoverSrc = useMemo(() => (
+    resolveCoverProxySrc(card.image)
     ?? resolveCoverProxySrc(statusMediaCover(status))
-    ?? resolveCoverProxySrc(primaryMentionedBook?.coverUrl ?? null);
-  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBooks, statusInstanceOrigin);
+    ?? resolveCoverProxySrc(primaryMentionedBook?.coverUrl ?? null)
+  ), [card.image, status, primaryMentionedBook]);
+  const linkedText = useMemo(
+    () => linkifyBookAndAuthorMentions(text, mentionedBooks, statusInstanceOrigin),
+    [text, mentionedBooks, statusInstanceOrigin]
+  );
+  const statusEmojiMap = useMemo(() => customEmojiMapFromStatus(status), [status]);
   const richContent = useMemo(
     () => renderFediverseRichText(status.content ?? text, {
       instanceOrigin: statusInstanceOrigin,
-      customEmoji: customEmojiMapFromStatus(status)
+      customEmoji: statusEmojiMap
     }),
-    [status, text, statusInstanceOrigin]
+    [status.content, text, statusInstanceOrigin, statusEmojiMap]
   );
-  const accountHref = buildAccountProfileHref(status.account);
+  const accountHref = useMemo(() => buildAccountProfileHref(status.account), [status.account]);
   const [showAccountCard, setShowAccountCard] = useState(false);
   const [hoverAccount, setHoverAccount] = useState<MastodonAccountFull | null>(null);
   const [hoverLoading, setHoverLoading] = useState(false);
@@ -1837,9 +1855,9 @@ function ActivityStatusRow({
               ) : null}
               {!hoverLoading && (hoverFollowers != null || hoverFollowing != null || hoverStatuses != null) ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)" }}>
-                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowers.toLocaleString()}</strong> followers</span> : null}
-                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowing.toLocaleString()}</strong> following</span> : null}
-                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverStatuses.toLocaleString()}</strong> posts</span> : null}
+                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowers)}</strong> followers</span> : null}
+                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowing)}</strong> following</span> : null}
+                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverStatuses)}</strong> posts</span> : null}
                 </div>
               ) : null}
             </div>
@@ -1965,16 +1983,26 @@ function ActivityStatusRow({
 }
 
 function ActivityNotificationRow({ notification }: { notification: MastodonNotification }) {
-  const statusText = notification.status ? mastodonStatusText(notification.status) : null;
+  const statusText = useMemo(() => (
+    notification.status ? mastodonStatusText(notification.status) : null
+  ), [notification.status]);
   const href = sanitizeUrl(notification.status?.url ?? notification.status?.uri ?? null);
+  const notificationEmojiMap = useMemo(
+    () => (notification.status ? customEmojiMapFromStatus(notification.status) : undefined),
+    [notification.status]
+  );
+  const notificationInstanceOrigin = useMemo(
+    () => (notification.status ? accountInstanceOrigin(notification.status.account) : undefined),
+    [notification.status]
+  );
   const statusRichContent = useMemo(
     () => notification.status
       ? renderFediverseRichText(notification.status.content ?? statusText ?? "", {
-        instanceOrigin: accountInstanceOrigin(notification.status.account),
-        customEmoji: customEmojiMapFromStatus(notification.status)
+        instanceOrigin: notificationInstanceOrigin,
+        customEmoji: notificationEmojiMap
       })
       : null,
-    [notification.status, statusText]
+    [notification.status, statusText, notificationInstanceOrigin, notificationEmojiMap]
   );
 
   return (
@@ -3660,17 +3688,17 @@ export function App() {
                                 <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
                                   {mastodonProfileFull.followers_count != null ? (
                                     <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.followers_count.toLocaleString()}</strong> followers
+                                      <strong style={{ color: "var(--color-text)" }}>{formatCount(mastodonProfileFull.followers_count)}</strong> followers
                                     </span>
                                   ) : null}
                                   {mastodonProfileFull.following_count != null ? (
                                     <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.following_count.toLocaleString()}</strong> following
+                                      <strong style={{ color: "var(--color-text)" }}>{formatCount(mastodonProfileFull.following_count)}</strong> following
                                     </span>
                                   ) : null}
                                   {mastodonProfileFull.statuses_count != null ? (
                                     <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.statuses_count.toLocaleString()}</strong> posts
+                                      <strong style={{ color: "var(--color-text)" }}>{formatCount(mastodonProfileFull.statuses_count)}</strong> posts
                                     </span>
                                   ) : null}
                                 </div>
@@ -3736,14 +3764,14 @@ export function App() {
                                             gap: "6px"
                                           }}
                                           title={[
-                                            tag.statuses_count != null ? `${tag.statuses_count.toLocaleString()} posts` : null,
+                                            tag.statuses_count != null ? `${formatCount(tag.statuses_count)} posts` : null,
                                             tag.last_status_at ? `Last used ${compactDateLabel(tag.last_status_at) ?? tag.last_status_at}` : null
                                           ].filter(Boolean).join(" • ") || undefined}
                                         >
                                           {label}
                                           {(tag.statuses_count != null || tag.last_status_at) ? (
                                             <span style={{ fontSize: "var(--text-caption1)", color: "color-mix(in srgb, var(--color-accent) 72%, var(--color-text-secondary))" }}>
-                                              {tag.statuses_count != null ? `${tag.statuses_count.toLocaleString()}` : ""}
+                                              {tag.statuses_count != null ? `${formatCount(tag.statuses_count)}` : ""}
                                               {tag.statuses_count != null && tag.last_status_at ? " • " : ""}
                                               {tag.last_status_at ? (compactDateLabel(tag.last_status_at) ?? "recent") : ""}
                                             </span>
@@ -4248,7 +4276,7 @@ export function App() {
                                 <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption1)" }}>
                                   {instance.softwareName ?? "Fediverse"}
                                   {instance.country ? ` · ${instance.country}` : ""}
-                                  {typeof instance.userCount === "number" ? ` · ${instance.userCount.toLocaleString()} users` : ""}
+                                  {typeof instance.userCount === "number" ? ` · ${formatCount(instance.userCount)} users` : ""}
                                 </span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
