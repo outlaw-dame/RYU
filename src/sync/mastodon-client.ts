@@ -50,13 +50,31 @@ export type MastodonPage<T> = {
   links: MastodonPaginationLinks;
 };
 
+export const mastodonCustomEmojiSchema = z.object({
+  shortcode: z.string().min(1),
+  url: z.string().nullable().optional(),
+  static_url: z.string().nullable().optional(),
+  visible_in_picker: z.boolean().optional(),
+  category: z.string().nullable().optional()
+}).passthrough();
+
 export const mastodonAccountSchema = z.object({
   id: z.string().min(1),
   username: z.string().optional(),
   acct: z.string().optional(),
   display_name: z.string().optional(),
   url: z.string().nullable().optional(),
-  avatar: z.string().nullable().optional()
+  avatar: z.string().nullable().optional(),
+  avatar_static: z.string().nullable().optional(),
+  header: z.string().nullable().optional(),
+  header_static: z.string().nullable().optional(),
+  locked: z.boolean().optional(),
+  bot: z.boolean().optional(),
+  discoverable: z.boolean().optional(),
+  group: z.boolean().optional(),
+  created_at: z.string().optional(),
+  last_status_at: z.string().nullable().optional(),
+  emojis: z.array(mastodonCustomEmojiSchema).optional()
 }).passthrough();
 
 export const mastodonStatusSchema = z.object({
@@ -86,12 +104,36 @@ export const mastodonAccountFullSchema = mastodonAccountSchema.extend({
   following_count: z.number().int().min(0).optional(),
   statuses_count: z.number().int().min(0).optional(),
   header: z.string().nullable().optional(),
+  avatar_static: z.string().nullable().optional(),
+  header_static: z.string().nullable().optional(),
+  suspended: z.boolean().optional(),
+  noindex: z.boolean().optional(),
+  source: z.object({
+    note: z.string().optional(),
+    privacy: z.string().optional(),
+    sensitive: z.boolean().optional(),
+    language: z.string().optional(),
+    follow_requests_count: z.number().int().min(0).optional(),
+    fields: z.array(z.object({
+      name: z.string(),
+      value: z.string(),
+      verified_at: z.string().nullable().optional()
+    }).passthrough()).optional()
+  }).passthrough().optional(),
   fields: z.array(z.object({
     name: z.string(),
     value: z.string(),
     verified_at: z.string().nullable().optional()
   }).passthrough()).optional()
 });
+
+export const mastodonFeaturedTagSchema = z.object({
+  id: z.string().optional(),
+  name: z.string().min(1),
+  url: z.string().nullable().optional(),
+  statuses_count: z.number().int().min(0).optional(),
+  last_status_at: z.string().nullable().optional()
+}).passthrough();
 
 export const mastodonNotificationSchema = z.object({
   id: z.string().min(1),
@@ -112,6 +154,8 @@ export type MastodonAccountFull = z.infer<typeof mastodonAccountFullSchema>;
 export type MastodonStatus = z.infer<typeof mastodonStatusSchema>;
 export type MastodonNotification = z.infer<typeof mastodonNotificationSchema>;
 export type MastodonList = z.infer<typeof mastodonListSchema>;
+export type MastodonFeaturedTag = z.infer<typeof mastodonFeaturedTagSchema>;
+export type MastodonCustomEmoji = z.infer<typeof mastodonCustomEmojiSchema>;
 
 export type MastodonPostStatusParams = {
   status: string;
@@ -232,6 +276,26 @@ export class MastodonClient {
       { host: url.host }
     );
     return mastodonAccountFullSchema.parse(json);
+  }
+
+  fetchAccountPinnedStatuses(accountId: string, params: MastodonPaginationParams = {}): Promise<MastodonPage<MastodonStatus>> {
+    return this.fetchAccountStatuses(accountId, { ...params, pinned: true });
+  }
+
+  async fetchAccountFeaturedTags(accountId: string): Promise<MastodonFeaturedTag[]> {
+    const trimmed = accountId.trim();
+    if (!trimmed || !/^[\w-]{1,64}$/.test(trimmed)) {
+      throw new Error("Invalid Mastodon account ID");
+    }
+
+    const url = this.buildUrl(`/api/v1/accounts/${encodeURIComponent(trimmed)}/featured_tags`, {});
+    const { json } = await this.queue.run(
+      url.toString(),
+      (signal) => this.fetchJson(url, signal),
+      { host: url.host }
+    );
+
+    return z.array(mastodonFeaturedTagSchema).parse(json);
   }
 
   async favouriteStatus(id: string): Promise<MastodonStatus> {

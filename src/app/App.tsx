@@ -28,7 +28,7 @@ import { useInstanceDiscovery } from "../hooks/useInstanceDiscovery";
 import { useAutocomplete } from "../hooks/useAutocomplete";
 import { useMastodonShelves } from "../hooks/useMastodonShelves";
 import { sanitizeUrl, stripHtml } from "../lib/sanitize";
-import type { MastodonList, MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
+import type { MastodonAccountFull, MastodonFeaturedTag, MastodonList, MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
 import {
   MastodonSessionApiError,
   parseMastodonNotificationPageResponse,
@@ -41,12 +41,13 @@ import {
   searchDiscoveryStatuses,
   getMastodonProfile,
   getMastodonAccountById,
+  getMastodonFeaturedTags,
+  getMastodonPinnedStatuses,
   favouriteStatus as apiFavouriteStatus,
   unfavouriteStatus as apiUnfavouriteStatus,
   bookmarkStatus as apiBookmarkStatus,
   unbookmarkStatus as apiUnbookmarkStatus
 } from "../sync/mastodon-activity-api";
-import type { MastodonAccountFull } from "../sync/mastodon-client";
 import { ComposeSheet } from "../components/activity/ComposeSheet";
 import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
 
@@ -450,6 +451,11 @@ type InAppReaderProfile = {
   originLabel: string;
 };
 
+type EmojiToken = {
+  shortcode: string;
+  src: string;
+};
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -828,6 +834,123 @@ function accountBio(account: MastodonStatus["account"]): string | null {
 
   const summary = typeof record.summary === "string" ? stripHtml(record.summary).trim() : "";
   return summary || null;
+}
+
+function profileBio(profile: MastodonAccountFull): string | null {
+  const direct = typeof profile.note === "string" ? stripHtml(profile.note).trim() : "";
+  if (direct) {
+    return direct;
+  }
+
+  const sourceNote = profile.source && typeof profile.source.note === "string"
+    ? stripHtml(profile.source.note).trim()
+    : "";
+
+  return sourceNote || null;
+}
+
+function profileJoinDateLabel(profile: MastodonAccountFull): string | null {
+  if (!profile.created_at) {
+    return null;
+  }
+
+  const date = new Date(profile.created_at);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" });
+}
+
+function compactDateLabel(value: string): string | null {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function emojiTokensFromProfile(profile: MastodonAccountFull | null): Map<string, EmojiToken> {
+  const output = new Map<string, EmojiToken>();
+  if (!profile || !Array.isArray(profile.emojis)) {
+    return output;
+  }
+
+  for (const emoji of profile.emojis) {
+    if (!emoji || typeof emoji.shortcode !== "string") {
+      continue;
+    }
+
+    const rawUrl = typeof emoji.static_url === "string"
+      ? emoji.static_url
+      : typeof emoji.url === "string"
+        ? emoji.url
+        : null;
+    const src = resolveCoverProxySrc(rawUrl);
+    if (!src) {
+      continue;
+    }
+
+    const shortcode = emoji.shortcode.trim().toLowerCase();
+    if (!shortcode) {
+      continue;
+    }
+
+    output.set(shortcode, { shortcode, src });
+  }
+
+  return output;
+}
+
+function renderTextWithMastodonEmoji(text: string, emojiMap: Map<string, EmojiToken>): ReactNode {
+  if (!text || emojiMap.size === 0) {
+    return text;
+  }
+
+  const pattern = /:([a-zA-Z0-9_]{1,64}):/g;
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    const full = match[0] ?? "";
+    const token = match[1]?.toLowerCase() ?? "";
+    const emoji = emojiMap.get(token);
+    if (!emoji) {
+      continue;
+    }
+
+    const start = match.index;
+    const end = start + full.length;
+    if (start > cursor) {
+      nodes.push(text.slice(cursor, start));
+    }
+
+    nodes.push(
+      <img
+        key={`emoji-${token}-${start}`}
+        src={emoji.src}
+        alt={`:${emoji.shortcode}:`}
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={(event) => { retryImageViaProxy(event); }}
+        style={{ width: "1.05em", height: "1.05em", verticalAlign: "-0.17em", objectFit: "contain", display: "inline-block" }}
+      />
+    );
+
+    cursor = end;
+  }
+
+  if (cursor === 0) {
+    return text;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes;
 }
 
 function statusHashtags(status: MastodonStatus): string[] {
@@ -1839,6 +1962,9 @@ export function App() {
   const [activeReaderProfile, setActiveReaderProfile] = useState<InAppReaderProfile | null>(null);
   const [activeNowReadingStatus, setActiveNowReadingStatus] = useState<MastodonStatus | null>(null);
   const [mastodonProfileFull, setMastodonProfileFull] = useState<MastodonAccountFull | null>(null);
+  const [profilePinnedStatuses, setProfilePinnedStatuses] = useState<MastodonStatus[]>([]);
+  const [profileFeaturedTags, setProfileFeaturedTags] = useState<MastodonFeaturedTag[]>([]);
+  const [profilePinnedIndex, setProfilePinnedIndex] = useState(0);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileFetched, setProfileFetched] = useState(false);
   const [statusInteractions, setStatusInteractions] = useState<Map<string, { favourited: boolean; bookmarked: boolean }>>(() => new Map());
@@ -1866,6 +1992,7 @@ export function App() {
   const discoveryInFlightRef = useRef(new Map<string, Promise<MastodonStatus[]>>());
   const relayEntityCatalogRef = useRef<RelayEntity[]>([]);
   const relayLastFetchRef = useRef<number>(0);
+  const pinnedCarouselRef = useRef<HTMLDivElement | null>(null);
   const DISCOVERY_CACHE_TTL_MS = 3 * 60 * 1000;
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
@@ -1926,6 +2053,8 @@ export function App() {
     setActivityLoadedAt(null);
     setActivityLoading(false);
     setMastodonProfileFull(null);
+    setProfilePinnedStatuses([]);
+    setProfileFeaturedTags([]);
     setProfileFetched(false);
     setStatusInteractions(new Map());
     setComposeOpen(false);
@@ -2002,12 +2131,27 @@ export function App() {
     if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
     let cancelled = false;
     setProfileLoading(true);
-    void getMastodonProfile()
-      .then((profile) => {
-        if (!cancelled) {
-          setMastodonProfileFull(profile);
-          setProfileFetched(true);
+    void Promise.allSettled([
+      getMastodonProfile(),
+      getMastodonPinnedStatuses({ limit: 12 }),
+      getMastodonFeaturedTags()
+    ])
+      .then(([profileResult, pinnedResult, tagsResult]) => {
+        if (cancelled) return;
+
+        if (profileResult.status === "fulfilled") {
+          setMastodonProfileFull(profileResult.value);
         }
+
+        if (pinnedResult.status === "fulfilled") {
+          setProfilePinnedStatuses(pinnedResult.value.items);
+        }
+
+        if (tagsResult.status === "fulfilled") {
+          setProfileFeaturedTags(tagsResult.value);
+        }
+
+        setProfileFetched(true);
       })
       .catch(() => {
         if (!cancelled) setProfileFetched(true);
@@ -2686,6 +2830,65 @@ export function App() {
     };
   }, [activeTab, bookTokRefreshNonce]);
 
+  const profileAvatarSrc = resolveCoverProxySrc(
+    mastodonProfileFull?.avatar ?? mastodonProfileFull?.avatar_static ?? connectedAccount?.avatar ?? null
+  );
+  const profileBannerSrc = resolveCoverProxySrc(
+    mastodonProfileFull?.header ?? mastodonProfileFull?.header_static ?? null
+  );
+  const mastodonBio = mastodonProfileFull ? profileBio(mastodonProfileFull) : null;
+  const joinedDate = mastodonProfileFull ? profileJoinDateLabel(mastodonProfileFull) : null;
+  const profileEmojiMap = emojiTokensFromProfile(mastodonProfileFull);
+
+  const updatePinnedIndexFromScroll = useCallback(() => {
+    const container = pinnedCarouselRef.current;
+    if (!container || profilePinnedStatuses.length === 0) {
+      return;
+    }
+
+    const cards = Array.from(container.children) as HTMLElement[];
+    if (cards.length === 0) {
+      return;
+    }
+
+    const left = container.scrollLeft;
+    let closestIndex = 0;
+    let closestDistance = Number.POSITIVE_INFINITY;
+
+    cards.forEach((card, index) => {
+      const distance = Math.abs(card.offsetLeft - left);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestIndex = index;
+      }
+    });
+
+    setProfilePinnedIndex(Math.min(Math.max(closestIndex, 0), Math.max(0, profilePinnedStatuses.length - 1)));
+  }, [profilePinnedStatuses.length]);
+
+  const scrollPinnedCarouselTo = useCallback((index: number) => {
+    const container = pinnedCarouselRef.current;
+    if (!container) {
+      return;
+    }
+
+    const cards = Array.from(container.children) as HTMLElement[];
+    const target = cards[Math.min(Math.max(index, 0), cards.length - 1)];
+    if (!target) {
+      return;
+    }
+
+    container.scrollTo({ left: target.offsetLeft, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    setProfilePinnedIndex(0);
+    const container = pinnedCarouselRef.current;
+    if (container) {
+      container.scrollTo({ left: 0, behavior: "auto" });
+    }
+  }, [profilePinnedStatuses]);
+
   return (
     <MotionConfig reducedMotion="user">
       <ErrorBoundary>
@@ -3278,6 +3481,27 @@ export function App() {
                     }}>
                       {connectedAccount !== null ? (
                         <>
+                          {profileBannerSrc ? (
+                            <div
+                              style={{
+                                width: "100%",
+                                borderRadius: "var(--radius-md)",
+                                overflow: "hidden",
+                                aspectRatio: "3 / 1",
+                                background: "color-mix(in srgb, var(--color-text) 8%, transparent)"
+                              }}
+                            >
+                              <img
+                                src={profileBannerSrc}
+                                alt={`${connectedAccount.displayName || connectedAccount.acct} banner`}
+                                loading="lazy"
+                                decoding="async"
+                                referrerPolicy="no-referrer"
+                                onError={(event) => { retryImageViaProxy(event); }}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              />
+                            </div>
+                          ) : null}
                           <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
                             <div
                               style={{
@@ -3298,9 +3522,9 @@ export function App() {
                               <span aria-hidden="true">
                                 {(connectedAccount.displayName || connectedAccount.acct).slice(0, 2).toUpperCase()}
                               </span>
-                              {connectedAccount.avatar ? (
+                              {profileAvatarSrc ? (
                                 <img
-                                  src={connectedAccount.avatar}
+                                  src={profileAvatarSrc}
                                   alt={`${connectedAccount.displayName || connectedAccount.acct} avatar`}
                                   loading="lazy"
                                   decoding="async"
@@ -3312,7 +3536,10 @@ export function App() {
                             </div>
                             <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
                               <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                {connectedAccount.displayName || connectedAccount.acct}
+                                {renderTextWithMastodonEmoji(
+                                  mastodonProfileFull?.display_name || connectedAccount.displayName || connectedAccount.acct,
+                                  profileEmojiMap
+                                )}
                               </strong>
                               <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                 @{connectedAccount.acct}
@@ -3324,9 +3551,9 @@ export function App() {
                           </div>
                           {mastodonProfileFull ? (
                             <>
-                              {mastodonProfileFull.note ? (
+                              {mastodonBio ? (
                                 <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-                                  {stripHtml(mastodonProfileFull.note).trim().slice(0, 280)}
+                                  {renderTextWithMastodonEmoji(mastodonBio.slice(0, 320), profileEmojiMap)}
                                 </p>
                               ) : null}
                               {(mastodonProfileFull.followers_count != null || mastodonProfileFull.following_count != null || mastodonProfileFull.statuses_count != null) ? (
@@ -3348,6 +3575,177 @@ export function App() {
                                   ) : null}
                                 </div>
                               ) : null}
+                              {(joinedDate || mastodonProfileFull.bot || mastodonProfileFull.locked) ? (
+                                <div style={{ display: "flex", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                                  {joinedDate ? (
+                                    <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
+                                      Joined {joinedDate}
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.bot ? (
+                                    <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
+                                      Bot account
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.locked ? (
+                                    <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
+                                      Followers-only
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                              {mastodonProfileFull.fields && mastodonProfileFull.fields.length > 0 ? (
+                                <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                                  {mastodonProfileFull.fields.slice(0, 4).map((field) => (
+                                    <div key={`${field.name}-${field.value}`} style={{ display: "grid", gap: 2 }}>
+                                      <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                        {renderTextWithMastodonEmoji(stripHtml(field.name).trim() || "Field", profileEmojiMap)}
+                                      </strong>
+                                      <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", overflowWrap: "anywhere" }}>
+                                        {renderTextWithMastodonEmoji(stripHtml(field.value).trim() || "-", profileEmojiMap)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                                <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  Featured hashtags
+                                </strong>
+                                {profileFeaturedTags.length > 0 ? (
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+                                    {profileFeaturedTags.slice(0, 10).map((tag) => {
+                                      const label = `#${tag.name.replace(/^#/, "")}`;
+                                      const href = sanitizeUrl(tag.url ?? null) ?? `${connectedAccount.instanceOrigin}/tags/${encodeURIComponent(tag.name.replace(/^#/, ""))}`;
+                                      return (
+                                        <a
+                                          key={`${tag.name}-${tag.last_status_at ?? ""}`}
+                                          href={href}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          style={{
+                                            textDecoration: "none",
+                                            borderRadius: "999px",
+                                            border: "1px solid color-mix(in srgb, var(--color-accent) 45%, transparent)",
+                                            padding: "4px 10px",
+                                            fontSize: "var(--text-footnote)",
+                                            color: "var(--color-accent)",
+                                            fontWeight: 650,
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "6px"
+                                          }}
+                                          title={[
+                                            tag.statuses_count != null ? `${tag.statuses_count.toLocaleString()} posts` : null,
+                                            tag.last_status_at ? `Last used ${compactDateLabel(tag.last_status_at) ?? tag.last_status_at}` : null
+                                          ].filter(Boolean).join(" • ") || undefined}
+                                        >
+                                          {label}
+                                          {(tag.statuses_count != null || tag.last_status_at) ? (
+                                            <span style={{ fontSize: "var(--text-caption1)", color: "color-mix(in srgb, var(--color-accent) 72%, var(--color-text-secondary))" }}>
+                                              {tag.statuses_count != null ? `${tag.statuses_count.toLocaleString()}` : ""}
+                                              {tag.statuses_count != null && tag.last_status_at ? " • " : ""}
+                                              {tag.last_status_at ? (compactDateLabel(tag.last_status_at) ?? "recent") : ""}
+                                            </span>
+                                          ) : null}
+                                        </a>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                    No featured hashtags published.
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                                <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                  Pinned posts
+                                </strong>
+                                {profilePinnedStatuses.length > 0 ? (
+                                  <>
+                                    <div
+                                      ref={pinnedCarouselRef}
+                                      onScroll={updatePinnedIndexFromScroll}
+                                      style={{ display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(240px, 72%)", gap: "var(--space-3)", overflowX: "auto", paddingBottom: "var(--space-1)", scrollSnapType: "x mandatory" }}
+                                    >
+                                      {profilePinnedStatuses.map((status) => {
+                                        const href = sanitizeUrl(status.url ?? status.uri ?? null);
+                                        return (
+                                          <article
+                                            key={status.id}
+                                            style={{
+                                              borderRadius: "var(--radius-md)",
+                                              border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)",
+                                              background: "color-mix(in srgb, var(--color-bg-secondary) 82%, transparent)",
+                                              padding: "var(--space-3)",
+                                              display: "grid",
+                                              gap: "var(--space-2)",
+                                              minWidth: 0,
+                                              scrollSnapAlign: "start"
+                                            }}
+                                          >
+                                            <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
+                                              {formatActivityDate(status.created_at)}
+                                            </span>
+                                            <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+                                              {mastodonStatusText(status).slice(0, 240)}
+                                            </p>
+                                            {href ? (
+                                              <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "var(--text-footnote)", textDecoration: "none" }}>
+                                                Open post
+                                              </a>
+                                            ) : null}
+                                          </article>
+                                        );
+                                      })}
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => scrollPinnedCarouselTo(profilePinnedIndex - 1)}
+                                        disabled={profilePinnedIndex <= 0}
+                                        style={{
+                                          minHeight: "calc(var(--touch-min) - 10px)",
+                                          border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
+                                          borderRadius: "var(--radius-md)",
+                                          background: "transparent",
+                                          color: "var(--color-text)",
+                                          fontWeight: 600,
+                                          padding: "0 var(--space-3)",
+                                          opacity: profilePinnedIndex <= 0 ? 0.45 : 1
+                                        }}
+                                      >
+                                        Previous
+                                      </button>
+                                      <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textAlign: "center" }}>
+                                        {profilePinnedIndex + 1} / {profilePinnedStatuses.length}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => scrollPinnedCarouselTo(profilePinnedIndex + 1)}
+                                        disabled={profilePinnedIndex >= profilePinnedStatuses.length - 1}
+                                        style={{
+                                          minHeight: "calc(var(--touch-min) - 10px)",
+                                          border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
+                                          borderRadius: "var(--radius-md)",
+                                          background: "transparent",
+                                          color: "var(--color-text)",
+                                          fontWeight: 600,
+                                          padding: "0 var(--space-3)",
+                                          opacity: profilePinnedIndex >= profilePinnedStatuses.length - 1 ? 0.45 : 1
+                                        }}
+                                      >
+                                        Next
+                                      </button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                    No pinned posts yet.
+                                  </span>
+                                )}
+                              </div>
                             </>
                           ) : profileLoading ? (
                             <div style={{ display: "grid", gap: "var(--space-2)" }}>
