@@ -28,6 +28,7 @@ import { useInstanceDiscovery } from "../hooks/useInstanceDiscovery";
 import { useAutocomplete } from "../hooks/useAutocomplete";
 import { useMastodonShelves } from "../hooks/useMastodonShelves";
 import { sanitizeUrl, stripHtml } from "../lib/sanitize";
+import { renderFediverseRichText } from "../lib/fediverse-rich-text";
 import type { MastodonAccountFull, MastodonFeaturedTag, MastodonList, MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
 import {
   MastodonSessionApiError,
@@ -525,6 +526,11 @@ function openLibraryAuthorSearchUrl(author: string): string {
   return `https://openlibrary.org/search/authors?q=${encodeURIComponent(author)}`;
 }
 
+function mastodonHashtagUrl(tag: string, instanceOrigin?: string | null): string {
+  const safeBase = sanitizeUrl(instanceOrigin ?? null) ?? "https://mastodon.social";
+  return `${safeBase.replace(/\/$/, "")}/tags/${encodeURIComponent(tag.replace(/^#/, ""))}`;
+}
+
 function escapedRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -609,9 +615,10 @@ function findMentionedImportedBooks(text: string, importedBooks: NowReadingImpor
 
 function linkifyBookAndAuthorMentions(
   text: string,
-  matches: MentionedBookMatch[]
+  matches: MentionedBookMatch[],
+  instanceOrigin?: string | null
 ): ReactNode {
-  if (matches.length === 0) {
+  if (matches.length === 0 && !/#\w{2,}/.test(text)) {
     return text;
   }
 
@@ -632,6 +639,16 @@ function linkifyBookAndAuthorMentions(
         candidates.push({ ...range, href: authorHref, priority: 1 });
       }
     }
+  }
+
+  const hashtagRegex = /(^|[^\w&])#([A-Za-z0-9_]{2,64})/g;
+  for (let match = hashtagRegex.exec(text); match; match = hashtagRegex.exec(text)) {
+    const prefix = match[1] ?? "";
+    const tag = match[2] ?? "";
+    const hashStart = match.index + prefix.length;
+    const hashEnd = hashStart + tag.length + 1;
+    const href = mastodonHashtagUrl(tag, instanceOrigin);
+    candidates.push({ start: hashStart, end: hashEnd, href, priority: 0 });
   }
 
   if (candidates.length === 0) {
@@ -721,6 +738,58 @@ function buildAccountProfileHref(account: MastodonStatus["account"]): string | n
   }
 
   return null;
+}
+
+function accountInstanceOrigin(account: MastodonStatus["account"]): string | null {
+  const direct = sanitizeUrl(account.url ?? null);
+  if (direct) {
+    try {
+      const parsed = new URL(direct);
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch {
+      // ignore malformed url
+    }
+  }
+
+  const acct = (account.acct || "").trim();
+  const parts = acct.split("@").filter(Boolean);
+  if (parts.length >= 2) {
+    return sanitizeUrl(`https://${parts[parts.length - 1]}`);
+  }
+
+  return null;
+}
+
+function customEmojiMapFromStatus(status: MastodonStatus): Map<string, string> {
+  const output = new Map<string, string>();
+  const record = status as unknown as Record<string, unknown>;
+
+  const sources: unknown[][] = [];
+  if (Array.isArray(record.emojis)) sources.push(record.emojis as unknown[]);
+  const accountRecord = status.account as unknown as Record<string, unknown>;
+  if (Array.isArray(accountRecord.emojis)) sources.push(accountRecord.emojis as unknown[]);
+
+  for (const source of sources) {
+    for (const item of source) {
+      const emoji = asRecord(item);
+      if (!emoji) continue;
+      const shortcode = typeof emoji.shortcode === "string" ? emoji.shortcode.trim().toLowerCase() : "";
+      if (!shortcode) continue;
+
+      const src = resolveCoverProxySrc(
+        typeof emoji.static_url === "string"
+          ? emoji.static_url
+          : typeof emoji.url === "string"
+            ? emoji.url
+            : null
+      );
+
+      if (!src) continue;
+      output.set(shortcode, src);
+    }
+  }
+
+  return output;
 }
 
 function extractBookTitleFromText(text: string): string | null {
@@ -1648,10 +1717,18 @@ function ActivityStatusRow({
   const card = statusCardData(status);
   const mentionedBooks = findMentionedImportedBooks(text, importedBooks);
   const primaryMentionedBook = selectPrimaryMentionedBook(mentionedBooks);
+  const statusInstanceOrigin = accountInstanceOrigin(status.account);
   const inferredCoverSrc = resolveCoverProxySrc(card.image)
     ?? resolveCoverProxySrc(statusMediaCover(status))
     ?? resolveCoverProxySrc(primaryMentionedBook?.coverUrl ?? null);
-  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBooks);
+  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBooks, statusInstanceOrigin);
+  const richContent = useMemo(
+    () => renderFediverseRichText(status.content ?? text, {
+      instanceOrigin: statusInstanceOrigin,
+      customEmoji: customEmojiMapFromStatus(status)
+    }),
+    [status, text, statusInstanceOrigin]
+  );
   const accountHref = buildAccountProfileHref(status.account);
   const [showAccountCard, setShowAccountCard] = useState(false);
   const [hoverAccount, setHoverAccount] = useState<MastodonAccountFull | null>(null);
@@ -1785,9 +1862,17 @@ function ActivityStatusRow({
           />
         </div>
       ) : null}
-      <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-        {linkedText}
-      </p>
+      {mentionedBooks.length > 0 ? (
+        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+          {linkedText}
+        </p>
+      ) : (
+        <div
+          className="fediverse-rich-text"
+          style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}
+          dangerouslySetInnerHTML={{ __html: richContent.html }}
+        />
+      )}
       {showSocialActions || href ? (
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
           {href ? (
@@ -1882,6 +1967,15 @@ function ActivityStatusRow({
 function ActivityNotificationRow({ notification }: { notification: MastodonNotification }) {
   const statusText = notification.status ? mastodonStatusText(notification.status) : null;
   const href = sanitizeUrl(notification.status?.url ?? notification.status?.uri ?? null);
+  const statusRichContent = useMemo(
+    () => notification.status
+      ? renderFediverseRichText(notification.status.content ?? statusText ?? "", {
+        instanceOrigin: accountInstanceOrigin(notification.status.account),
+        customEmoji: customEmojiMapFromStatus(notification.status)
+      })
+      : null,
+    [notification.status, statusText]
+  );
 
   return (
     <article style={{
@@ -1901,7 +1995,13 @@ function ActivityNotificationRow({ notification }: { notification: MastodonNotif
           {formatActivityDate(notification.created_at)}
         </span>
       </div>
-      {statusText ? (
+      {statusRichContent?.html ? (
+        <div
+          className="fediverse-rich-text"
+          style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}
+          dangerouslySetInnerHTML={{ __html: statusRichContent.html }}
+        />
+      ) : statusText ? (
         <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
           {statusText}
         </p>

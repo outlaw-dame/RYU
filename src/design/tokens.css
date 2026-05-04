@@ -7,8 +7,12 @@
 :root {
   color-scheme: light dark;
 
-  --font-display: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif;
-  --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-display:
+    "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display",
+    "Helvetica Neue", Arial, sans-serif;
+  --font-body:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
 
   --text-tab: 0.625rem;
@@ -103,7 +107,8 @@
   --color-shelf-dnf: #8e8e93;
   --color-shelf-dnf-bg: rgba(142, 142, 147, 0.12);
 
-  --shadow-cover: 0 2px 10px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  --shadow-cover:
+    0 2px 10px rgba(0, 0, 0, 0.1), inset 0 0 0 0.5px rgba(0, 0, 0, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -135,13 +140,25 @@
     --color-shelf-dnf: #8e8e93;
     --color-shelf-dnf-bg: rgba(142, 142, 147, 0.12);
 
-    --shadow-cover: 0 2px 10px rgba(0, 0, 0, 0.4), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+    --shadow-cover:
+      0 2px 10px rgba(0, 0, 0, 0.4), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
   }
 }
 
-* { box-sizing: border-box; }
-html, body, #root { width: 100%; height: 100%; margin: 0; }
-html { min-height: -webkit-fill-available; background: var(--color-bg); }
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+html {
+  min-height: -webkit-fill-available;
+  background: var(--color-bg);
+}
 body {
   min-height: 100dvh;
   min-height: -webkit-fill-available;
@@ -155,15 +172,83 @@ body {
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
 }
-button, input, textarea, select { font: inherit; }
-button { color: inherit; }
-input::placeholder { color: var(--color-text-tertiary); opacity: 1; }
-input[type="search"]::-webkit-search-cancel-button { -webkit-appearance: none; }
-:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; border-radius: 6px; }
-::-webkit-scrollbar { display: none; }
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+button {
+  color: inherit;
+}
+input::placeholder {
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+::-webkit-scrollbar {
+  display: none;
+}
 
-.scroll-container { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; }
-.text-content { -webkit-user-select: text; user-select: text; }
-.skeleton { background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-tertiary) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease infinite; }
-@keyframes skeleton-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: 0.01ms !important; } }
+.scroll-container {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+.text-content {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.fediverse-rich-text p {
+  margin: 0;
+}
+.fediverse-rich-text p + p {
+  margin-top: var(--space-2);
+}
+.fediverse-rich-text a {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.fediverse-rich-text img.twemoji,
+.fediverse-rich-text img.mfm-emoji {
+  width: 1.15em;
+  height: 1.15em;
+  vertical-align: -0.18em;
+  object-fit: contain;
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-secondary) 25%,
+    var(--color-bg-tertiary) 50%,
+    var(--color-bg-secondary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
