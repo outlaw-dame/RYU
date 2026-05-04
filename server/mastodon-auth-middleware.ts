@@ -1576,6 +1576,36 @@ async function dispatch(
       return;
     }
 
+    if (url.pathname === "/api/auth/mastodon/account/pinned") {
+      await handleMastodonProxy(req, res, sessKey, (client, session) => {
+        if (!session.account?.id) {
+          throw new MastodonProxyRequestError(
+            409,
+            "account_unavailable",
+            "Reconnect before loading pinned statuses."
+          );
+        }
+
+        return client.fetchAccountPinnedStatuses(session.account.id, parsePaginationQuery(url));
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/account/featured-tags") {
+      await handleMastodonProxy(req, res, sessKey, (client, session) => {
+        if (!session.account?.id) {
+          throw new MastodonProxyRequestError(
+            409,
+            "account_unavailable",
+            "Reconnect before loading featured hashtags."
+          );
+        }
+
+        return client.fetchAccountFeaturedTags(session.account.id);
+      });
+      return;
+    }
+
     if (url.pathname === "/api/auth/mastodon/bookmarks") {
       await handleMastodonProxy(req, res, sessKey, (client) => client.fetchBookmarks(parsePaginationQuery(url)));
       return;

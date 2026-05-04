@@ -2,9 +2,11 @@ import { z } from "zod";
 import { parseBookTokTrendingPayload, type BookTokTrend } from "./booktok-trending";
 import {
   mastodonAccountFullSchema,
+  mastodonFeaturedTagSchema,
   mastodonStatusSchema,
   validateStatusId,
   type MastodonAccountFull,
+  type MastodonFeaturedTag,
   type MastodonList,
   type MastodonNotification,
   type MastodonPage,
@@ -22,6 +24,8 @@ export const MASTODON_SESSION_ENDPOINT = "/api/auth/mastodon/session";
 export const MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
 export const MASTODON_PROFILE_ENDPOINT = "/api/auth/mastodon/profile";
 export const MASTODON_ACCOUNTS_ENDPOINT = "/api/auth/mastodon/accounts";
+export const MASTODON_ACCOUNT_PINNED_ENDPOINT = "/api/auth/mastodon/account/pinned";
+export const MASTODON_ACCOUNT_FEATURED_TAGS_ENDPOINT = "/api/auth/mastodon/account/featured-tags";
 export const MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
 export const MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
 export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/statuses";
@@ -235,6 +239,19 @@ export async function getMastodonAccountById(id: string, options: MastodonActivi
   const endpoint = `${MASTODON_ACCOUNTS_ENDPOINT}/${encodeURIComponent(safeId)}`;
   const response = await requestProxy(endpoint, { method: "GET" }, options);
   return mastodonAccountFullSchema.parse(await response.json());
+}
+
+export async function getMastodonPinnedStatuses(
+  params: MastodonPaginationParams = {},
+  options: MastodonActivityApiOptions = {}
+): Promise<MastodonPage<MastodonStatus>> {
+  const response = await requestProxy(withPagination(MASTODON_ACCOUNT_PINNED_ENDPOINT, params), { method: "GET" }, options);
+  return parseMastodonStatusPageResponse(response);
+}
+
+export async function getMastodonFeaturedTags(options: MastodonActivityApiOptions = {}): Promise<MastodonFeaturedTag[]> {
+  const response = await requestProxy(MASTODON_ACCOUNT_FEATURED_TAGS_ENDPOINT, { method: "GET" }, options);
+  return z.array(mastodonFeaturedTagSchema).parse(await response.json());
 }
 
 export async function favouriteStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonStatus> {
