@@ -35,6 +35,7 @@ import {
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
+import { pollRelayBuzz, relayResultToMastodonStatus, type RelayDiscoveryResult } from "../sync/relay-discovery";
 import {
   searchDiscoveryStatuses,
   getMastodonProfile,
@@ -1476,6 +1477,10 @@ export function App() {
   const [discoveryStatuses, setDiscoveryStatuses] = useState<MastodonStatus[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [relayDiscoveryResults, setRelayDiscoveryResults] = useState<RelayDiscoveryResult[]>([]);
+  const [relayDiscoveryLoading, setRelayDiscoveryLoading] = useState(false);
+  const [relayDiscoveryError, setRelayDiscoveryError] = useState<string | null>(null);
+  const relayPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1533,6 +1538,7 @@ export function App() {
   const shelves = useMastodonShelves(connectedAccount !== null);
   const discoverySearchCacheRef = useRef(new Map<string, { data: MastodonStatus[]; ts: number }>());
   const discoveryInFlightRef = useRef(new Map<string, Promise<MastodonStatus[]>>());
+  const relayDiscoveryCombinedRef = useRef<MastodonStatus[]>([]);
   const DISCOVERY_CACHE_TTL_MS = 3 * 60 * 1000;
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
@@ -1946,6 +1952,64 @@ export function App() {
       window.clearTimeout(timeout);
     };
   }, [manualFacetControls, searchFacet, searchQuery, showFederatedDiscoveryResults]);
+
+  // Relay discovery polling
+  useEffect(() => {
+    if (activeTab !== "search" || searchQuery.length === 0 || !showFederatedDiscoveryResults) {
+      if (relayPollIntervalRef.current) {
+        clearInterval(relayPollIntervalRef.current);
+        relayPollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollRelay = async () => {
+      if (cancelled) return;
+      setRelayDiscoveryLoading(true);
+      setRelayDiscoveryError(null);
+
+      try {
+        const results = await pollRelayBuzz();
+        if (!cancelled) {
+          // Convert relay results to MastodonStatus-like format
+          const statuses = results.map((result) => relayResultToMastodonStatus(result));
+          setRelayDiscoveryResults(results);
+          // Merge with existing discovery results
+          relayDiscoveryCombinedRef.current = statuses;
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRelayDiscoveryError(error instanceof Error ? error.message : "Relay discovery failed");
+          setRelayDiscoveryResults([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setRelayDiscoveryLoading(false);
+        }
+      }
+    };
+
+    // Initial poll with a small delay to avoid competing with federated discovery
+    const initialTimeout = window.setTimeout(() => {
+      void pollRelay();
+    }, 300);
+
+    // Set up interval for subsequent polls (30 seconds)
+    relayPollIntervalRef.current = setInterval(() => {
+      void pollRelay();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initialTimeout);
+      if (relayPollIntervalRef.current) {
+        clearInterval(relayPollIntervalRef.current);
+        relayPollIntervalRef.current = null;
+      }
+    };
+  }, [activeTab, searchQuery, showFederatedDiscoveryResults]);
 
   const handleSearchResultSelect = useCallback((result: ExplainedSearchResult) => {
     const query = normalizeSearchQuery(searchQuery);
@@ -2601,18 +2665,24 @@ export function App() {
                   {showLocalSearchResults && searchError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{searchError}</p> : null}
                   {showFederatedDiscoveryResults ? (
                     <>
-                      {discoveryLoading ? <SkeletonCoverGrid count={3} /> : null}
+                      {(discoveryLoading || relayDiscoveryLoading) ? <SkeletonCoverGrid count={3} /> : null}
                       {discoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{discoveryError}</p> : null}
-                      {discoveryStatuses.length > 0 ? (
+                      {relayDiscoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{relayDiscoveryError}</p> : null}
+                      {(discoveryStatuses.length > 0 || relayDiscoveryResults.length > 0) ? (
                         <section style={{ display: "grid", gap: "var(--space-3)" }}>
                           <SectionHeader title="Fediverse Discovery" />
                           <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                            {/* Display relay results first (more recent hashtag-based) */}
+                            {relayDiscoveryResults.map((result) => (
+                              <DiscoveryStatusRow key={`relay-${result.id}`} status={relayResultToMastodonStatus(result)} />
+                            ))}
+                            {/* Then display discovery results (API-based) */}
                             {discoveryStatuses.map((status) => (
                               <DiscoveryStatusRow key={status.id} status={status} />
                             ))}
                           </div>
                         </section>
-                      ) : normalizeSearchQuery(searchQuery).length >= 2 && !discoveryLoading ? (
+                      ) : normalizeSearchQuery(searchQuery).length >= 2 && !(discoveryLoading || relayDiscoveryLoading) ? (
                         <EmptyState title="No federated results" description="Try another phrase, hashtag, author, or book title." />
                       ) : null}
                     </>
