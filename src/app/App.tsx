@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
@@ -435,6 +435,7 @@ type NowReadingImportedBook = {
   author?: string;
   coverUrl?: string;
   sourceUrl?: string;
+  authorUrl?: string;
 };
 
 type InAppReaderProfile = {
@@ -506,6 +507,152 @@ function statusMediaCover(status: MastodonStatus): string | null {
 
 function normalizeLookupText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function openLibraryBookSearchUrl(title: string, author?: string): string {
+  const query = [title, author].filter(Boolean).join(" ");
+  return `https://openlibrary.org/search?q=${encodeURIComponent(query)}`;
+}
+
+function openLibraryAuthorSearchUrl(author: string): string {
+  return `https://openlibrary.org/search/authors?q=${encodeURIComponent(author)}`;
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findPhraseRanges(text: string, phrase: string): Array<{ start: number; end: number }> {
+  const trimmed = phrase.trim();
+  if (!trimmed || trimmed.length < 3) {
+    return [];
+  }
+
+  const regex = new RegExp(escapedRegExp(trimmed), "gi");
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  for (let match = regex.exec(text); match; match = regex.exec(text)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = start > 0 ? text[start - 1] : " ";
+    const after = end < text.length ? text[end] : " ";
+    const beforeWord = /[A-Za-z0-9]/.test(before);
+    const afterWord = /[A-Za-z0-9]/.test(after);
+
+    if (!beforeWord && !afterWord) {
+      ranges.push({ start, end });
+    }
+  }
+
+  return ranges;
+}
+
+function findMentionedImportedBook(text: string, importedBooks: NowReadingImportedBook[]): NowReadingImportedBook | null {
+  const normalizedText = normalizeLookupText(text);
+  if (!normalizedText) {
+    return null;
+  }
+
+  let best: NowReadingImportedBook | null = null;
+  let bestScore = 0;
+
+  for (const book of importedBooks) {
+    const titleNorm = normalizeLookupText(book.title);
+    if (!titleNorm || titleNorm.length < 3) {
+      continue;
+    }
+
+    if (findPhraseRanges(text, book.title).length > 0) {
+      if (titleNorm.length > bestScore) {
+        best = book;
+        bestScore = titleNorm.length;
+      }
+      continue;
+    }
+
+    if (normalizedText.includes(titleNorm) && titleNorm.length > bestScore) {
+      best = book;
+      bestScore = titleNorm.length;
+    }
+  }
+
+  return best;
+}
+
+function linkifyBookAndAuthorMentions(
+  text: string,
+  book: NowReadingImportedBook | null
+): ReactNode {
+  if (!book) {
+    return text;
+  }
+
+  const bookHref = sanitizeUrl(book.sourceUrl) ?? openLibraryBookSearchUrl(book.title, book.author);
+  const authorHref = book.author
+    ? (sanitizeUrl(book.authorUrl) ?? openLibraryAuthorSearchUrl(book.author))
+    : null;
+
+  const candidates: Array<{ start: number; end: number; href: string; priority: number }> = [];
+
+  for (const range of findPhraseRanges(text, book.title)) {
+    candidates.push({ ...range, href: bookHref, priority: 2 });
+  }
+
+  if (book.author && authorHref) {
+    for (const range of findPhraseRanges(text, book.author)) {
+      candidates.push({ ...range, href: authorHref, priority: 1 });
+    }
+  }
+
+  if (candidates.length === 0) {
+    return text;
+  }
+
+  candidates.sort((a, b) => {
+    if (a.start !== b.start) return a.start - b.start;
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return (b.end - b.start) - (a.end - a.start);
+  });
+
+  const chosen: Array<{ start: number; end: number; href: string }> = [];
+  for (const candidate of candidates) {
+    const overlaps = chosen.some((existing) => candidate.start < existing.end && candidate.end > existing.start);
+    if (!overlaps) {
+      chosen.push({ start: candidate.start, end: candidate.end, href: candidate.href });
+    }
+  }
+
+  chosen.sort((a, b) => a.start - b.start);
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const range of chosen) {
+    if (range.start > cursor) {
+      nodes.push(text.slice(cursor, range.start));
+    }
+
+    const label = text.slice(range.start, range.end);
+    nodes.push(
+      <a
+        key={`${range.start}-${range.end}-${range.href}`}
+        href={range.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: "var(--color-accent)", fontWeight: 600, textDecoration: "none" }}
+      >
+        {label}
+      </a>
+    );
+
+    cursor = range.end;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes;
 }
 
 function extractBookTitleFromText(text: string): string | null {
@@ -1301,15 +1448,24 @@ function ActivityStatusRow({
   interaction,
   onFavourite,
   onBookmark,
-  actions
+  actions,
+  importedBooks = []
 }: {
   status: MastodonStatus;
   interaction?: { favourited: boolean; bookmarked: boolean };
   onFavourite?: (id: string, current: boolean) => void;
   onBookmark?: (id: string, current: boolean) => void;
   actions?: StatusAction[];
+  importedBooks?: NowReadingImportedBook[];
 }) {
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
+  const text = mastodonStatusText(status);
+  const card = statusCardData(status);
+  const mentionedBook = findMentionedImportedBook(text, importedBooks);
+  const inferredCoverSrc = resolveCoverProxySrc(card.image)
+    ?? resolveCoverProxySrc(statusMediaCover(status))
+    ?? resolveCoverProxySrc(mentionedBook?.coverUrl ?? null);
+  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBook);
   const [pendingIdx, setPendingIdx] = useState<number | null>(null);
   const favourited = interaction?.favourited ?? status.favourited ?? false;
   const bookmarked = interaction?.bookmarked ?? status.bookmarked ?? false;
@@ -1337,8 +1493,21 @@ function ActivityStatusRow({
           {formatActivityDate(status.created_at)}
         </span>
       </div>
+      {inferredCoverSrc ? (
+        <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--color-bg)" }}>
+          <img
+            src={inferredCoverSrc}
+            alt={`Cover related to ${statusBookTitle(status)}`}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={(event) => { retryImageViaProxy(event); }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        </div>
+      ) : null}
       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-        {mastodonStatusText(status)}
+        {linkedText}
       </p>
       {showSocialActions || href ? (
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
@@ -2747,6 +2916,7 @@ export function App() {
                               <ActivityStatusRow
                                 key={status.id}
                                 status={status}
+                                importedBooks={importedBooks}
                                 actions={[{
                                   label: "Remove bookmark",
                                   pendingLabel: "Removing...",
@@ -2777,6 +2947,7 @@ export function App() {
                               <ActivityStatusRow
                                 key={status.id}
                                 status={status}
+                                importedBooks={importedBooks}
                                 actions={[{
                                   label: "Unfavourite",
                                   pendingLabel: "Removing...",
@@ -2911,6 +3082,7 @@ export function App() {
                               <ActivityStatusRow
                                 key={status.id}
                                 status={status}
+                                importedBooks={importedBooks}
                                 interaction={statusInteractions.get(status.id)}
                                 onFavourite={hasWriteScope(connectedAccount.grantedScopes, "write:favourites") ? handleFavourite : undefined}
                                 onBookmark={hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks") ? handleBookmark : undefined}
