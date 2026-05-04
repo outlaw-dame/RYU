@@ -1,10 +1,15 @@
 import { z } from "zod";
 import { parseBookTokTrendingPayload, type BookTokTrend } from "./booktok-trending";
 import {
+  mastodonAccountFullSchema,
+  mastodonStatusSchema,
+  validateStatusId,
+  type MastodonAccountFull,
   type MastodonList,
   type MastodonNotification,
   type MastodonPage,
   type MastodonPaginationParams,
+  type MastodonPostStatusParams,
   type MastodonStatus
 } from "./mastodon-client";
 import {
@@ -15,6 +20,8 @@ import {
 
 export const MASTODON_SESSION_ENDPOINT = "/api/auth/mastodon/session";
 export const MASTODON_REVOKE_ENDPOINT = "/api/auth/mastodon/revoke";
+export const MASTODON_PROFILE_ENDPOINT = "/api/auth/mastodon/profile";
+export const MASTODON_ACCOUNTS_ENDPOINT = "/api/auth/mastodon/accounts";
 export const MASTODON_HOME_TIMELINE_ENDPOINT = "/api/auth/mastodon/timelines/home";
 export const MASTODON_NOTIFICATIONS_ENDPOINT = "/api/auth/mastodon/notifications";
 export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/statuses";
@@ -23,6 +30,7 @@ export const MASTODON_FAVOURITES_ENDPOINT = "/api/auth/mastodon/favourites";
 export const MASTODON_LISTS_ENDPOINT = "/api/auth/mastodon/lists";
 export const MASTODON_SHELVES_ENDPOINT = "/api/auth/mastodon/shelves";
 export const MASTODON_DISCOVERY_SEARCH_ENDPOINT = "/api/auth/mastodon/search/statuses";
+export const MASTODON_STATUSES_ENDPOINT = "/api/auth/mastodon/statuses";
 export const BOOKTOK_TRENDING_ENDPOINT = "/api/trends/booktok";
 
 export type MastodonSessionState = {
@@ -213,6 +221,75 @@ export async function disconnectMastodon(options: MastodonActivityApiOptions = {
   });
 }
 
+export async function getMastodonProfile(options: MastodonActivityApiOptions = {}): Promise<MastodonAccountFull> {
+  const response = await requestProxy(MASTODON_PROFILE_ENDPOINT, { method: "GET" }, options);
+  return mastodonAccountFullSchema.parse(await response.json());
+}
+
+export async function getMastodonAccountById(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonAccountFull> {
+  const safeId = id.trim();
+  if (!safeId || !/^[\w-]{1,64}$/.test(safeId)) {
+    throw new Error("Invalid Mastodon account ID");
+  }
+
+  const endpoint = `${MASTODON_ACCOUNTS_ENDPOINT}/${encodeURIComponent(safeId)}`;
+  const response = await requestProxy(endpoint, { method: "GET" }, options);
+  return mastodonAccountFullSchema.parse(await response.json());
+}
+
+export async function favouriteStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonStatus> {
+  const safeId = validateStatusId(id);
+  const endpoint = `${MASTODON_STATUSES_ENDPOINT}/${encodeURIComponent(safeId)}/favourite`;
+  const response = await requestProxy(endpoint, { method: "POST" }, { ...options, attempts: options.attempts ?? 2 });
+  return mastodonStatusSchema.parse(await response.json());
+}
+
+export async function unfavouriteStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonStatus> {
+  const safeId = validateStatusId(id);
+  const endpoint = `${MASTODON_STATUSES_ENDPOINT}/${encodeURIComponent(safeId)}/unfavourite`;
+  const response = await requestProxy(endpoint, { method: "POST" }, { ...options, attempts: options.attempts ?? 2 });
+  return mastodonStatusSchema.parse(await response.json());
+}
+
+export async function bookmarkStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonStatus> {
+  const safeId = validateStatusId(id);
+  const endpoint = `${MASTODON_STATUSES_ENDPOINT}/${encodeURIComponent(safeId)}/bookmark`;
+  const response = await requestProxy(endpoint, { method: "POST" }, { ...options, attempts: options.attempts ?? 2 });
+  return mastodonStatusSchema.parse(await response.json());
+}
+
+export async function unbookmarkStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<MastodonStatus> {
+  const safeId = validateStatusId(id);
+  const endpoint = `${MASTODON_STATUSES_ENDPOINT}/${encodeURIComponent(safeId)}/unbookmark`;
+  const response = await requestProxy(endpoint, { method: "POST" }, { ...options, attempts: options.attempts ?? 2 });
+  return mastodonStatusSchema.parse(await response.json());
+}
+
+export async function postMastodonStatus(
+  params: Pick<MastodonPostStatusParams, "status" | "visibility" | "spoilerText" | "sensitive">,
+  options: MastodonActivityApiOptions = {}
+): Promise<MastodonStatus> {
+  const body: Record<string, unknown> = {
+    status: params.status,
+    visibility: params.visibility ?? "public"
+  };
+  if (params.spoilerText?.trim()) body.spoiler_text = params.spoilerText.trim();
+  if (params.sensitive != null) body.sensitive = params.sensitive;
+
+  const response = await requestProxy(
+    MASTODON_STATUSES_ENDPOINT,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    { ...options, attempts: 1 }  // Never retry posts — not idempotent.
+  );
+  return mastodonStatusSchema.parse(await response.json());
+}
+
+export async function deleteMastodonStatus(id: string, options: MastodonActivityApiOptions = {}): Promise<void> {
+  const safeId = validateStatusId(id);
+  const endpoint = `${MASTODON_STATUSES_ENDPOINT}/${encodeURIComponent(safeId)}`;
+  await requestProxy(endpoint, { method: "DELETE" }, { ...options, attempts: options.attempts ?? 2 });
+}
+
 async function requestProxy(
   endpoint: string,
   init: RequestInit,
@@ -284,31 +361,37 @@ function appendOptional(url: URL, key: string, value: string | number | undefine
   url.searchParams.set(key, String(value));
 }
 
+const STATIC_PROXY_PATHS = new Set([
+  MASTODON_SESSION_ENDPOINT,
+  MASTODON_REVOKE_ENDPOINT,
+  MASTODON_PROFILE_ENDPOINT,
+  MASTODON_HOME_TIMELINE_ENDPOINT,
+  MASTODON_NOTIFICATIONS_ENDPOINT,
+  MASTODON_ACCOUNT_STATUSES_ENDPOINT,
+  MASTODON_BOOKMARKS_ENDPOINT,
+  MASTODON_FAVOURITES_ENDPOINT,
+  MASTODON_LISTS_ENDPOINT,
+  MASTODON_SHELVES_ENDPOINT,
+  MASTODON_DISCOVERY_SEARCH_ENDPOINT,
+  MASTODON_STATUSES_ENDPOINT,
+  BOOKTOK_TRENDING_ENDPOINT
+]);
+
+// Matches /api/auth/mastodon/statuses/:id and /api/auth/mastodon/statuses/:id/action
+const STATUS_PATH_RE = /^\/api\/auth\/mastodon\/statuses\/[\w-]{1,64}(\/(?:favourite|unfavourite|bookmark|unbookmark))?$/;
+
 function normalizeProxyPath(endpoint: string): string {
   if (!endpoint.startsWith("/")) {
     throw new Error("Mastodon activity client only accepts same-origin proxy paths");
   }
 
   const url = new URL(endpoint, "https://ryu.local");
-  const allowed = new Set([
-    MASTODON_SESSION_ENDPOINT,
-    MASTODON_REVOKE_ENDPOINT,
-    MASTODON_HOME_TIMELINE_ENDPOINT,
-    MASTODON_NOTIFICATIONS_ENDPOINT,
-    MASTODON_ACCOUNT_STATUSES_ENDPOINT,
-    MASTODON_BOOKMARKS_ENDPOINT,
-    MASTODON_FAVOURITES_ENDPOINT,
-    MASTODON_LISTS_ENDPOINT,
-    MASTODON_SHELVES_ENDPOINT,
-    MASTODON_DISCOVERY_SEARCH_ENDPOINT,
-    BOOKTOK_TRENDING_ENDPOINT
-  ]);
 
-  if (!allowed.has(url.pathname)) {
-    throw new Error("Mastodon activity proxy path is not allowed");
+  if (STATIC_PROXY_PATHS.has(url.pathname) || STATUS_PATH_RE.test(url.pathname)) {
+    return `${url.pathname}${url.search}`;
   }
 
-  return `${url.pathname}${url.search}`;
+  throw new Error("Mastodon activity proxy path is not allowed");
 }
 
 async function toActivityApiError(response: Response, retryAfterMs?: number): Promise<MastodonActivityApiError> {

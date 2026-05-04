@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
@@ -35,7 +35,19 @@ import {
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
-import { searchDiscoveryStatuses } from "../sync/mastodon-activity-api";
+import { pollRelayBuzz, relayResultToMastodonStatus, type RelayDiscoveryResult, type RelayEntity } from "../sync/relay-discovery";
+import { buildLocalRelayEntityCatalog } from "../sync/relay-entity-catalog";
+import {
+  searchDiscoveryStatuses,
+  getMastodonProfile,
+  getMastodonAccountById,
+  favouriteStatus as apiFavouriteStatus,
+  unfavouriteStatus as apiUnfavouriteStatus,
+  bookmarkStatus as apiBookmarkStatus,
+  unbookmarkStatus as apiUnbookmarkStatus
+} from "../sync/mastodon-activity-api";
+import type { MastodonAccountFull } from "../sync/mastodon-client";
+import { ComposeSheet } from "../components/activity/ComposeSheet";
 import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
 
 const sampleBooks = [
@@ -424,6 +436,7 @@ type NowReadingImportedBook = {
   author?: string;
   coverUrl?: string;
   sourceUrl?: string;
+  authorUrl?: string;
 };
 
 type InAppReaderProfile = {
@@ -495,6 +508,213 @@ function statusMediaCover(status: MastodonStatus): string | null {
 
 function normalizeLookupText(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function openLibraryBookSearchUrl(title: string, author?: string): string {
+  const query = [title, author].filter(Boolean).join(" ");
+  return `https://openlibrary.org/search?q=${encodeURIComponent(query)}`;
+}
+
+function openLibraryAuthorSearchUrl(author: string): string {
+  return `https://openlibrary.org/search/authors?q=${encodeURIComponent(author)}`;
+}
+
+function escapedRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+type MentionedBookMatch = {
+  book: NowReadingImportedBook;
+  titleRanges: Array<{ start: number; end: number }>;
+  firstStart: number;
+};
+
+function findPhraseRanges(text: string, phrase: string): Array<{ start: number; end: number }> {
+  const trimmed = phrase.trim();
+  if (!trimmed || trimmed.length < 3) {
+    return [];
+  }
+
+  const regex = new RegExp(escapedRegExp(trimmed), "gi");
+  const ranges: Array<{ start: number; end: number }> = [];
+
+  for (let match = regex.exec(text); match; match = regex.exec(text)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    const before = start > 0 ? text[start - 1] : " ";
+    const after = end < text.length ? text[end] : " ";
+    const beforeWord = /[A-Za-z0-9]/.test(before);
+    const afterWord = /[A-Za-z0-9]/.test(after);
+
+    if (!beforeWord && !afterWord) {
+      ranges.push({ start, end });
+    }
+  }
+
+  return ranges;
+}
+
+function findMentionedImportedBooks(text: string, importedBooks: NowReadingImportedBook[]): MentionedBookMatch[] {
+  const rawMatches: MentionedBookMatch[] = [];
+
+  for (const book of importedBooks) {
+    const titleNorm = normalizeLookupText(book.title);
+    if (!titleNorm || titleNorm.length < 3) {
+      continue;
+    }
+
+    const titleRanges = findPhraseRanges(text, book.title);
+    if (titleRanges.length === 0) {
+      continue;
+    }
+
+    rawMatches.push({
+      book,
+      titleRanges,
+      firstStart: titleRanges[0]?.start ?? Number.MAX_SAFE_INTEGER
+    });
+  }
+
+  rawMatches.sort((a, b) => {
+    if (a.firstStart !== b.firstStart) return a.firstStart - b.firstStart;
+    const lenDelta = b.book.title.length - a.book.title.length;
+    if (lenDelta !== 0) return lenDelta;
+    return a.book.id.localeCompare(b.book.id);
+  });
+
+  const selected: MentionedBookMatch[] = [];
+  const occupied: Array<{ start: number; end: number }> = [];
+
+  for (const match of rawMatches) {
+    const overlaps = match.titleRanges.some((range) =>
+      occupied.some((existing) => range.start < existing.end && range.end > existing.start)
+    );
+
+    if (overlaps) {
+      continue;
+    }
+
+    selected.push(match);
+    occupied.push(...match.titleRanges);
+  }
+
+  return selected;
+}
+
+function linkifyBookAndAuthorMentions(
+  text: string,
+  matches: MentionedBookMatch[]
+): ReactNode {
+  if (matches.length === 0) {
+    return text;
+  }
+
+  const candidates: Array<{ start: number; end: number; href: string; priority: number }> = [];
+
+  for (const match of matches) {
+    const bookHref = sanitizeUrl(match.book.sourceUrl) ?? openLibraryBookSearchUrl(match.book.title, match.book.author);
+    const authorHref = match.book.author
+      ? (sanitizeUrl(match.book.authorUrl) ?? openLibraryAuthorSearchUrl(match.book.author))
+      : null;
+
+    for (const range of match.titleRanges) {
+      candidates.push({ ...range, href: bookHref, priority: 2 });
+    }
+
+    if (match.book.author && authorHref) {
+      for (const range of findPhraseRanges(text, match.book.author)) {
+        candidates.push({ ...range, href: authorHref, priority: 1 });
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return text;
+  }
+
+  candidates.sort((a, b) => {
+    if (a.start !== b.start) return a.start - b.start;
+    if (a.priority !== b.priority) return b.priority - a.priority;
+    return (b.end - b.start) - (a.end - a.start);
+  });
+
+  const chosen: Array<{ start: number; end: number; href: string }> = [];
+  for (const candidate of candidates) {
+    const overlaps = chosen.some((existing) => candidate.start < existing.end && candidate.end > existing.start);
+    if (!overlaps) {
+      chosen.push({ start: candidate.start, end: candidate.end, href: candidate.href });
+    }
+  }
+
+  chosen.sort((a, b) => a.start - b.start);
+
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  for (const range of chosen) {
+    if (range.start > cursor) {
+      nodes.push(text.slice(cursor, range.start));
+    }
+
+    const label = text.slice(range.start, range.end);
+    nodes.push(
+      <a
+        key={`${range.start}-${range.end}-${range.href}`}
+        href={range.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ color: "var(--color-accent)", fontWeight: 600, textDecoration: "none" }}
+      >
+        {label}
+      </a>
+    );
+
+    cursor = range.end;
+  }
+
+  if (cursor < text.length) {
+    nodes.push(text.slice(cursor));
+  }
+
+  return nodes;
+}
+
+function selectPrimaryMentionedBook(matches: MentionedBookMatch[]): NowReadingImportedBook | null {
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const sorted = [...matches].sort((a, b) => {
+    const aHasCover = a.book.coverUrl ? 1 : 0;
+    const bHasCover = b.book.coverUrl ? 1 : 0;
+    if (aHasCover !== bHasCover) return bHasCover - aHasCover;
+    if (a.firstStart !== b.firstStart) return a.firstStart - b.firstStart;
+    const lenDelta = b.book.title.length - a.book.title.length;
+    if (lenDelta !== 0) return lenDelta;
+    return a.book.id.localeCompare(b.book.id);
+  });
+
+  return sorted[0]?.book ?? null;
+}
+
+function buildAccountProfileHref(account: MastodonStatus["account"]): string | null {
+  const direct = sanitizeUrl(account.url ?? null);
+  if (direct) {
+    return direct;
+  }
+
+  const acct = (account.acct || "").trim();
+  const username = (account.username || "").trim();
+  const parts = acct.split("@").filter(Boolean);
+  if (parts.length >= 2) {
+    const domain = parts[parts.length - 1]!;
+    const user = username || parts[0]!;
+    if (domain && user) {
+      return `https://${domain}/@${encodeURIComponent(user)}`;
+    }
+  }
+
+  return null;
 }
 
 function extractBookTitleFromText(text: string): string | null {
@@ -1276,8 +1496,78 @@ function notificationVerb(type: string): string {
   }
 }
 
-function ActivityStatusRow({ status }: { status: MastodonStatus }) {
+/** Returns true when a token grants the needed write scope (or scopes are unknown, treated optimistically). */
+function hasWriteScope(grantedScopes: string[] | undefined, needed: string): boolean {
+  if (!grantedScopes || grantedScopes.length === 0) return true;
+  const base = needed.split(":")[0];
+  return grantedScopes.some((s) => s === needed || s === base || s === "write" || s === "read write");
+}
+
+type StatusAction = { label: string; pendingLabel: string; handler: () => Promise<void> };
+
+function ActivityStatusRow({
+  status,
+  interaction,
+  onFavourite,
+  onBookmark,
+  actions,
+  importedBooks = []
+}: {
+  status: MastodonStatus;
+  interaction?: { favourited: boolean; bookmarked: boolean };
+  onFavourite?: (id: string, current: boolean) => void;
+  onBookmark?: (id: string, current: boolean) => void;
+  actions?: StatusAction[];
+  importedBooks?: NowReadingImportedBook[];
+}) {
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
+  const text = mastodonStatusText(status);
+  const card = statusCardData(status);
+  const mentionedBooks = findMentionedImportedBooks(text, importedBooks);
+  const primaryMentionedBook = selectPrimaryMentionedBook(mentionedBooks);
+  const inferredCoverSrc = resolveCoverProxySrc(card.image)
+    ?? resolveCoverProxySrc(statusMediaCover(status))
+    ?? resolveCoverProxySrc(primaryMentionedBook?.coverUrl ?? null);
+  const linkedText = linkifyBookAndAuthorMentions(text, mentionedBooks);
+  const accountHref = buildAccountProfileHref(status.account);
+  const [showAccountCard, setShowAccountCard] = useState(false);
+  const [hoverAccount, setHoverAccount] = useState<MastodonAccountFull | null>(null);
+  const [hoverLoading, setHoverLoading] = useState(false);
+  const [hoverError, setHoverError] = useState<string | null>(null);
+  const hoverFetchedRef = useRef(false);
+  const [pendingIdx, setPendingIdx] = useState<number | null>(null);
+  const favourited = interaction?.favourited ?? status.favourited ?? false;
+  const bookmarked = interaction?.bookmarked ?? status.bookmarked ?? false;
+  const showSocialActions = Boolean(onFavourite || onBookmark);
+
+  async function handleAction(action: StatusAction, idx: number) {
+    if (pendingIdx !== null) return;
+    setPendingIdx(idx);
+    try { await action.handler(); } finally { setPendingIdx(null); }
+  }
+
+  async function ensureHoverAccount(): Promise<void> {
+    if (hoverFetchedRef.current || !status.account.id) {
+      return;
+    }
+
+    hoverFetchedRef.current = true;
+    setHoverLoading(true);
+    setHoverError(null);
+    try {
+      const profile = await getMastodonAccountById(status.account.id, { attempts: 1, timeoutMs: 9000 });
+      setHoverAccount(profile);
+    } catch (error) {
+      setHoverError(error instanceof Error ? error.message : "Unable to load profile details.");
+    } finally {
+      setHoverLoading(false);
+    }
+  }
+
+  const hoverBio = hoverAccount?.note ? stripHtml(hoverAccount.note).trim() : "";
+  const hoverFollowers = hoverAccount?.followers_count;
+  const hoverFollowing = hoverAccount?.following_count;
+  const hoverStatuses = hoverAccount?.statuses_count;
 
   return (
     <article style={{
@@ -1289,19 +1579,178 @@ function ActivityStatusRow({ status }: { status: MastodonStatus }) {
       gap: "var(--space-2)",
       boxShadow: "var(--shadow-card)"
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
-        <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline", position: "relative" }}>
+        <div
+          style={{ position: "relative", minWidth: 0 }}
+          onMouseEnter={() => {
+            setShowAccountCard(true);
+            void ensureHoverAccount();
+          }}
+          onMouseLeave={() => setShowAccountCard(false)}
+        >
+          {accountHref ? (
+            <a
+              href={accountHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: "var(--text-subhead)", fontWeight: 700, color: "var(--color-text)", textDecoration: "none", overflowWrap: "anywhere" }}
+            >
+              {mastodonAccountLabel(status.account)}
+            </a>
+          ) : (
+            <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{mastodonAccountLabel(status.account)}</strong>
+          )}
+
+          {showAccountCard ? (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 8px)",
+                left: 0,
+                zIndex: 8,
+                width: "min(320px, 80vw)",
+                borderRadius: "var(--radius-md)",
+                background: "var(--color-bg-elevated)",
+                boxShadow: "var(--shadow-card)",
+                border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)",
+                padding: "var(--space-3)",
+                display: "grid",
+                gap: "var(--space-2)"
+              }}
+            >
+              <strong style={{ fontSize: "var(--text-footnote)", overflowWrap: "anywhere" }}>
+                {hoverAccount?.display_name || mastodonAccountLabel(status.account)}
+              </strong>
+              <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", overflowWrap: "anywhere" }}>
+                @{hoverAccount?.acct || status.account.acct || status.account.username || "unknown"}
+              </span>
+              {hoverLoading ? (
+                <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>Loading profile…</span>
+              ) : null}
+              {!hoverLoading && hoverBio ? (
+                <p style={{ margin: 0, fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+                  {hoverBio.slice(0, 240)}
+                </p>
+              ) : null}
+              {!hoverLoading && hoverError ? (
+                <span style={{ fontSize: "var(--text-caption1)", color: "#c23b3b" }}>{hoverError}</span>
+              ) : null}
+              {!hoverLoading && (hoverFollowers != null || hoverFollowing != null || hoverStatuses != null) ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)" }}>
+                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowers.toLocaleString()}</strong> followers</span> : null}
+                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverFollowing.toLocaleString()}</strong> following</span> : null}
+                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{hoverStatuses.toLocaleString()}</strong> posts</span> : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
         <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
           {formatActivityDate(status.created_at)}
         </span>
       </div>
+      {inferredCoverSrc ? (
+        <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--color-bg)" }}>
+          <img
+            src={inferredCoverSrc}
+            alt={`Cover related to ${statusBookTitle(status)}`}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={(event) => { retryImageViaProxy(event); }}
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        </div>
+      ) : null}
       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-        {mastodonStatusText(status)}
+        {linkedText}
       </p>
-      {href ? (
-        <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
-          Open post
-        </a>
+      {showSocialActions || href ? (
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+          {href ? (
+            <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
+              Open post
+            </a>
+          ) : null}
+          {showSocialActions ? (
+            <div style={{ display: "flex", gap: "var(--space-1)", marginLeft: "auto" }}>
+              {onFavourite ? (
+                <button
+                  type="button"
+                  aria-pressed={favourited}
+                  aria-label={favourited ? "Remove favourite" : "Favourite"}
+                  onClick={() => onFavourite(status.id, favourited)}
+                  style={{
+                    border: 0,
+                    borderRadius: "var(--radius-sm)",
+                    background: "transparent",
+                    color: favourited ? "var(--color-rating)" : "var(--color-text-tertiary)",
+                    fontSize: "var(--text-subhead)",
+                    padding: "4px var(--space-2)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    minHeight: "32px",
+                    lineHeight: 1
+                  }}
+                >
+                  <span aria-hidden="true">{favourited ? "★" : "☆"}</span>
+                  {typeof status.favourites_count === "number" && status.favourites_count > 0 ? (
+                    <span style={{ fontSize: "var(--text-caption1)" }}>{status.favourites_count}</span>
+                  ) : null}
+                </button>
+              ) : null}
+              {onBookmark ? (
+                <button
+                  type="button"
+                  aria-pressed={bookmarked}
+                  aria-label={bookmarked ? "Remove bookmark" : "Bookmark"}
+                  onClick={() => onBookmark(status.id, bookmarked)}
+                  style={{
+                    border: 0,
+                    borderRadius: "var(--radius-sm)",
+                    background: "transparent",
+                    color: bookmarked ? "var(--color-accent)" : "var(--color-text-tertiary)",
+                    fontSize: "var(--text-footnote)",
+                    fontWeight: bookmarked ? 700 : 500,
+                    padding: "4px var(--space-2)",
+                    cursor: "pointer",
+                    minHeight: "32px"
+                  }}
+                >
+                  {bookmarked ? "Saved" : "Save"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {actions && actions.length > 0 ? (
+        <div style={{ display: "flex", gap: "var(--space-2)", paddingTop: "var(--space-2)", borderTop: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)", flexWrap: "wrap" }}>
+          {actions.map((action, idx) => (
+            <button
+              key={action.label}
+              type="button"
+              disabled={pendingIdx !== null}
+              onClick={() => void handleAction(action, idx)}
+              style={{
+                minHeight: "var(--touch-min)",
+                border: "1px solid color-mix(in srgb, var(--color-text) 18%, transparent)",
+                borderRadius: "var(--radius-md)",
+                background: "transparent",
+                color: "var(--color-text)",
+                fontSize: "var(--text-footnote)",
+                fontWeight: 600,
+                padding: "0 var(--space-3)",
+                opacity: pendingIdx !== null ? 0.6 : 1,
+                cursor: pendingIdx !== null ? "default" : "pointer"
+              }}
+            >
+              {pendingIdx === idx ? action.pendingLabel : action.label}
+            </button>
+          ))}
+        </div>
       ) : null}
     </article>
   );
@@ -1354,6 +1803,10 @@ export function App() {
   const [discoveryStatuses, setDiscoveryStatuses] = useState<MastodonStatus[]>([]);
   const [discoveryLoading, setDiscoveryLoading] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const [relayDiscoveryResults, setRelayDiscoveryResults] = useState<RelayDiscoveryResult[]>([]);
+  const [relayDiscoveryLoading, setRelayDiscoveryLoading] = useState(false);
+  const [relayDiscoveryError, setRelayDiscoveryError] = useState<string | null>(null);
+  const relayPollIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(-1);
   const [isSearching, setIsSearching] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1366,7 +1819,7 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
   const [isAuthWorking, setIsAuthWorking] = useState(false);
-  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string } | null>(null);
+  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string; grantedScopes?: string[] } | null>(null);
   const [activityTimeline, setActivityTimeline] = useState<MastodonStatus[]>([]);
   const [activityNotifications, setActivityNotifications] = useState<MastodonNotification[]>([]);
   const [activityError, setActivityError] = useState<string | null>(null);
@@ -1385,6 +1838,11 @@ export function App() {
   const [bookTokRefreshNonce, setBookTokRefreshNonce] = useState(0);
   const [activeReaderProfile, setActiveReaderProfile] = useState<InAppReaderProfile | null>(null);
   const [activeNowReadingStatus, setActiveNowReadingStatus] = useState<MastodonStatus | null>(null);
+  const [mastodonProfileFull, setMastodonProfileFull] = useState<MastodonAccountFull | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileFetched, setProfileFetched] = useState(false);
+  const [statusInteractions, setStatusInteractions] = useState<Map<string, { favourited: boolean; bookmarked: boolean }>>(() => new Map());
+  const [composeOpen, setComposeOpen] = useState(false);
   const { state } = useDatabase();
   const autocompleteResults = useAutocomplete(searchQuery);
   const preferredSoftwareSlugs = useMemo(() => (preferredSoftware ? [preferredSoftware] : []), [preferredSoftware]);
@@ -1404,6 +1862,11 @@ export function App() {
   });
   const { books: importedBooks, loading: importedBooksLoading, reload: reloadImportedBooks } = useImportedBooks(state === "ready");
   const shelves = useMastodonShelves(connectedAccount !== null);
+  const discoverySearchCacheRef = useRef(new Map<string, { data: MastodonStatus[]; ts: number }>());
+  const discoveryInFlightRef = useRef(new Map<string, Promise<MastodonStatus[]>>());
+  const relayEntityCatalogRef = useRef<RelayEntity[]>([]);
+  const relayLastFetchRef = useRef<number>(0);
+  const DISCOVERY_CACHE_TTL_MS = 3 * 60 * 1000;
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
   const usingManualFediverseFacet = manualFacetControls && searchFacet === "fediverse";
@@ -1437,14 +1900,15 @@ export function App() {
     void fetchWithBackoff(endpoint, {}, 2, 8000)
       .then(async (r) => {
         if (!r.ok || cancelled) return;
-        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
+        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; scope?: string | null; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
         if (!cancelled && data.connected && data.instanceOrigin && data.account?.acct) {
           setConnectedAccount({
             instanceOrigin: data.instanceOrigin,
             acct: data.account.acct,
             displayName: data.account.display_name || undefined,
             avatar: data.account.avatar || undefined,
-            profileUrl: data.account.url || undefined
+            profileUrl: data.account.url || undefined,
+            grantedScopes: data.scope ? data.scope.split(" ").filter(Boolean) : undefined
           });
           setAuthInfo(`Connected as ${data.account.acct}`);
         }
@@ -1461,6 +1925,10 @@ export function App() {
     setActivityError(null);
     setActivityLoadedAt(null);
     setActivityLoading(false);
+    setMastodonProfileFull(null);
+    setProfileFetched(false);
+    setStatusInteractions(new Map());
+    setComposeOpen(false);
   }, [connectedAccount]);
 
   useEffect(() => {
@@ -1529,6 +1997,26 @@ export function App() {
       controller.abort();
     };
   }, [activeTab, buildActivityEndpoint, connectedAccount, activityRefreshNonce]);
+
+  useEffect(() => {
+    if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
+    let cancelled = false;
+    setProfileLoading(true);
+    void getMastodonProfile()
+      .then((profile) => {
+        if (!cancelled) {
+          setMastodonProfileFull(profile);
+          setProfileFetched(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setProfileFetched(true);
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, connectedAccount, profileFetched, profileLoading]);
 
   useEffect(() => {
     if (activeTab !== "home") {
@@ -1654,7 +2142,12 @@ export function App() {
         if (!cancelled) {
           setAuthInfo(`Account connected${accountText}. Token exchange completed.`);
           if (payload.account && payload.instanceOrigin) {
-            setConnectedAccount({ instanceOrigin: payload.instanceOrigin, acct: payload.account.acct });
+            setConnectedAccount({
+              instanceOrigin: payload.instanceOrigin,
+              acct: payload.account.acct,
+              displayName: (payload.account as { acct: string; display_name?: string }).display_name || undefined,
+              grantedScopes: (payload as { scope?: string }).scope ? ((payload as { scope?: string }).scope as string).split(" ").filter(Boolean) : undefined
+            });
           }
         }
         clearPendingAuthTransaction();
@@ -1748,22 +2241,36 @@ export function App() {
         : (writingPattern.test(lowered) ? "#writing" : "#bookstodon");
       const scopedQuery = [query, facetTag].filter(Boolean).join(" ");
 
-      void searchDiscoveryStatuses(scopedQuery, { limit: 16 })
-        .then((page) => {
-          if (!cancelled) {
-            setDiscoveryStatuses(page.items);
-          }
+      const cacheKey = scopedQuery;
+      const cached = discoverySearchCacheRef.current.get(cacheKey);
+      if (cached && Date.now() - cached.ts < DISCOVERY_CACHE_TTL_MS) {
+        if (!cancelled) {
+          setDiscoveryStatuses(cached.data);
+          setDiscoveryLoading(false);
+        }
+        return;
+      }
+
+      const existing = discoveryInFlightRef.current.get(cacheKey);
+      const request: Promise<MastodonStatus[]> = existing ??
+        searchDiscoveryStatuses(scopedQuery, { limit: 16 }).then((page) => page.items);
+      if (!existing) discoveryInFlightRef.current.set(cacheKey, request);
+
+      void request
+        .then((items) => {
+          discoverySearchCacheRef.current.set(cacheKey, { data: items, ts: Date.now() });
+          discoveryInFlightRef.current.delete(cacheKey);
+          if (!cancelled) setDiscoveryStatuses(items);
         })
         .catch((error) => {
+          discoveryInFlightRef.current.delete(cacheKey);
           if (!cancelled) {
             setDiscoveryStatuses([]);
             setDiscoveryError(error instanceof Error ? error.message : String(error));
           }
         })
         .finally(() => {
-          if (!cancelled) {
-            setDiscoveryLoading(false);
-          }
+          if (!cancelled) setDiscoveryLoading(false);
         });
     }, 200);
 
@@ -1772,6 +2279,77 @@ export function App() {
       window.clearTimeout(timeout);
     };
   }, [manualFacetControls, searchFacet, searchQuery, showFederatedDiscoveryResults]);
+
+  // Build/refresh the local entity catalog (authors/works/editions) for entity-aware relay matching.
+  // This lets the relay recognize posts that mention an author or book title even without a hashtag.
+  useEffect(() => {
+    if (state !== "ready") return;
+    let cancelled = false;
+    void buildLocalRelayEntityCatalog().then((entities) => {
+      if (!cancelled) relayEntityCatalogRef.current = entities;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state, importedBooks.length]);
+
+  // Relay discovery polling (entity- and query-aware)
+  useEffect(() => {
+    if (activeTab !== "search" || !showFederatedDiscoveryResults) {
+      if (relayPollIntervalRef.current) {
+        clearInterval(relayPollIntervalRef.current);
+        relayPollIntervalRef.current = null;
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const RELAY_POLL_MIN_INTERVAL_MS = 60 * 1000; // 1 minute client-side throttle
+
+    const pollRelay = async () => {
+      if (cancelled) return;
+      const now = Date.now();
+      if (now - relayLastFetchRef.current < RELAY_POLL_MIN_INTERVAL_MS) return;
+      relayLastFetchRef.current = now;
+
+      setRelayDiscoveryLoading(true);
+      setRelayDiscoveryError(null);
+
+      try {
+        const results = await pollRelayBuzz({
+          entities: relayEntityCatalogRef.current,
+          query: normalizeSearchQuery(searchQuery),
+        });
+        if (!cancelled) setRelayDiscoveryResults(results);
+      } catch (error) {
+        if (!cancelled) {
+          setRelayDiscoveryError(error instanceof Error ? error.message : "Relay discovery failed");
+          setRelayDiscoveryResults([]);
+        }
+      } finally {
+        if (!cancelled) setRelayDiscoveryLoading(false);
+      }
+    };
+
+    // Initial poll with a small delay to avoid competing with federated discovery
+    const initialTimeout = window.setTimeout(() => {
+      void pollRelay();
+    }, 400);
+
+    // Subsequent polls every 5 minutes (relay outbox doesn't update faster than that meaningfully)
+    relayPollIntervalRef.current = setInterval(() => {
+      void pollRelay();
+    }, 5 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(initialTimeout);
+      if (relayPollIntervalRef.current) {
+        clearInterval(relayPollIntervalRef.current);
+        relayPollIntervalRef.current = null;
+      }
+    };
+  }, [activeTab, searchQuery, showFederatedDiscoveryResults]);
 
   const handleSearchResultSelect = useCallback((result: ExplainedSearchResult) => {
     const query = normalizeSearchQuery(searchQuery);
@@ -1973,6 +2551,64 @@ export function App() {
     setActiveNowReadingStatus(status);
   }, []);
 
+  const handleFavourite = useCallback((statusId: string, currentFavourited: boolean) => {
+    setStatusInteractions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(statusId);
+      next.set(statusId, { favourited: !currentFavourited, bookmarked: existing?.bookmarked ?? false });
+      return next;
+    });
+    const apiCall = currentFavourited ? apiUnfavouriteStatus : apiFavouriteStatus;
+    void apiCall(statusId)
+      .then((updated) => {
+        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        if (!currentFavourited) shelves.addFavourite(updated);
+        else shelves.removeFavourite(statusId);
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          next.delete(statusId);
+          return next;
+        });
+      })
+      .catch(() => {
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(statusId);
+          if (existing) next.set(statusId, { ...existing, favourited: currentFavourited });
+          return next;
+        });
+      });
+  }, [shelves]);
+
+  const handleBookmark = useCallback((statusId: string, currentBookmarked: boolean) => {
+    setStatusInteractions((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(statusId);
+      next.set(statusId, { favourited: existing?.favourited ?? false, bookmarked: !currentBookmarked });
+      return next;
+    });
+    const apiCall = currentBookmarked ? apiUnbookmarkStatus : apiBookmarkStatus;
+    void apiCall(statusId)
+      .then((updated) => {
+        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        if (!currentBookmarked) shelves.addBookmark(updated);
+        else shelves.removeBookmark(statusId);
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          next.delete(statusId);
+          return next;
+        });
+      })
+      .catch(() => {
+        setStatusInteractions((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(statusId);
+          if (existing) next.set(statusId, { ...existing, bookmarked: currentBookmarked });
+          return next;
+        });
+      });
+  }, [shelves]);
+
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
@@ -2068,63 +2704,65 @@ export function App() {
               {activeTab === "home" && (
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="Library" />
-                  <section style={{
-                    padding: "0 var(--space-4)",
-                    marginBottom: "var(--space-6)"
-                  }}>
-                    <article style={{
-                      borderRadius: "var(--radius-lg)",
-                      background: "var(--color-bg-secondary)",
-                      boxShadow: "var(--shadow-card)",
-                      padding: "var(--space-4)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "var(--space-4)",
-                      flexWrap: "wrap"
+                  {!connectedAccount ? (
+                    <section style={{
+                      padding: "0 var(--space-4)",
+                      marginBottom: "var(--space-6)"
                     }}>
-                      <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
-                        <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
-                        <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
-                          Sign in or create an account to sync reading activity.
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={openMemberSignIn}
-                          style={{
-                            minHeight: "var(--touch-min)",
-                            border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
-                            borderRadius: "var(--radius-md)",
-                            background: "transparent",
-                            color: "var(--color-text)",
-                            fontWeight: 700,
-                            fontSize: "var(--text-footnote)",
-                            padding: "0 var(--space-4)"
-                          }}
-                        >
-                          Member sign in
-                        </button>
-                        <button
-                          type="button"
-                          onClick={openMemberSignup}
-                          style={{
-                            minHeight: "var(--touch-min)",
-                            border: 0,
-                            borderRadius: "var(--radius-md)",
-                            background: "var(--color-accent)",
-                            color: "white",
-                            fontWeight: 700,
-                            fontSize: "var(--text-footnote)",
-                            padding: "0 var(--space-4)"
-                          }}
-                        >
-                          Become a member
-                        </button>
-                      </div>
-                    </article>
-                  </section>
+                      <article style={{
+                        borderRadius: "var(--radius-lg)",
+                        background: "var(--color-bg-secondary)",
+                        boxShadow: "var(--shadow-card)",
+                        padding: "var(--space-4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "var(--space-4)",
+                        flexWrap: "wrap"
+                      }}>
+                        <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
+                          <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
+                          <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
+                            Sign in or create an account to sync reading activity.
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={openMemberSignIn}
+                            style={{
+                              minHeight: "var(--touch-min)",
+                              border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                              borderRadius: "var(--radius-md)",
+                              background: "transparent",
+                              color: "var(--color-text)",
+                              fontWeight: 700,
+                              fontSize: "var(--text-footnote)",
+                              padding: "0 var(--space-4)"
+                            }}
+                          >
+                            Member sign in
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMemberSignup}
+                            style={{
+                              minHeight: "var(--touch-min)",
+                              border: 0,
+                              borderRadius: "var(--radius-md)",
+                              background: "var(--color-accent)",
+                              color: "white",
+                              fontWeight: 700,
+                              fontSize: "var(--text-footnote)",
+                              padding: "0 var(--space-4)"
+                            }}
+                          >
+                            Become a member
+                          </button>
+                        </div>
+                      </article>
+                    </section>
+                  ) : null}
                   <SectionHeader
                     title="Currently Reading"
                     actionLabel={nowReadingLoading ? undefined : "Refresh"}
@@ -2369,18 +3007,24 @@ export function App() {
                   {showLocalSearchResults && searchError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{searchError}</p> : null}
                   {showFederatedDiscoveryResults ? (
                     <>
-                      {discoveryLoading ? <SkeletonCoverGrid count={3} /> : null}
+                      {(discoveryLoading || relayDiscoveryLoading) ? <SkeletonCoverGrid count={3} /> : null}
                       {discoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{discoveryError}</p> : null}
-                      {discoveryStatuses.length > 0 ? (
+                      {relayDiscoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{relayDiscoveryError}</p> : null}
+                      {(discoveryStatuses.length > 0 || relayDiscoveryResults.length > 0) ? (
                         <section style={{ display: "grid", gap: "var(--space-3)" }}>
                           <SectionHeader title="Fediverse Discovery" />
                           <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
+                            {/* Display relay results first (more recent hashtag-based) */}
+                            {relayDiscoveryResults.map((result) => (
+                              <DiscoveryStatusRow key={`relay-${result.id}`} status={relayResultToMastodonStatus(result)} />
+                            ))}
+                            {/* Then display discovery results (API-based) */}
                             {discoveryStatuses.map((status) => (
                               <DiscoveryStatusRow key={status.id} status={status} />
                             ))}
                           </div>
                         </section>
-                      ) : normalizeSearchQuery(searchQuery).length >= 2 && !discoveryLoading ? (
+                      ) : normalizeSearchQuery(searchQuery).length >= 2 && !(discoveryLoading || relayDiscoveryLoading) ? (
                         <EmptyState title="No federated results" description="Try another phrase, hashtag, author, or book title." />
                       ) : null}
                     </>
@@ -2425,7 +3069,19 @@ export function App() {
                             </>
                           ) : shelves.bookmarks.length > 0 ? (
                             shelves.bookmarks.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                importedBooks={importedBooks}
+                                actions={[{
+                                  label: "Remove bookmark",
+                                  pendingLabel: "Removing...",
+                                  handler: async () => {
+                                    await apiUnbookmarkStatus(status.id);
+                                    shelves.removeBookmark(status.id);
+                                  }
+                                }]}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2444,7 +3100,19 @@ export function App() {
                             </>
                           ) : shelves.favourites.length > 0 ? (
                             shelves.favourites.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                importedBooks={importedBooks}
+                                actions={[{
+                                  label: "Unfavourite",
+                                  pendingLabel: "Removing...",
+                                  handler: async () => {
+                                    await apiUnfavouriteStatus(status.id);
+                                    shelves.removeFavourite(status.id);
+                                  }
+                                }]}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2496,6 +3164,43 @@ export function App() {
                     <EmptyState title="Sign in to load activity" description="Your home timeline, notifications, and reading updates will appear here." />
                   ) : (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
+                      {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
+                        <div style={{ padding: "0 var(--space-4)" }}>
+                          <button
+                            type="button"
+                            onClick={() => setComposeOpen(true)}
+                            style={{
+                              width: "100%",
+                              minHeight: "var(--touch-min)",
+                              border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
+                              borderRadius: "var(--radius-lg)",
+                              background: "var(--color-bg-secondary)",
+                              color: "var(--color-text-secondary)",
+                              fontSize: "var(--text-footnote)",
+                              textAlign: "left",
+                              padding: "0 var(--space-4)",
+                              cursor: "pointer"
+                            }}
+                          >
+                            What are you reading?
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{
+                          margin: "0 var(--space-4)",
+                          padding: "var(--space-3) var(--space-4)",
+                          borderRadius: "var(--radius-md)",
+                          background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-bg))",
+                          border: "1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)",
+                          display: "grid",
+                          gap: "var(--space-2)"
+                        }}>
+                          <strong style={{ fontSize: "var(--text-subhead)" }}>Enable posting</strong>
+                          <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                            Your current session does not include write permissions. Sign out and sign back in to enable posting.
+                          </p>
+                        </div>
+                      )}
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
                         <SectionHeader
                           title="Notifications"
@@ -2530,7 +3235,14 @@ export function App() {
                             </>
                           ) : activityTimeline.length > 0 ? (
                             activityTimeline.map((status) => (
-                              <ActivityStatusRow key={status.id} status={status} />
+                              <ActivityStatusRow
+                                key={status.id}
+                                status={status}
+                                importedBooks={importedBooks}
+                                interaction={statusInteractions.get(status.id)}
+                                onFavourite={hasWriteScope(connectedAccount.grantedScopes, "write:favourites") ? handleFavourite : undefined}
+                                onBookmark={hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks") ? handleBookmark : undefined}
+                              />
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -2610,7 +3322,57 @@ export function App() {
                               </span>
                             </div>
                           </div>
+                          {mastodonProfileFull ? (
+                            <>
+                              {mastodonProfileFull.note ? (
+                                <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
+                                  {stripHtml(mastodonProfileFull.note).trim().slice(0, 280)}
+                                </p>
+                              ) : null}
+                              {(mastodonProfileFull.followers_count != null || mastodonProfileFull.following_count != null || mastodonProfileFull.statuses_count != null) ? (
+                                <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap" }}>
+                                  {mastodonProfileFull.followers_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.followers_count.toLocaleString()}</strong> followers
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.following_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.following_count.toLocaleString()}</strong> following
+                                    </span>
+                                  ) : null}
+                                  {mastodonProfileFull.statuses_count != null ? (
+                                    <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                                      <strong style={{ color: "var(--color-text)" }}>{mastodonProfileFull.statuses_count.toLocaleString()}</strong> posts
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : profileLoading ? (
+                            <div style={{ display: "grid", gap: "var(--space-2)" }}>
+                              <Skeleton style={{ height: 16, width: "70%" }} />
+                              <Skeleton style={{ height: 12, width: "40%" }} />
+                            </div>
+                          ) : null}
                           <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", borderTop: "1px solid color-mix(in srgb, var(--color-text) 8%, transparent)", paddingTop: "var(--space-3)" }}>
+                            {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
+                              <button
+                                type="button"
+                                onClick={() => setComposeOpen(true)}
+                                style={{
+                                  minHeight: "var(--touch-min)",
+                                  border: 0,
+                                  borderRadius: "var(--radius-md)",
+                                  background: "var(--color-accent)",
+                                  color: "white",
+                                  fontWeight: 700,
+                                  padding: "0 var(--space-4)"
+                                }}
+                              >
+                                Post Reading Update
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => {
@@ -2621,10 +3383,10 @@ export function App() {
                               disabled={isAuthWorking}
                               style={{
                                 minHeight: "var(--touch-min)",
-                                border: 0,
+                                border: "1px solid color-mix(in srgb, var(--color-text) 20%, transparent)",
                                 borderRadius: "var(--radius-md)",
-                                background: "var(--color-accent)",
-                                color: "white",
+                                background: "transparent",
+                                color: "var(--color-text)",
                                 fontWeight: 700,
                                 padding: "0 var(--space-4)",
                                 opacity: isAuthWorking ? 0.6 : 1
@@ -3057,6 +3819,16 @@ export function App() {
               <ReaderProfileSheet
                 profile={activeReaderProfile}
                 onClose={() => setActiveReaderProfile(null)}
+              />
+            ) : null}
+
+            {composeOpen && connectedAccount ? (
+              <ComposeSheet
+                onClose={() => setComposeOpen(false)}
+                onPost={(posted) => {
+                  setComposeOpen(false);
+                  setActivityTimeline((prev) => [posted, ...prev]);
+                }}
               />
             ) : null}
           </main>
