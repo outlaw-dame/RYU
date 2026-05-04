@@ -2967,6 +2967,19 @@ export function App() {
   const mastodonBio = mastodonProfileFull ? profileBio(mastodonProfileFull) : null;
   const joinedDate = mastodonProfileFull ? profileJoinDateLabel(mastodonProfileFull) : null;
   const profileEmojiMap = emojiTokensFromProfile(mastodonProfileFull);
+  const profileCustomEmoji = useMemo<Map<string, string>>(
+    () => new Map(Array.from(profileEmojiMap.entries()).map(([k, v]) => [k, v.src])),
+    [profileEmojiMap]
+  );
+  const profileBioRich = useMemo(
+    () => mastodonProfileFull?.note
+      ? renderFediverseRichText(mastodonProfileFull.note, {
+          instanceOrigin: connectedAccount?.instanceOrigin ?? null,
+          customEmoji: profileCustomEmoji
+        })
+      : null,
+    [mastodonProfileFull, connectedAccount, profileCustomEmoji]
+  );
 
   const updatePinnedIndexFromScroll = useCallback(() => {
     const container = pinnedCarouselRef.current;
@@ -3679,9 +3692,15 @@ export function App() {
                           </div>
                           {mastodonProfileFull ? (
                             <>
-                              {mastodonBio ? (
+                              {profileBioRich ? (
+                                <p
+                                  className="fediverse-rich-text"
+                                  style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}
+                                  dangerouslySetInnerHTML={{ __html: profileBioRich.html }}
+                                />
+                              ) : mastodonBio ? (
                                 <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-                                  {renderTextWithMastodonEmoji(mastodonBio.slice(0, 320), profileEmojiMap)}
+                                  {mastodonBio.slice(0, 320)}
                                 </p>
                               ) : null}
                               {(mastodonProfileFull.followers_count != null || mastodonProfileFull.following_count != null || mastodonProfileFull.statuses_count != null) ? (
@@ -3729,9 +3748,11 @@ export function App() {
                                       <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
                                         {renderTextWithMastodonEmoji(stripHtml(field.name).trim() || "Field", profileEmojiMap)}
                                       </strong>
-                                      <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", overflowWrap: "anywhere" }}>
-                                        {renderTextWithMastodonEmoji(stripHtml(field.value).trim() || "-", profileEmojiMap)}
-                                      </span>
+                                      <span
+                                        className="fediverse-rich-text"
+                                        style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", overflowWrap: "anywhere" }}
+                                        dangerouslySetInnerHTML={{ __html: renderFediverseRichText(field.value || "-", { instanceOrigin: connectedAccount?.instanceOrigin ?? null, customEmoji: profileCustomEmoji }).html }}
+                                      />
                                     </div>
                                   ))}
                                 </div>
@@ -3816,9 +3837,11 @@ export function App() {
                                             <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
                                               {formatActivityDate(status.created_at)}
                                             </span>
-                                            <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-                                              {mastodonStatusText(status).slice(0, 240)}
-                                            </p>
+                                            <div
+                                              className="fediverse-rich-text"
+                                              style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere", display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 5, overflow: "hidden" }}
+                                              dangerouslySetInnerHTML={{ __html: renderFediverseRichText(status.content ?? mastodonStatusText(status), { instanceOrigin: connectedAccount?.instanceOrigin ?? null, customEmoji: profileCustomEmoji }).html }}
+                                            />
                                             {href ? (
                                               <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "var(--text-footnote)", textDecoration: "none" }}>
                                                 Open post
