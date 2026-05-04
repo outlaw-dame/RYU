@@ -2379,63 +2379,65 @@ export function App() {
               {activeTab === "home" && (
                 <TabPanel id="home" activeTab={activeTab}>
                   <ScreenTitle eyebrow="Good evening" title="Library" />
-                  <section style={{
-                    padding: "0 var(--space-4)",
-                    marginBottom: "var(--space-6)"
-                  }}>
-                    <article style={{
-                      borderRadius: "var(--radius-lg)",
-                      background: "var(--color-bg-secondary)",
-                      boxShadow: "var(--shadow-card)",
-                      padding: "var(--space-4)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      gap: "var(--space-4)",
-                      flexWrap: "wrap"
+                  {!connectedAccount ? (
+                    <section style={{
+                      padding: "0 var(--space-4)",
+                      marginBottom: "var(--space-6)"
                     }}>
-                      <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
-                        <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
-                        <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
-                          Sign in or create an account to sync reading activity.
-                        </span>
-                      </div>
-                      <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
-                        <button
-                          type="button"
-                          onClick={openMemberSignIn}
-                          style={{
-                            minHeight: "var(--touch-min)",
-                            border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
-                            borderRadius: "var(--radius-md)",
-                            background: "transparent",
-                            color: "var(--color-text)",
-                            fontWeight: 700,
-                            fontSize: "var(--text-footnote)",
-                            padding: "0 var(--space-4)"
-                          }}
-                        >
-                          Member sign in
-                        </button>
-                        <button
-                          type="button"
-                          onClick={openMemberSignup}
-                          style={{
-                            minHeight: "var(--touch-min)",
-                            border: 0,
-                            borderRadius: "var(--radius-md)",
-                            background: "var(--color-accent)",
-                            color: "white",
-                            fontWeight: 700,
-                            fontSize: "var(--text-footnote)",
-                            padding: "0 var(--space-4)"
-                          }}
-                        >
-                          Become a member
-                        </button>
-                      </div>
-                    </article>
-                  </section>
+                      <article style={{
+                        borderRadius: "var(--radius-lg)",
+                        background: "var(--color-bg-secondary)",
+                        boxShadow: "var(--shadow-card)",
+                        padding: "var(--space-4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "var(--space-4)",
+                        flexWrap: "wrap"
+                      }}>
+                        <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
+                          <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
+                          <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
+                            Sign in or create an account to sync reading activity.
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={openMemberSignIn}
+                            style={{
+                              minHeight: "var(--touch-min)",
+                              border: "1px solid color-mix(in srgb, var(--color-text) 14%, transparent)",
+                              borderRadius: "var(--radius-md)",
+                              background: "transparent",
+                              color: "var(--color-text)",
+                              fontWeight: 700,
+                              fontSize: "var(--text-footnote)",
+                              padding: "0 var(--space-4)"
+                            }}
+                          >
+                            Member sign in
+                          </button>
+                          <button
+                            type="button"
+                            onClick={openMemberSignup}
+                            style={{
+                              minHeight: "var(--touch-min)",
+                              border: 0,
+                              borderRadius: "var(--radius-md)",
+                              background: "var(--color-accent)",
+                              color: "white",
+                              fontWeight: 700,
+                              fontSize: "var(--text-footnote)",
+                              padding: "0 var(--space-4)"
+                            }}
+                          >
+                            Become a member
+                          </button>
+                        </div>
+                      </article>
+                    </section>
+                  ) : null}
                   <SectionHeader
                     title="Currently Reading"
                     actionLabel={nowReadingLoading ? undefined : "Refresh"}
