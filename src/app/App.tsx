@@ -35,7 +35,8 @@ import {
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
-import { pollRelayBuzz, relayResultToMastodonStatus, type RelayDiscoveryResult } from "../sync/relay-discovery";
+import { pollRelayBuzz, relayResultToMastodonStatus, type RelayDiscoveryResult, type RelayEntity } from "../sync/relay-discovery";
+import { buildLocalRelayEntityCatalog } from "../sync/relay-entity-catalog";
 import {
   searchDiscoveryStatuses,
   getMastodonProfile,
@@ -1538,7 +1539,8 @@ export function App() {
   const shelves = useMastodonShelves(connectedAccount !== null);
   const discoverySearchCacheRef = useRef(new Map<string, { data: MastodonStatus[]; ts: number }>());
   const discoveryInFlightRef = useRef(new Map<string, Promise<MastodonStatus[]>>());
-  const relayDiscoveryCombinedRef = useRef<MastodonStatus[]>([]);
+  const relayEntityCatalogRef = useRef<RelayEntity[]>([]);
+  const relayLastFetchRef = useRef<number>(0);
   const DISCOVERY_CACHE_TTL_MS = 3 * 60 * 1000;
   const changeTab = useCallback((tab: TabId) => setActiveTab(tab), []);
   const featuredBooks = importedBooks.length > 0 ? importedBooks : sampleBooks;
@@ -1953,9 +1955,22 @@ export function App() {
     };
   }, [manualFacetControls, searchFacet, searchQuery, showFederatedDiscoveryResults]);
 
-  // Relay discovery polling
+  // Build/refresh the local entity catalog (authors/works/editions) for entity-aware relay matching.
+  // This lets the relay recognize posts that mention an author or book title even without a hashtag.
   useEffect(() => {
-    if (activeTab !== "search" || searchQuery.length === 0 || !showFederatedDiscoveryResults) {
+    if (state !== "ready") return;
+    let cancelled = false;
+    void buildLocalRelayEntityCatalog().then((entities) => {
+      if (!cancelled) relayEntityCatalogRef.current = entities;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state, importedBooks.length]);
+
+  // Relay discovery polling (entity- and query-aware)
+  useEffect(() => {
+    if (activeTab !== "search" || !showFederatedDiscoveryResults) {
       if (relayPollIntervalRef.current) {
         clearInterval(relayPollIntervalRef.current);
         relayPollIntervalRef.current = null;
@@ -1964,42 +1979,42 @@ export function App() {
     }
 
     let cancelled = false;
+    const RELAY_POLL_MIN_INTERVAL_MS = 60 * 1000; // 1 minute client-side throttle
 
     const pollRelay = async () => {
       if (cancelled) return;
+      const now = Date.now();
+      if (now - relayLastFetchRef.current < RELAY_POLL_MIN_INTERVAL_MS) return;
+      relayLastFetchRef.current = now;
+
       setRelayDiscoveryLoading(true);
       setRelayDiscoveryError(null);
 
       try {
-        const results = await pollRelayBuzz();
-        if (!cancelled) {
-          // Convert relay results to MastodonStatus-like format
-          const statuses = results.map((result) => relayResultToMastodonStatus(result));
-          setRelayDiscoveryResults(results);
-          // Merge with existing discovery results
-          relayDiscoveryCombinedRef.current = statuses;
-        }
+        const results = await pollRelayBuzz({
+          entities: relayEntityCatalogRef.current,
+          query: normalizeSearchQuery(searchQuery),
+        });
+        if (!cancelled) setRelayDiscoveryResults(results);
       } catch (error) {
         if (!cancelled) {
           setRelayDiscoveryError(error instanceof Error ? error.message : "Relay discovery failed");
           setRelayDiscoveryResults([]);
         }
       } finally {
-        if (!cancelled) {
-          setRelayDiscoveryLoading(false);
-        }
+        if (!cancelled) setRelayDiscoveryLoading(false);
       }
     };
 
     // Initial poll with a small delay to avoid competing with federated discovery
     const initialTimeout = window.setTimeout(() => {
       void pollRelay();
-    }, 300);
+    }, 400);
 
-    // Set up interval for subsequent polls (30 seconds)
+    // Subsequent polls every 5 minutes (relay outbox doesn't update faster than that meaningfully)
     relayPollIntervalRef.current = setInterval(() => {
       void pollRelay();
-    }, 30000);
+    }, 5 * 60 * 1000);
 
     return () => {
       cancelled = true;
