@@ -222,6 +222,54 @@ describe("relay-discovery", () => {
     });
   });
 
+  describe("hashtag/plain-text symmetry (camelCase)", () => {
+    it("matches a #MitchAlbom hashtag in post content from a 'Mitch Albom' query", async () => {
+      const post: RelayActivity = {
+        ...mockActivity,
+        id: "https://relay.fedi.buzz/activities/cc1",
+        object: {
+          ...mockActivity.object,
+          id: "https://fosstodon.org/users/author/statuses/cc1",
+          content: "Tuesdays with Morrie still hits hard #MitchAlbom",
+          tag: undefined,
+        },
+      };
+      const results = await pollRelayBuzz({
+        fetchImpl: mockFetchOnce([post]),
+        query: "Mitch Albom",
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe(post.object.id);
+    });
+
+    it("matches plain-text mentions from a #MitchAlbom hashtag query", async () => {
+      const post: RelayActivity = {
+        ...mockActivity,
+        id: "https://relay.fedi.buzz/activities/cc2",
+        object: {
+          ...mockActivity.object,
+          id: "https://fosstodon.org/users/author/statuses/cc2",
+          content: "Just finished a Mitch Albom essay collection #reading",
+          tag: undefined,
+        },
+      };
+      const results = await pollRelayBuzz({
+        fetchImpl: mockFetchOnce([post]),
+        query: "#MitchAlbom",
+      });
+      expect(results).toHaveLength(1);
+      expect(results[0].id).toBe(post.object.id);
+    });
+
+    it("matches entity aliases against camelCase hashtags via expansion", () => {
+      const matches = matchEntitiesInContent(
+        "Loved this one #StephenKing all night",
+        [{ id: "author-king", type: "author", label: "Stephen King", aliases: ["stephen king"] }]
+      );
+      expect(matches.map((m) => m.id)).toContain("author-king");
+    });
+  });
+
   describe("relayResultToMastodonStatus", () => {
     it("should convert relay result to mastodon status format", async () => {
       const results = await pollRelayBuzz({ fetchImpl: mockFetchOnce([mockActivity]) });

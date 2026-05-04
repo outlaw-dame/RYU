@@ -24,6 +24,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   if (expansion.normalizedQuery.length < 2) return null;
 
   const primaryQuery = expansion.normalizedQuery;
+  const lexicalQuery = expansion.lexicalQuery || primaryQuery;
   const semanticQuery = expansion.semanticQuery || primaryQuery;
 
   let intent = classifyQueryIntent(primaryQuery);
@@ -31,7 +32,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
 
   const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
-  const lexical = await searchOrama(primaryQuery, options.db);
+  const lexical = await searchOrama(lexicalQuery, options.db);
   const semantic = await semanticSearchLocal(semanticQuery, 20, options.db);
 
   const fused = fuseResults(lexical, semantic, adaptiveAlpha);

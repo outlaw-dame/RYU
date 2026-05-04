@@ -10,6 +10,11 @@ export type DiscoveryEntity = {
 
 export type DiscoveryQueryPlan = {
   normalizedQuery: string;
+  /**
+   * Enriched lexical form that includes camelCase splits and de-hashed forms,
+   * so `#MitchAlbom` and `Mitch Albom` produce equivalent lexical matches.
+   */
+  lexicalQuery: string;
   variants: string[];
   matchedEntities: DiscoveryEntity[];
 };
@@ -100,6 +105,7 @@ export function buildDiscoveryQueryPlan(
   if (!normalizedQuery) {
     return {
       normalizedQuery: "",
+      lexicalQuery: "",
       variants: [],
       matchedEntities: []
     };
@@ -107,18 +113,41 @@ export function buildDiscoveryQueryPlan(
 
   const matchedEntities = matchLocalEntities(normalizedQuery);
   const variants = new Set<string>([normalizedQuery]);
+  const lexicalSegments = new Set<string>([normalizedQuery]);
 
-  const tokens = extractTokens(normalizedQuery);
-  for (const token of tokens) {
-    const canonical = canonicalizeTagToken(token);
-    if (!canonical || !canonicalHashtagTerms.has(canonical)) {
-      continue;
+  // Operate on the raw input so we can detect camelCase before lowercasing.
+  const rawTokens = extractRawTokens(query);
+  for (const rawToken of rawTokens) {
+    const stripped = rawToken.replace(/^#+/, "");
+    const lowerStripped = stripped.toLowerCase();
+    const lowerToken = rawToken.toLowerCase();
+
+    // CamelCase / PascalCase / multi-word splits — `MitchAlbom` -> `mitch albom`,
+    // `WriterWednesday` -> `writer wednesday`, `JRRTolkien` -> `jrr tolkien`.
+    const split = splitCamelCase(stripped).toLowerCase();
+    if (split && split !== lowerStripped && split.includes(" ")) {
+      variants.add(split);
+      variants.add(`#${split.replace(/\s+/g, "")}`);
+      lexicalSegments.add(split);
     }
 
-    variants.add(`#${canonical}`);
-    variants.add(canonical);
-    variants.add(token.startsWith("#") ? token : `#${token}`);
-    variants.add(token.startsWith("#") ? token.slice(1) : token);
+    // Symmetry: hashtag form <-> plain form for ANY token (not just curated tags),
+    // so the same query reaches both lexical and hashtag-tagged content.
+    if (rawToken.startsWith("#")) {
+      variants.add(lowerStripped);
+      lexicalSegments.add(lowerStripped);
+    } else if (lowerStripped.length >= 3) {
+      variants.add(`#${lowerStripped}`);
+    }
+
+    // Curated reading/writing hashtag catalog — keep the original behavior.
+    const canonical = canonicalizeTagToken(rawToken);
+    if (canonical && canonicalHashtagTerms.has(canonical)) {
+      variants.add(`#${canonical}`);
+      variants.add(canonical);
+      variants.add(rawToken.startsWith("#") ? lowerToken : `#${lowerToken}`);
+      variants.add(rawToken.startsWith("#") ? lowerStripped : lowerToken);
+    }
   }
 
   for (const entity of matchedEntities) {
@@ -128,14 +157,55 @@ export function buildDiscoveryQueryPlan(
     }
   }
 
+  // Title-Case phrases (e.g. "Mitch Albom", "Stephen King") get a concatenated
+  // hashtag form so plain-text queries reach #MitchAlbom-tagged content.
+  const titlePhrases = query.match(/\b[A-Z][a-z0-9]+(?:\s+[A-Z][a-z0-9]+)+\b/g) ?? [];
+  for (const phrase of titlePhrases) {
+    const concatenated = phrase.replace(/\s+/g, "").toLowerCase();
+    if (concatenated.length >= 3) {
+      variants.add(`#${concatenated}`);
+    }
+  }
+
+  const lexicalQuery = Array.from(lexicalSegments)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(" ");
+
   return {
     normalizedQuery,
+    lexicalQuery,
     variants: Array.from(variants)
       .map((value) => value.trim())
       .filter(Boolean)
       .slice(0, maxVariants),
     matchedEntities
   };
+}
+
+/**
+ * Split a token like `MitchAlbom` into `Mitch Albom`. Handles consecutive
+ * uppercase blocks (`JRRTolkien` -> `JRR Tolkien`, `XMLParser` -> `XML Parser`)
+ * and digit/letter transitions. Returns input unchanged if no split applies.
+ */
+export function splitCamelCase(token: string): string {
+  if (!token) return "";
+  const stripped = token.replace(/^#+/, "");
+  const spaced = stripped
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  return spaced;
+}
+
+function extractRawTokens(input: string): string[] {
+  const matches = input.match(/#[A-Za-z0-9_]+|[A-Za-z0-9_]+/g) ?? [];
+  const unique = new Set<string>();
+  for (const token of matches) {
+    unique.add(token);
+  }
+  return Array.from(unique);
 }
 
 function buildCanonicalHashtagTerms(source: string): Set<string> {
@@ -154,17 +224,6 @@ function canonicalizeTagToken(value: string): string {
 
 function normalizeQuery(input: string): string {
   return input.trim().replace(/\s+/g, " ").toLowerCase();
-}
-
-function extractTokens(query: string): string[] {
-  const raw = query.match(/#[a-z0-9_]+|[a-z0-9_]+/gi) ?? [];
-  const unique = new Set<string>();
-
-  for (const token of raw) {
-    unique.add(token.toLowerCase());
-  }
-
-  return Array.from(unique);
 }
 
 function matchLocalEntities(normalizedQuery: string): DiscoveryEntity[] {

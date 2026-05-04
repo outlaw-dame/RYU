@@ -7,6 +7,8 @@
  * plus the static discovery catalog).
  */
 
+import { splitCamelCase } from "./discovery-query";
+
 export type RelayActivity = {
   id: string;
   type: "Create" | "Announce";
@@ -178,11 +180,31 @@ function containsAlias(haystack: string, alias: string): boolean {
   return regex.test(haystack);
 }
 
+/**
+ * Append camelCase-split forms of any hashtags in `text` to the text itself.
+ * Lets queries like "Mitch Albom" match posts that only carry `#MitchAlbom`,
+ * and vice versa. Operates on case-preserved text (must run before lowercasing).
+ */
+function expandHashtagSplits(text: string): string {
+  if (!text) return text;
+  const parts: string[] = [text];
+  const seen = new Set<string>();
+  const matches = text.match(/#[A-Za-z0-9_]+/g) ?? [];
+  for (const tag of matches) {
+    const split = splitCamelCase(tag);
+    if (split && split.includes(" ") && !seen.has(split.toLowerCase())) {
+      seen.add(split.toLowerCase());
+      parts.push(split);
+    }
+  }
+  return parts.join(" ");
+}
+
 export function matchEntitiesInContent(plainContent: string, entities: RelayEntity[] | undefined): RelayEntityMatch[] {
   if (!entities || entities.length === 0 || !plainContent) return [];
   const seen = new Set<string>();
   const matches: RelayEntityMatch[] = [];
-  const lower = plainContent.toLowerCase();
+  const lower = expandHashtagSplits(plainContent).toLowerCase();
 
   for (const entity of entities) {
     if (seen.has(entity.id)) continue;
@@ -205,7 +227,7 @@ function calculateRelevanceScore(
   plainContent: string,
   options: { entities?: RelayEntity[]; query?: string } = {}
 ): { score: number; entityMatches: RelayEntityMatch[] } {
-  const lowered = plainContent.toLowerCase();
+  const lowered = expandHashtagSplits(plainContent).toLowerCase();
   let score = 0;
   let matches = 0;
 
@@ -241,14 +263,24 @@ function calculateRelevanceScore(
     matches += entityMatches.length;
   }
 
-  // Query-aware boost — favor posts that match the user's current search query
-  const query = (options.query || "").trim().toLowerCase();
-  if (query.length >= 2) {
-    const tokens = query
-      .split(/[^a-z0-9]+/i)
-      .filter((token) => token.length >= 3);
+  // Query-aware boost — favor posts that match the user's current search query.
+  // Splits camelCase tokens too, so a `#MitchAlbom` query also boosts on "Mitch Albom".
+  const rawQuery = (options.query || "").trim();
+  if (rawQuery.length >= 2) {
+    const tokenSet = new Set<string>();
+    for (const raw of rawQuery.split(/[^A-Za-z0-9_#]+/g)) {
+      if (!raw) continue;
+      const stripped = raw.replace(/^#+/, "");
+      const split = splitCamelCase(stripped);
+      if (split && split.includes(" ")) {
+        for (const word of split.split(/\s+/)) {
+          if (word.length >= 3) tokenSet.add(word.toLowerCase());
+        }
+      }
+      if (stripped.length >= 3) tokenSet.add(stripped.toLowerCase());
+    }
     let queryHits = 0;
-    for (const token of tokens) {
+    for (const token of tokenSet) {
       if (containsAlias(lowered, token)) queryHits++;
     }
     if (queryHits > 0) {

@@ -3,6 +3,8 @@ import { buildDiscoveryQueryPlan } from "../sync/discovery-query";
 
 export type SearchQueryExpansionPlan = {
   normalizedQuery: string;
+  /** Enriched form for lexical search (camelCase splits + de-hashed tokens). */
+  lexicalQuery: string;
   semanticQuery: string;
   variants: string[];
 };
@@ -14,6 +16,7 @@ export async function buildSearchQueryExpansionPlan(query: string, db?: RyuDatab
   if (!normalizedQuery) {
     return {
       normalizedQuery,
+      lexicalQuery: "",
       semanticQuery: "",
       variants: []
     };
@@ -33,6 +36,7 @@ export async function buildSearchQueryExpansionPlan(query: string, db?: RyuDatab
 
   return {
     normalizedQuery,
+    lexicalQuery: discovery.lexicalQuery || normalizedQuery,
     semanticQuery: variants.join(" "),
     variants
   };
