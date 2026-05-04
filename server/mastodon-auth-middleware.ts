@@ -255,6 +255,32 @@ function clientAddress(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
 
+function parseHeaderHostValues(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  const source = Array.isArray(value) ? value.join(",") : value;
+  return source
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function requestHostCandidates(req: IncomingMessage): Set<string> {
+  const candidates = new Set<string>();
+  for (const value of parseHeaderHostValues(req.headers.host)) {
+    candidates.add(value);
+  }
+
+  for (const value of parseHeaderHostValues(req.headers["x-forwarded-host"])) {
+    candidates.add(value);
+  }
+
+  for (const value of parseHeaderHostValues(req.headers["x-original-host"])) {
+    candidates.add(value);
+  }
+
+  return candidates;
+}
+
 // ─── Cookie Helpers ───────────────────────────────────────────────────────────
 
 function isSecureConnection(req: IncomingMessage): boolean {
@@ -1584,12 +1610,16 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
       return;
     }
 
-    // CSRF guard: if an Origin header is present it must match the Host.
+    // CSRF guard: if an Origin header is present it must match the request host.
+    // Behind trusted proxies/tunnels (Cloudflare Tunnel, reverse proxies), use
+    // forwarded host headers in addition to Host to avoid false 403s.
     const originHeader = req.headers.origin;
     if (originHeader) {
       try {
         const parsed = new URL(originHeader);
-        if (parsed.host !== (req.headers.host ?? "")) {
+        const originHost = parsed.host.toLowerCase();
+        const allowedHosts = requestHostCandidates(req);
+        if (allowedHosts.size === 0 || !allowedHosts.has(originHost)) {
           sendJson(res, 403, { error: "forbidden_origin" });
           return;
         }
