@@ -5,6 +5,7 @@ import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
+import { BookDetailSheet } from "../components/common/BookDetailSheet";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { Skeleton, SkeletonCoverGrid } from "../components/common/Skeleton";
 import { useDatabase } from "../hooks/useDatabase";
@@ -2097,6 +2098,15 @@ export function App() {
   const [profileFetched, setProfileFetched] = useState(false);
   const [statusInteractions, setStatusInteractions] = useState<Map<string, { favourited: boolean; bookmarked: boolean }>>(() => new Map());
   const [composeOpen, setComposeOpen] = useState(false);
+  const [activeBookDetail, setActiveBookDetail] = useState<{
+    id: string;
+    title: string;
+    author?: string;
+    coverUrl?: string | null;
+    sourceUrl?: string | null;
+    titleUrl?: string | null;
+    authorUrl?: string | null;
+  } | null>(null);
   const { state } = useDatabase();
   const autocompleteResults = useAutocomplete(searchQuery);
   const preferredSoftwareSlugs = useMemo(() => (preferredSoftware ? [preferredSoftware] : []), [preferredSoftware]);
@@ -3139,7 +3149,7 @@ export function App() {
                   ) : null}
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
-                  <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} />
+                  <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} onBookPress={setActiveBookDetail} />
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader
                     title="BookTok Trending"
@@ -3149,7 +3159,7 @@ export function App() {
                   {bookTokLoading && bookTokTrends.length === 0 ? (
                     <SkeletonCoverGrid count={3} />
                   ) : (
-                    <CoverGrid books={bookTokCoverBooks.slice(0, 9)} />
+                    <CoverGrid books={bookTokCoverBooks.slice(0, 9)} onBookPress={setActiveBookDetail} />
                   )}
                   {bookTokError ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
@@ -3385,7 +3395,7 @@ export function App() {
                   ) : showLocalSearchResults && importedBooks.length > 0 ? (
                     <>
                       <SectionHeader title="Imported Editions" />
-                      <CoverGrid books={importedBooks} />
+                      <CoverGrid books={importedBooks} onBookPress={setActiveBookDetail} />
                     </>
                   ) : showLocalSearchResults ? (
                     <EmptyState title="No imported books yet" description="BookWyrm editions you import will appear here." />
@@ -4368,6 +4378,13 @@ export function App() {
               <ReaderProfileSheet
                 profile={activeReaderProfile}
                 onClose={() => setActiveReaderProfile(null)}
+              />
+            ) : null}
+
+            {activeBookDetail ? (
+              <BookDetailSheet
+                book={activeBookDetail}
+                onClose={() => setActiveBookDetail(null)}
               />
             ) : null}
 

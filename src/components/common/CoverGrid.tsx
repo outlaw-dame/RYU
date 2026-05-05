@@ -153,13 +153,19 @@ export function CoverGrid({ books, onBookPress }: { books: Book[]; onBookPress?:
               target="_blank"
               rel="noopener noreferrer"
               aria-label={`Open ${book.title}`}
-              onClick={onBookPress ? () => onBookPress(book) : undefined}
+              onClick={onBookPress ? (e) => { e.preventDefault(); onBookPress(book); } : undefined}
               style={coverActionStyle}
             >
               {cover}
             </a>
             <div>
-              <a href={href} target="_blank" rel="noopener noreferrer" style={titleLinkStyle}>
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={titleLinkStyle}
+                onClick={onBookPress ? (e) => { e.preventDefault(); onBookPress(book); } : undefined}
+              >
                 {book.title}
               </a>
               {book.author ? (
