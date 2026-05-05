@@ -7,6 +7,8 @@ type Book = {
   title: string;
   author?: string;
   coverUrl?: string | null;
+  isbn10?: string;
+  isbn13?: string;
   sourceUrl?: string | null;
   titleUrl?: string | null;
   authorUrl?: string | null;
@@ -93,9 +95,38 @@ function resolveAuthorHref(book: Book): string | null {
   return sanitizeUrl(book.authorUrl) ?? openLibraryAuthorSearchUrl(book.author);
 }
 
-function resolveCoverSrc(coverUrl: string | null | undefined): string | null {
+function normalizeIsbn(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/[^0-9Xx]/g, "").toUpperCase();
+  if (normalized.length !== 10 && normalized.length !== 13) return null;
+  return normalized;
+}
+
+function isbnFromOpenLibraryCoverUrl(coverUrl: string | null | undefined): string | null {
   const safeUrl = sanitizeUrl(coverUrl);
   if (!safeUrl) return null;
+
+  try {
+    const parsed = new URL(safeUrl, window.location.origin);
+    if (parsed.hostname !== "covers.openlibrary.org") return null;
+    const match = parsed.pathname.match(/^\/b\/isbn\/([0-9Xx]{10,13})-[SML]\.jpg$/);
+    return normalizeIsbn(match?.[1] ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function googleBooksCoverUrlForIsbn(isbn: string, zoom = 1): string {
+  return `https://books.google.com/books/content?vid=ISBN${encodeURIComponent(isbn)}&printsec=frontcover&img=1&zoom=${zoom}&source=gbs_api`;
+}
+
+function resolveCoverSrc(book: Book): string | null {
+  const safeUrl = sanitizeUrl(book.coverUrl);
+  if (!safeUrl) {
+    const fallbackIsbn = normalizeIsbn(book.isbn13) ?? normalizeIsbn(book.isbn10);
+    if (!fallbackIsbn) return null;
+    return `/api/media/cover?url=${encodeURIComponent(googleBooksCoverUrlForIsbn(fallbackIsbn, 1))}`;
+  }
 
   const parsed = new URL(safeUrl, window.location.origin);
   if (parsed.origin === window.location.origin) return parsed.toString();
@@ -117,8 +148,23 @@ function coverPlaceholder(title: string): string {
   return initials || "Book";
 }
 
-function hideBrokenCover(event: SyntheticEvent<HTMLImageElement>): void {
-  event.currentTarget.hidden = true;
+function hideBrokenCover(event: SyntheticEvent<HTMLImageElement>, book: Book): void {
+  const img = event.currentTarget;
+  const hasFallback = img.dataset.fallbackApplied === "true";
+  if (hasFallback) {
+    img.hidden = true;
+    return;
+  }
+
+  const isbnFromCover = isbnFromOpenLibraryCoverUrl(book.coverUrl);
+  const isbn = isbnFromCover ?? normalizeIsbn(book.isbn13) ?? normalizeIsbn(book.isbn10);
+  if (!isbn) {
+    img.hidden = true;
+    return;
+  }
+
+  img.dataset.fallbackApplied = "true";
+  img.src = `/api/media/cover?url=${encodeURIComponent(googleBooksCoverUrlForIsbn(isbn, 1))}`;
 }
 
 export function CoverGrid({ books, onBookPress }: { books: Book[]; onBookPress?: (book: Book) => void }) {
@@ -127,7 +173,7 @@ export function CoverGrid({ books, onBookPress }: { books: Book[]; onBookPress?:
       {books.map((book) => {
         const href = resolveBookHref(book);
         const authorHref = resolveAuthorHref(book);
-        const coverSrc = resolveCoverSrc(book.coverUrl);
+        const coverSrc = resolveCoverSrc(book);
         const cover = (
           <div style={coverFrameStyle}>
             <span aria-hidden="true" style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)", fontWeight: 700 }}>
@@ -139,7 +185,7 @@ export function CoverGrid({ books, onBookPress }: { books: Book[]; onBookPress?:
                 alt={`Cover of ${book.title}`}
                 loading="lazy"
                 decoding="async"
-                onError={hideBrokenCover}
+                onError={(event) => hideBrokenCover(event, book)}
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }}
               />
             ) : null}

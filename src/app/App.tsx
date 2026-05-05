@@ -445,6 +445,8 @@ type NowReadingImportedBook = {
   title: string;
   author?: string;
   coverUrl?: string;
+  isbn10?: string;
+  isbn13?: string;
   sourceUrl?: string;
   authorUrl?: string;
 };
@@ -2103,6 +2105,8 @@ export function App() {
     title: string;
     author?: string;
     coverUrl?: string | null;
+    isbn10?: string | null;
+    isbn13?: string | null;
     sourceUrl?: string | null;
     titleUrl?: string | null;
     authorUrl?: string | null;

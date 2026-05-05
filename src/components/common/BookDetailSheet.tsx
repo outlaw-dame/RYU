@@ -6,6 +6,8 @@ type Book = {
   title: string;
   author?: string;
   coverUrl?: string | null;
+  isbn10?: string | null;
+  isbn13?: string | null;
   sourceUrl?: string | null;
   titleUrl?: string | null;
   authorUrl?: string | null;
@@ -23,6 +25,35 @@ type OLDoc = {
   language?: string[];
   first_sentence?: unknown;
   edition_count?: number;
+};
+
+type GoogleBooksVolume = {
+  title?: string;
+  authors?: string[];
+  description?: string;
+  pageCount?: number;
+  publishedDate?: string;
+  publisher?: string;
+  language?: string;
+  infoLink?: string;
+  imageLinks?: {
+    smallThumbnail?: string;
+    thumbnail?: string;
+    small?: string;
+    medium?: string;
+    large?: string;
+    extraLarge?: string;
+  };
+  industryIdentifiers?: Array<{
+    type?: string;
+    identifier?: string;
+  }>;
+};
+
+type GoogleBooksSearchResponse = {
+  items?: Array<{
+    volumeInfo?: GoogleBooksVolume;
+  }>;
 };
 
 function extractFirstSentence(raw: unknown): string | null {
@@ -73,6 +104,119 @@ function languageLabel(codes: string[]): string {
   return labels.join(", ");
 }
 
+function normalizeIsbn(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/[^0-9Xx]/g, "").toUpperCase();
+  if (normalized.length !== 10 && normalized.length !== 13) return null;
+  return normalized;
+}
+
+function googleBooksCoverUrlForIsbn(isbn: string, zoom = 2): string {
+  return `https://books.google.com/books/content?vid=ISBN${encodeURIComponent(isbn)}&printsec=frontcover&img=1&zoom=${zoom}&source=gbs_api`;
+}
+
+function backoffMs(attempt: number): number {
+  return Math.min(4_000, 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+}
+
+function parsePublishedYear(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const match = value.match(/\b(\d{4})\b/);
+  if (!match) return undefined;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeGoogleBooksImageUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  const normalized = url.startsWith("http://") ? `https://${url.slice("http://".length)}` : url;
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function pickGoogleBooksImage(volume: GoogleBooksVolume | null): string | null {
+  if (!volume?.imageLinks) return null;
+  return (
+    normalizeGoogleBooksImageUrl(volume.imageLinks.extraLarge) ??
+    normalizeGoogleBooksImageUrl(volume.imageLinks.large) ??
+    normalizeGoogleBooksImageUrl(volume.imageLinks.medium) ??
+    normalizeGoogleBooksImageUrl(volume.imageLinks.small) ??
+    normalizeGoogleBooksImageUrl(volume.imageLinks.thumbnail) ??
+    normalizeGoogleBooksImageUrl(volume.imageLinks.smallThumbnail)
+  );
+}
+
+function pickGoogleBooksIsbn(volume: GoogleBooksVolume | null): string | null {
+  const identifiers = volume?.industryIdentifiers;
+  if (!identifiers?.length) return null;
+
+  const isbn13 = identifiers.find((item) => item.type === "ISBN_13")?.identifier;
+  const isbn10 = identifiers.find((item) => item.type === "ISBN_10")?.identifier;
+  return normalizeIsbn(isbn13) ?? normalizeIsbn(isbn10);
+}
+
+async function fetchJsonWithBackoff<T>(
+  url: string,
+  options: RequestInit,
+  attempts = 3,
+  timeoutMs = 8_000
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        headers: {
+          Accept: "application/json",
+          ...(options.headers ?? {})
+        }
+      });
+
+      window.clearTimeout(timer);
+
+      if (!response.ok) {
+        const retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+        if (retryable && attempt < attempts) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, backoffMs(attempt)));
+          continue;
+        }
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      return response.json() as Promise<T>;
+    } catch (error) {
+      window.clearTimeout(timer);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < attempts) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, backoffMs(attempt)));
+      }
+    }
+  }
+
+  throw lastError ?? new Error("Request failed");
+}
+
+function buildGoogleBooksQuery(book: Book): string {
+  const isbn = normalizeIsbn(book.isbn13) ?? normalizeIsbn(book.isbn10);
+  if (isbn) return `isbn:${isbn}`;
+
+  const title = book.title.trim();
+  const author = book.author?.trim();
+  if (author) return `intitle:${title} inauthor:${author}`;
+  return `intitle:${title}`;
+}
+
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "80px 1fr", gap: "var(--space-2)", alignItems: "baseline" }}>
@@ -101,6 +245,7 @@ function SkeletonLine({ width = "60%" }: { width?: string }) {
 
 export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => void }) {
   const [doc, setDoc] = useState<OLDoc | null>(null);
+  const [googleVolume, setGoogleVolume] = useState<GoogleBooksVolume | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -115,6 +260,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
     let cancelled = false;
     setLoading(true);
     setDoc(null);
+    setGoogleVolume(null);
 
     const params = new URLSearchParams();
     if (book.title) params.set("title", book.title);
@@ -125,38 +271,86 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
     );
     params.set("limit", "1");
 
-    fetch(`https://openlibrary.org/search.json?${params.toString()}`)
-      .then((r) => r.json())
-      .then((data: { docs?: OLDoc[] }) => {
-        if (!cancelled && data.docs?.[0]) setDoc(data.docs[0]);
-      })
-      .catch(() => {
-        /* silent — fall back to what we know from the book object */
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const load = async () => {
+      let openLibraryDoc: OLDoc | null = null;
+
+      try {
+        const data = await fetchJsonWithBackoff<{ docs?: OLDoc[] }>(
+          `https://openlibrary.org/search.json?${params.toString()}`,
+          { method: "GET" },
+          3,
+          7_500
+        );
+        openLibraryDoc = data.docs?.[0] ?? null;
+        if (!cancelled && openLibraryDoc) setDoc(openLibraryDoc);
+      } catch {
+        // Best-effort: metadata gracefully degrades to book payload and Google fallback.
+      }
+
+      const shouldLookupGoogle =
+        !openLibraryDoc ||
+        (!openLibraryDoc.number_of_pages_median &&
+          !openLibraryDoc.first_publish_year &&
+          !openLibraryDoc.publisher?.[0] &&
+          !extractFirstSentence(openLibraryDoc.first_sentence));
+
+      if (shouldLookupGoogle) {
+        try {
+          const googleQuery = buildGoogleBooksQuery(book);
+          const googleUrl = new URL("https://www.googleapis.com/books/v1/volumes");
+          googleUrl.searchParams.set("q", googleQuery);
+          googleUrl.searchParams.set("maxResults", "1");
+          googleUrl.searchParams.set(
+            "fields",
+            "items(volumeInfo/title,volumeInfo/authors,volumeInfo/description,volumeInfo/pageCount,volumeInfo/publishedDate,volumeInfo/publisher,volumeInfo/language,volumeInfo/infoLink,volumeInfo/imageLinks,volumeInfo/industryIdentifiers)"
+          );
+
+          const response = await fetchJsonWithBackoff<GoogleBooksSearchResponse>(
+            googleUrl.toString(),
+            { method: "GET" },
+            3,
+            7_500
+          );
+          const candidateVolume = response.items?.[0]?.volumeInfo ?? null;
+          if (!cancelled) setGoogleVolume(candidateVolume);
+        } catch {
+          // Best-effort only.
+        }
+      }
+
+      if (!cancelled) setLoading(false);
+    };
+
+    void load();
 
     return () => {
       cancelled = true;
     };
   }, [book.title, book.author]);
 
-  const title = doc?.title ?? book.title;
-  const author = doc?.author_name?.[0] ?? book.author;
-  const pages = doc?.number_of_pages_median;
-  const year = doc?.first_publish_year;
-  const publisher = doc?.publisher?.[0];
-  const langs = doc?.language?.length ? languageLabel(doc.language) : null;
-  const isbn = doc?.isbn?.[0];
+  const title = doc?.title ?? googleVolume?.title ?? book.title;
+  const author = doc?.author_name?.[0] ?? googleVolume?.authors?.[0] ?? book.author;
+  const pages = doc?.number_of_pages_median ?? googleVolume?.pageCount;
+  const year = doc?.first_publish_year ?? parsePublishedYear(googleVolume?.publishedDate);
+  const publisher = doc?.publisher?.[0] ?? googleVolume?.publisher;
+  const langs = doc?.language?.length
+    ? languageLabel(doc.language)
+    : googleVolume?.language
+      ? languageLabel([googleVolume.language])
+      : null;
+  const isbn = doc?.isbn?.[0] ?? pickGoogleBooksIsbn(googleVolume);
   const editionCount = doc?.edition_count;
-  const synopsis = extractFirstSentence(doc?.first_sentence);
+  const synopsis = extractFirstSentence(doc?.first_sentence) ?? googleVolume?.description ?? null;
   const olUrl = doc?.key ? sanitizeUrl(`https://openlibrary.org${doc.key}`) : null;
 
+  const isbnFromDoc = normalizeIsbn(doc?.isbn?.[0]);
+  const isbnFromBook = normalizeIsbn(book.isbn13) ?? normalizeIsbn(book.isbn10);
   const rawCoverUrl =
     doc?.cover_i != null
       ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`
-      : (book.coverUrl?.replace(/-[SM]\.jpg$/, "-L.jpg") ?? null);
+      : (book.coverUrl?.replace(/-[SM]\.jpg$/, "-L.jpg") ??
+        (pickGoogleBooksImage(googleVolume) ??
+          (isbnFromDoc ? googleBooksCoverUrlForIsbn(isbnFromDoc, 2) : isbnFromBook ? googleBooksCoverUrlForIsbn(isbnFromBook, 2) : null)));
   const coverSrc = rawCoverUrl ? proxyUrl(rawCoverUrl) : null;
 
   const placeholder = title

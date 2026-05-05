@@ -53,7 +53,7 @@ export const CURATED_BOOKTOK_TRENDS: BookTokTrend[] = [
     id: "booktok-4",
     title: "The Seven Husbands of Evelyn Hugo",
     author: "Taylor Jenkins Reid",
-    coverUrl: "https://covers.openlibrary.org/b/isbn/9781501161933-M.jpg",
+    coverUrl: "https://covers.openlibrary.org/b/isbn/9781501156700-M.jpg",
     reason: "Celebrity-drama recommendations",
     mentionCount: 6900
   },

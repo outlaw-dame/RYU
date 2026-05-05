@@ -7,6 +7,8 @@ type ImportedBook = {
   title: string;
   author?: string;
   coverUrl?: string;
+  isbn10?: string;
+  isbn13?: string;
   sourceUrl?: string;
   authorUrl?: string;
 };
@@ -52,6 +54,8 @@ export function useImportedBooks(enabled: boolean) {
             title: edition.title,
             author: author || undefined,
             coverUrl: edition.coverUrl,
+            isbn10: edition.isbn10,
+            isbn13: edition.isbn13,
             sourceUrl: edition.sourceUrl,
             authorUrl
           };

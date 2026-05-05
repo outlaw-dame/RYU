@@ -14,7 +14,7 @@ import {
 import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
 import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import type { UnifiedShelf, UnifiedShelvesPayload } from "../src/sync/shelf-model";
-import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload } from "../src/sync/booktok-trending";
+import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -422,6 +422,187 @@ function normalizePublicHttpsUrl(input: string): string {
 
 function sanitizeUpstreamError(text: string): string {
   return text.slice(0, 400).replace(/[\r\n\t]+/g, " ").trim();
+}
+
+function extractOpenLibraryIsbnCover(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "covers.openlibrary.org") return null;
+    const match = parsed.pathname.match(/^\/b\/isbn\/([0-9Xx]{10,13})-[SML]\.jpg$/);
+    if (!match?.[1]) return null;
+    return match[1].toUpperCase();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeGoogleBooksImageUrl(value: string | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith("http://")) return `https://${trimmed.slice("http://".length)}`;
+  if (trimmed.startsWith("https://")) return trimmed;
+  return null;
+}
+
+type GoogleBooksVolumesResponse = {
+  items?: Array<{
+    volumeInfo?: {
+      imageLinks?: {
+        extraLarge?: string;
+        large?: string;
+        medium?: string;
+        small?: string;
+        thumbnail?: string;
+        smallThumbnail?: string;
+      };
+    };
+  }>;
+};
+
+async function resolveGoogleBooksCoverUrlByIsbn(isbn: string): Promise<string | null> {
+  const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`isbn:${isbn}`)}&maxResults=1&fields=items(volumeInfo/imageLinks)`;
+  const response = await fetchWithRetry(apiUrl, {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    }
+  }, 2);
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json() as GoogleBooksVolumesResponse;
+  const links = payload.items?.[0]?.volumeInfo?.imageLinks;
+  if (!links) {
+    return null;
+  }
+
+  return (
+    normalizeGoogleBooksImageUrl(links.extraLarge) ??
+    normalizeGoogleBooksImageUrl(links.large) ??
+    normalizeGoogleBooksImageUrl(links.medium) ??
+    normalizeGoogleBooksImageUrl(links.small) ??
+    normalizeGoogleBooksImageUrl(links.thumbnail) ??
+    normalizeGoogleBooksImageUrl(links.smallThumbnail)
+  );
+}
+
+async function resolveGoogleBooksCoverUrlByQuery(query: string): Promise<string | null> {
+  const trimmed = query.trim();
+  if (!trimmed) return null;
+
+  const apiUrl = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(trimmed)}&maxResults=1&fields=items(volumeInfo/imageLinks)`;
+  const response = await fetchWithRetry(apiUrl, {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    }
+  }, 2);
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json() as GoogleBooksVolumesResponse;
+  const links = payload.items?.[0]?.volumeInfo?.imageLinks;
+  if (!links) {
+    return null;
+  }
+
+  return (
+    normalizeGoogleBooksImageUrl(links.extraLarge) ??
+    normalizeGoogleBooksImageUrl(links.large) ??
+    normalizeGoogleBooksImageUrl(links.medium) ??
+    normalizeGoogleBooksImageUrl(links.small) ??
+    normalizeGoogleBooksImageUrl(links.thumbnail) ??
+    normalizeGoogleBooksImageUrl(links.smallThumbnail)
+  );
+}
+
+function trendNeedsCoverEnrichment(trend: BookTokTrend): boolean {
+  if (!trend.coverUrl) return true;
+  try {
+    const parsed = new URL(trend.coverUrl);
+    return parsed.protocol !== "https:";
+  } catch {
+    return true;
+  }
+}
+
+async function resolveGoogleBooksCoverUrlForTrend(trend: BookTokTrend): Promise<string | null> {
+  const title = trend.title.trim();
+  if (!title) return null;
+  const author = trend.author?.trim();
+
+  const authorQuery = author ? `intitle:${title} inauthor:${author}` : "";
+  if (authorQuery) {
+    const byAuthor = await resolveGoogleBooksCoverUrlByQuery(authorQuery);
+    if (byAuthor) return byAuthor;
+  }
+
+  return resolveGoogleBooksCoverUrlByQuery(`intitle:${title}`);
+}
+
+async function enrichBookTokTrendsWithGoogleCovers(trends: BookTokTrend[]): Promise<BookTokTrend[]> {
+  if (trends.length === 0) return trends;
+
+  const enriched = trends.slice();
+  const indexes = enriched
+    .map((trend, index) => ({ trend, index }))
+    .filter(({ trend }) => trendNeedsCoverEnrichment(trend))
+    .slice(0, 12)
+    .map(({ index }) => index);
+
+  const concurrency = 3;
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < indexes.length) {
+      const current = cursor;
+      cursor += 1;
+      const trendIndex = indexes[current];
+      const trend = enriched[trendIndex];
+
+      try {
+        const coverUrl = await resolveGoogleBooksCoverUrlForTrend(trend);
+        if (coverUrl) {
+          enriched[trendIndex] = {
+            ...trend,
+            coverUrl
+          };
+        }
+      } catch {
+        // Best-effort enrichment: retain original trend payload when fallback fails.
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, indexes.length) }, () => worker()));
+  return enriched;
+}
+
+async function fetchGoogleBooksCoverByIsbn(isbn: string, method: string): Promise<Response | null> {
+  try {
+    const coverUrl = await resolveGoogleBooksCoverUrlByIsbn(isbn);
+    if (!coverUrl) return null;
+
+    const response = await fetchWithRetry(coverUrl, {
+      method,
+      headers: {
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
+      }
+    }, 2);
+
+    if (!response.ok) return null;
+    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    if (!contentType.startsWith("image/")) return null;
+
+    return response;
+  } catch {
+    return null;
+  }
 }
 
 function parseBooleanQuery(url: URL, key: string, fallback: boolean): boolean {
@@ -1276,7 +1457,8 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
     }
 
     const parsed = parseBookTokTrendingPayload(await response.json());
-    sendJson(res, 200, { items: parsed.length > 0 ? parsed : CURATED_BOOKTOK_TRENDS });
+    const enriched = await enrichBookTokTrendsWithGoogleCovers(parsed);
+    sendJson(res, 200, { items: enriched.length > 0 ? enriched : CURATED_BOOKTOK_TRENDS });
   } catch {
     sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
   }
@@ -1306,12 +1488,27 @@ async function handleMediaCover(req: IncomingMessage, res: ServerResponse, url: 
   }
 
   try {
-    const response = await fetchWithRetry(upstreamUrl, {
+    let response = await fetchWithRetry(upstreamUrl, {
       method: req.method,
       headers: {
         Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"
       }
     }, 2);
+
+    const upstreamContentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    const shouldTryGoogleFallback =
+      (!response.ok || !upstreamContentType.startsWith("image/")) &&
+      Boolean(extractOpenLibraryIsbnCover(upstreamUrl));
+
+    if (shouldTryGoogleFallback) {
+      const isbn = extractOpenLibraryIsbnCover(upstreamUrl);
+      if (isbn) {
+        const googleFallback = await fetchGoogleBooksCoverByIsbn(isbn, req.method);
+        if (googleFallback) {
+          response = googleFallback;
+        }
+      }
+    }
 
     if (!response.ok) {
       const upstreamText = await response.text().catch(() => "");

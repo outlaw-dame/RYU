@@ -1,6 +1,6 @@
 import { FetchQueue } from '../sync/fetch-queue';
 import { initializeDatabase } from './client';
-import type { ExternalEntitySource } from './schema';
+import type { EditionDoc, ExternalEntitySource } from './schema';
 
 export type KnowledgeEntityKind = 'author' | 'work' | 'edition';
 
@@ -18,6 +18,7 @@ type ExternalLinkCandidate = {
   source: ExternalEntitySource;
   externalId: string;
   externalUri: string;
+  coverUri?: string;
   label?: string;
   description?: string;
   confidence: number;
@@ -73,12 +74,29 @@ type GoogleBooksResponse = {
       authors?: string[];
       description?: string;
       infoLink?: string;
+      imageLinks?: {
+        smallThumbnail?: string;
+        thumbnail?: string;
+        small?: string;
+        medium?: string;
+        large?: string;
+        extraLarge?: string;
+      };
       industryIdentifiers?: Array<{
         type?: string;
         identifier?: string;
       }>;
     };
   }>;
+};
+
+type GoogleBooksImageLinks = {
+  smallThumbnail?: string;
+  thumbnail?: string;
+  small?: string;
+  medium?: string;
+  large?: string;
+  extraLarge?: string;
 };
 
 const ENRICHMENT_TTL_MS = 1000 * 60 * 60 * 24 * 14;
@@ -109,6 +127,30 @@ function normalizeIsbn(value?: string): string | undefined {
   const normalized = value?.replace(/[^0-9Xx]/g, '').toUpperCase();
   if (!normalized) return undefined;
   return normalized.length === 10 || normalized.length === 13 ? normalized : undefined;
+}
+
+function normalizeHttpsUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.startsWith('http://') ? `https://${value.slice('http://'.length)}` : value;
+  try {
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== 'https:') return undefined;
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function pickGoogleBooksCoverUrl(imageLinks?: GoogleBooksImageLinks): string | undefined {
+  if (!imageLinks || typeof imageLinks !== 'object') return undefined;
+  return (
+    normalizeHttpsUrl(imageLinks.extraLarge) ??
+    normalizeHttpsUrl(imageLinks.large) ??
+    normalizeHttpsUrl(imageLinks.medium) ??
+    normalizeHttpsUrl(imageLinks.small) ??
+    normalizeHttpsUrl(imageLinks.thumbnail) ??
+    normalizeHttpsUrl(imageLinks.smallThumbnail)
+  );
 }
 
 function boundedQuery(candidate: KnowledgeEntityCandidate): string | null {
@@ -302,7 +344,7 @@ async function queryOpenLibrary(candidate: KnowledgeEntityCandidate, query: stri
 }
 
 async function queryGoogleBooks(candidate: KnowledgeEntityCandidate, query: string): Promise<ExternalLinkCandidate[]> {
-  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5&fields=items(id,volumeInfo/title,volumeInfo/subtitle,volumeInfo/authors,volumeInfo/description,volumeInfo/infoLink,volumeInfo/industryIdentifiers)`;
+  const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5&fields=items(id,volumeInfo/title,volumeInfo/subtitle,volumeInfo/authors,volumeInfo/description,volumeInfo/infoLink,volumeInfo/imageLinks,volumeInfo/industryIdentifiers)`;
   const response = await fetchJson<GoogleBooksResponse>(url, "www.googleapis.com");
   const items = response.items ?? [];
 
@@ -322,12 +364,28 @@ async function queryGoogleBooks(candidate: KnowledgeEntityCandidate, query: stri
         source: "google_books" as const,
         externalId: item.id!,
         externalUri: info.infoLink || `https://books.google.com/books?id=${encodeURIComponent(item.id!)}`,
+        coverUri: pickGoogleBooksCoverUrl(info.imageLinks),
         label: info.title,
         description: info.description || info.subtitle,
         confidence: isbnMatch ? 0.98 : labelConfidence(candidate.label, info.title),
         query
       };
     });
+}
+
+async function applyEditionCoverFallback(entityId: string, coverUrl: string, updatedAt: string): Promise<void> {
+  const db = await initializeDatabase();
+  const editionDoc = await db.editions.findOne(entityId).exec();
+  if (!editionDoc) return;
+
+  await editionDoc.incrementalModify((current: EditionDoc): EditionDoc => {
+    if (current.coverUrl) return current;
+    return {
+      ...current,
+      coverUrl,
+      updatedAt
+    };
+  });
 }
 
 function dedupeCandidates(candidates: ExternalLinkCandidate[]): ExternalLinkCandidate[] {
@@ -361,12 +419,18 @@ export async function enrichKnowledgeEntity(candidate: KnowledgeEntityCandidate)
     queryDBpedia(candidate, query)
   ]);
 
+  const openLibraryCandidates = openLibrary.status === 'fulfilled' ? openLibrary.value : [];
+  const googleBooksCandidates = googleBooks.status === 'fulfilled' ? googleBooks.value : [];
+  const wikidataIsbnCandidates = isbnMatches.status === 'fulfilled' ? isbnMatches.value : [];
+  const wikidataCandidates = wikidata.status === 'fulfilled' ? wikidata.value : [];
+  const dbpediaCandidates = dbpedia.status === 'fulfilled' ? dbpedia.value : [];
+
   const enrichedCandidates = dedupeCandidates([
-    ...(openLibrary.status === 'fulfilled' ? openLibrary.value : []),
-    ...(googleBooks.status === 'fulfilled' ? googleBooks.value : []),
-    ...(isbnMatches.status === 'fulfilled' ? isbnMatches.value : []),
-    ...(wikidata.status === 'fulfilled' ? wikidata.value : []),
-    ...(dbpedia.status === 'fulfilled' ? dbpedia.value : [])
+    ...openLibraryCandidates,
+    ...googleBooksCandidates,
+    ...wikidataIsbnCandidates,
+    ...wikidataCandidates,
+    ...dbpediaCandidates
   ]);
 
   if (enrichedCandidates.length === 0) return;
@@ -394,6 +458,20 @@ export async function enrichKnowledgeEntity(candidate: KnowledgeEntityCandidate)
       // External enrichment is intentionally best-effort. ActivityPub ingestion
       // remains authoritative and must not fail because a knowledge source is
       // unavailable or returns a shape we reject.
+    }
+  }
+
+  if (candidate.kind === 'edition') {
+    const bestGoogleCover = googleBooksCandidates
+      .filter((item): item is ExternalLinkCandidate & { coverUri: string } => typeof item.coverUri === 'string' && item.coverUri.length > 0)
+      .sort((a, b) => b.confidence - a.confidence)[0];
+
+    if (bestGoogleCover) {
+      try {
+        await applyEditionCoverFallback(candidate.id, bestGoogleCover.coverUri, timestamp);
+      } catch {
+        // Best-effort self-healing: enrichment should not fail ingestion.
+      }
     }
   }
 }

@@ -18,6 +18,10 @@ const { zstdCompressSync } = (await import("node:zlib")) as ZlibPlusZstd;
 const COMPRESSIBLE = /\.(js|cjs|mjs|css|html|json|svg|woff2?)$/;
 const MIN_COMPRESS_BYTES = 1024;
 
+function normalizedModuleId(id: string): string {
+  return id.split("\\").join("/");
+}
+
 // Emit .gz, .br, and (when native Node.js Zstd is available) .zst alongside
 // every compressible build artifact. Static file servers (nginx, Caddy, etc.)
 // can serve the pre-compressed variant, eliminating per-request CPU cost.
@@ -92,6 +96,7 @@ export default defineConfig({
     }
   ],
   resolve: {
+    conditions: ["onnxruntime-web-use-extern-wasm"],
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url))
     }
@@ -106,24 +111,62 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes("node_modules/onnxruntime-web") || id.includes("node_modules/onnxruntime-common")) {
+          const moduleId = normalizedModuleId(id);
+
+          if (moduleId.includes("node_modules/react") || moduleId.includes("node_modules/react-dom") || moduleId.includes("node_modules/scheduler")) {
+            return "react-vendor";
+          }
+
+          if (moduleId.includes("node_modules/@tanstack/react-query")) {
+            return "query-vendor";
+          }
+
+          if (
+            moduleId.includes("node_modules/dompurify") ||
+            moduleId.includes("node_modules/markdown-it") ||
+            moduleId.includes("node_modules/mfm-js") ||
+            moduleId.includes("node_modules/twemoji") ||
+            moduleId.includes("node_modules/entities") ||
+            moduleId.includes("node_modules/linkify-it") ||
+            moduleId.includes("node_modules/mdurl") ||
+            moduleId.includes("node_modules/uc.micro")
+          ) {
+            return "rich-text-vendor";
+          }
+
+          if (moduleId.includes("node_modules/onnxruntime-web") || moduleId.includes("node_modules/onnxruntime-common")) {
             return "ml-onnxruntime";
           }
 
-          if (id.includes("node_modules/@huggingface/jinja")) {
+          if (moduleId.includes("node_modules/@huggingface/jinja")) {
             return "ml-jinja";
           }
 
-          if (id.includes("node_modules/@huggingface/transformers")) {
+          if (moduleId.includes("node_modules/@huggingface/transformers")) {
             return "ml-transformers";
           }
 
-          if (id.includes("node_modules/rxdb") || id.includes("node_modules/dexie")) {
+          if (moduleId.includes("node_modules/rxdb") || moduleId.includes("node_modules/dexie")) {
             return "db-runtime";
           }
 
-          if (id.includes("node_modules/framer-motion") || id.includes("node_modules/lucide-react")) {
+          if (moduleId.includes("node_modules/framer-motion") || moduleId.includes("node_modules/lucide-react")) {
             return "ui-vendor";
+          }
+
+          if (moduleId.includes("/src/app/") || moduleId.includes("/src/components/")) {
+            return "app-ui";
+          }
+
+          if (
+            moduleId.includes("/src/auth/") ||
+            moduleId.includes("/src/db/") ||
+            moduleId.includes("/src/hooks/") ||
+            moduleId.includes("/src/lib/") ||
+            moduleId.includes("/src/search/") ||
+            moduleId.includes("/src/sync/")
+          ) {
+            return "app-runtime";
           }
         }
       }

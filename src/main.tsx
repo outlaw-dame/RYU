@@ -1,10 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { App } from "./app/App";
-import { scheduleSearchIndexHealthCheck } from "./search/index-lifecycle";
 import { applySearchRuntimeSettings } from "./search/runtime-configure";
 import "./design/tokens.css";
+
+const App = React.lazy(() => import("./app/App").then((module) => ({ default: module.App })));
 
 applySearchRuntimeSettings();
 
@@ -15,11 +15,13 @@ if (typeof window !== "undefined") {
   };
 
   if (typeof withIdle.requestIdleCallback === "function") {
-    withIdle.requestIdleCallback(() => {
+    withIdle.requestIdleCallback(async () => {
+      const { scheduleSearchIndexHealthCheck } = await import("./search/index-lifecycle");
       scheduleSearchIndexHealthCheck();
     }, { timeout: 2_000 });
   } else {
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
+      const { scheduleSearchIndexHealthCheck } = await import("./search/index-lifecycle");
       scheduleSearchIndexHealthCheck();
     }, 450);
   }
@@ -39,7 +41,9 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      <React.Suspense fallback={null}>
+        <App />
+      </React.Suspense>
     </QueryClientProvider>
   </React.StrictMode>
 );

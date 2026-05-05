@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { HTMLAttributes } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CoverGrid } from "./CoverGrid";
 
 vi.mock("framer-motion", () => ({
@@ -12,6 +12,14 @@ vi.mock("framer-motion", () => ({
     )
   }
 }));
+
+beforeEach(() => {
+  cleanup();
+});
+
+afterEach(() => {
+  cleanup();
+});
 
 describe("CoverGrid", () => {
   it("keeps remote covers same-origin and linkifies book and author text", () => {
@@ -45,6 +53,29 @@ describe("CoverGrid", () => {
     expect(screen.getByRole("img", { name: "Cover of Dune" })).toHaveAttribute(
       "src",
       "/api/media/cover?url=https%3A%2F%2Fcovers.openlibrary.org%2Fb%2Fisbn%2F9780441013593-M.jpg"
+    );
+  });
+
+  it("falls back to Google Books cover when OpenLibrary cover fails", () => {
+    render(
+      <CoverGrid
+        books={[
+          {
+            id: "dune",
+            title: "Dune",
+            author: "Frank Herbert",
+            coverUrl: "https://covers.openlibrary.org/b/isbn/9780441013593-M.jpg"
+          }
+        ]}
+      />
+    );
+
+    const [img] = screen.getAllByRole("img", { name: "Cover of Dune" });
+    img.dispatchEvent(new Event("error"));
+
+    expect(img).toHaveAttribute(
+      "src",
+      "/api/media/cover?url=https%3A%2F%2Fbooks.google.com%2Fbooks%2Fcontent%3Fvid%3DISBN9780441013593%26printsec%3Dfrontcover%26img%3D1%26zoom%3D1%26source%3Dgbs_api"
     );
   });
 });

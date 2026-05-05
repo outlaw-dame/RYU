@@ -1,4 +1,4 @@
-import DOMPurify from "dompurify";
+import createDOMPurify from "dompurify";
 import MarkdownIt from "markdown-it";
 import twemoji from "twemoji";
 import { parse as parseMfm } from "mfm-js";
@@ -8,6 +8,45 @@ type RenderOptions = {
   instanceOrigin?: string | null;
   customEmoji?: Map<string, string>;
 };
+
+type DOMPurifyApi = {
+  sanitize: (inputHtml: string, config: Record<string, unknown>) => string;
+};
+
+type DOMPurifyFactory = ((window: Window) => DOMPurifyApi) & Partial<DOMPurifyApi>;
+
+let domPurifyApi: DOMPurifyApi | null = null;
+
+function getDOMPurify(): DOMPurifyApi {
+  const candidate = createDOMPurify as unknown as DOMPurifyFactory;
+  if (typeof candidate.sanitize === "function") {
+    return candidate as DOMPurifyApi;
+  }
+
+  domPurifyApi ??= candidate(window);
+  return domPurifyApi;
+}
+
+function isApplePlatform(): boolean {
+  if (typeof navigator === "undefined") {
+    return false;
+  }
+
+  const nav = navigator as Navigator & {
+    userAgentData?: {
+      platform?: string;
+    };
+  };
+
+  const uaDataPlatform = nav.userAgentData?.platform?.toLowerCase() ?? "";
+  if (uaDataPlatform) {
+    return uaDataPlatform.includes("mac") || uaDataPlatform.includes("ios");
+  }
+
+  const platform = (navigator.platform || "").toLowerCase();
+  const userAgent = (navigator.userAgent || "").toLowerCase();
+  return /mac|iphone|ipad|ipod/.test(platform) || /iphone|ipad|ipod|mac os/.test(userAgent);
+}
 
 const markdown = new MarkdownIt({
   html: false,
@@ -120,7 +159,7 @@ function preprocessPlainTextForMarkdown(input: string, instanceOrigin?: string |
 }
 
 function sanitizeRichHtml(inputHtml: string): string {
-  const safeHtml = DOMPurify.sanitize(inputHtml, {
+  const safeHtml = getDOMPurify().sanitize(inputHtml, {
     ALLOWED_TAGS: ["p", "br", "a", "strong", "em", "b", "i", "ul", "ol", "li", "blockquote", "code", "pre", "span", "small", "del", "img"],
     ALLOWED_ATTR: ["href", "title", "rel", "target", "class", "src", "alt", "loading", "decoding", "referrerpolicy"],
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form", "input"],
@@ -195,12 +234,14 @@ export function renderFediverseRichText(rawInput: string, options: RenderOptions
     htmlCandidate = formattingScore(mfmHtml) >= formattingScore(markdownHtml) ? mfmHtml : markdownHtml;
   }
 
-  const emojiHtml = twemoji.parse(htmlCandidate, {
-    className: "twemoji",
-    base: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/",
-    folder: "svg",
-    ext: ".svg"
-  });
+  const emojiHtml = isApplePlatform()
+    ? htmlCandidate
+    : twemoji.parse(htmlCandidate, {
+      className: "twemoji",
+      base: "https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/",
+      folder: "svg",
+      ext: ".svg"
+    });
 
   const safeHtml = sanitizeRichHtml(emojiHtml);
   const textContainer = document.createElement("div");

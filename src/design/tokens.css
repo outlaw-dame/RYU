@@ -8,11 +8,12 @@
   color-scheme: light dark;
 
   --font-display:
-    "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "SF Pro Display",
-    "Helvetica Neue", Arial, sans-serif;
+    "Plus Jakarta Sans", system-ui, -apple-system, BlinkMacSystemFont,
+    "SF Pro Display", "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial,
+    sans-serif;
   --font-body:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
-    Helvetica, Arial, sans-serif;
+    system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    Roboto, "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "Cascadia Code", "Fira Code", monospace;
 
   --text-tab: 0.625rem;
