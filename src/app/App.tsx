@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { OfflineIndicator } from "../components/common/OfflineIndicator";
@@ -242,6 +243,7 @@ function SearchResultRow({
   query: string;
   onSelect: (result: ExplainedSearchResult) => void;
 }) {
+  const { t } = useTranslation();
   const select = () => onSelect(result);
 
   return (
@@ -277,7 +279,7 @@ function SearchResultRow({
       {result.description ? <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: 1.35 }}>{result.description.slice(0, 180)}</p> : null}
       {import.meta.env.DEV && result.explanation ? (
         <details onClick={(event) => event.stopPropagation()} style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>
-          <summary>Why this result?</summary>
+          <summary>{t("search.whyThisResult")}</summary>
           <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: "var(--space-2) 0 0" }}>
             {JSON.stringify({
               query,
@@ -357,6 +359,7 @@ function SearchFacetChip({
 }
 
 function DiscoveryStatusRow({ status }: { status: MastodonStatus }) {
+  const { t } = useTranslation();
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
   return (
     <article
@@ -384,7 +387,7 @@ function DiscoveryStatusRow({ status }: { status: MastodonStatus }) {
           rel="noreferrer"
           style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", textDecoration: "none", fontWeight: 600 }}
         >
-          Open post
+          {t("shared.openPost")}
         </a>
       ) : null}
     </article>
@@ -1429,11 +1432,12 @@ function ReaderProfileSheet({
   profile: InAppReaderProfile;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`${profile.displayName} profile`}
+      aria-label={t("account.profileAriaLabel", { name: profile.displayName })}
       style={{
         position: "fixed",
         inset: 0,
@@ -1480,7 +1484,7 @@ function ReaderProfileSheet({
               {profile.avatarSrc ? (
                 <img
                   src={profile.avatarSrc}
-                  alt={`${profile.displayName} avatar`}
+                  alt={t("account.avatarAlt", { name: profile.displayName })}
                   loading="lazy"
                   decoding="async"
                   referrerPolicy="no-referrer"
@@ -1499,7 +1503,7 @@ function ReaderProfileSheet({
                 {profile.username}
               </span>
               <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                {profile.originLabel} profile
+                {t("account.profileLabel", { origin: profile.originLabel })}
               </span>
             </div>
           </div>
@@ -1508,19 +1512,19 @@ function ReaderProfileSheet({
             onClick={onClose}
             style={{ border: 0, borderRadius: "var(--radius-sm)", background: "var(--color-bg-secondary)", color: "var(--color-text)", minHeight: "36px", padding: "0 var(--space-3)" }}
           >
-            Close
+            {t("bookDetail.close")}
           </button>
         </div>
 
         <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
-          <strong style={{ fontSize: "var(--text-subhead)" }}>Bio</strong>
+          <strong style={{ fontSize: "var(--text-subhead)" }}>{t("account.bio")}</strong>
           <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
-            {profile.bio ?? "No bio provided on this account yet."}
+            {profile.bio ?? t("account.noBio")}
           </p>
         </section>
 
         <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
-          <strong style={{ fontSize: "var(--text-subhead)" }}>Featured hashtags</strong>
+          <strong style={{ fontSize: "var(--text-subhead)" }}>{t("account.featuredHashtags")}</strong>
           {profile.featuredHashtags.length > 0 ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
               {profile.featuredHashtags.map((tag) => (
@@ -1531,14 +1535,14 @@ function ReaderProfileSheet({
             </div>
           ) : (
             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-              No hashtags detected from recent now-reading posts.
+              {t("account.noFeaturedHashtags")}
             </p>
           )}
         </section>
 
         {profile.recentTitles.length > 0 ? (
           <section style={{ borderRadius: "var(--radius-md)", background: "var(--color-bg)", padding: "var(--space-4)", display: "grid", gap: "var(--space-2)" }}>
-            <strong style={{ fontSize: "var(--text-subhead)" }}>Recent reading mentions</strong>
+            <strong style={{ fontSize: "var(--text-subhead)" }}>{t("account.recentReadingMentions")}</strong>
             <ul style={{ margin: 0, paddingLeft: "var(--space-4)", color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", display: "grid", gap: "var(--space-1)" }}>
               {profile.recentTitles.map((title) => (
                 <li key={title}>{title}</li>
@@ -1553,7 +1557,7 @@ function ReaderProfileSheet({
             onClick={() => window.open(profile.externalProfileUrl ?? "", "_blank", "noopener,noreferrer")}
             style={{ minHeight: "var(--touch-min)", border: 0, borderRadius: "var(--radius-md)", background: "var(--color-accent)", color: "white", fontWeight: 700 }}
           >
-            Open remote profile
+            {t("account.openRemoteProfile")}
           </button>
         ) : null}
       </section>
@@ -1572,6 +1576,7 @@ function NowReadingPostSheet({
   onClose: () => void;
   onOpenProfile: (status: MastodonStatus) => void;
 }) {
+  const { t } = useTranslation();
   const text = mastodonStatusText(status);
   const card = statusCardData(status);
   const title = statusBookTitle(status);
@@ -1585,7 +1590,7 @@ function NowReadingPostSheet({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Reading post"
+      aria-label={t("shared.readingPost")}
       style={{
         position: "fixed",
         inset: 0,
@@ -1642,7 +1647,7 @@ function NowReadingPostSheet({
             onClick={onClose}
             style={{ border: 0, borderRadius: "var(--radius-sm)", background: "var(--color-bg-secondary)", color: "var(--color-text)", minHeight: "36px", padding: "0 var(--space-3)" }}
           >
-            Close
+            {t("bookDetail.close")}
           </button>
         </div>
 
@@ -1667,7 +1672,7 @@ function NowReadingPostSheet({
             onClick={() => onOpenProfile(status)}
             style={{ minHeight: "calc(var(--touch-min) - 6px)", border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)", borderRadius: "var(--radius-md)", background: "transparent", color: "var(--color-text)", fontWeight: 700, padding: "0 var(--space-4)" }}
           >
-            View reader profile
+            {t("nowReading.viewReaderProfile")}
           </button>
           {externalHref ? (
             <button
@@ -1675,7 +1680,7 @@ function NowReadingPostSheet({
               onClick={() => window.open(externalHref, "_blank", "noopener,noreferrer")}
               style={{ minHeight: "calc(var(--touch-min) - 6px)", border: 0, borderRadius: "var(--radius-md)", background: "var(--color-accent)", color: "white", fontWeight: 700, padding: "0 var(--space-4)" }}
             >
-              Open original post
+              {t("nowReading.openOriginalPost")}
             </button>
           ) : null}
         </div>
@@ -1684,20 +1689,20 @@ function NowReadingPostSheet({
   );
 }
 
-function notificationVerb(type: string): string {
+function notificationVerb(t: (key: string) => string, type: string): string {
   switch (type) {
     case "follow":
-      return "followed you";
+      return t("activity.notificationVerbs.follow");
     case "favourite":
-      return "favourited your post";
+      return t("activity.notificationVerbs.favourite");
     case "mention":
-      return "mentioned you";
+      return t("activity.notificationVerbs.mention");
     case "reblog":
-      return "boosted your post";
+      return t("activity.notificationVerbs.reblog");
     case "status":
-      return "posted a new update";
+      return t("activity.notificationVerbs.status");
     case "update":
-      return "updated a post";
+      return t("activity.notificationVerbs.update");
     default:
       return type.replace(/_/g, " ");
   }
@@ -1727,6 +1732,7 @@ function ActivityStatusRow({
   actions?: StatusAction[];
   importedBooks?: NowReadingImportedBook[];
 }) {
+  const { t } = useTranslation();
   const href = sanitizeUrl(status.url ?? status.uri ?? null);
   const text = useMemo(() => mastodonStatusText(status), [status]);
   const card = useMemo(() => statusCardData(status), [status]);
@@ -1846,7 +1852,7 @@ function ActivityStatusRow({
                 @{hoverAccount?.acct || status.account.acct || status.account.username || "unknown"}
               </span>
               {hoverLoading ? (
-                <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>Loading profile…</span>
+                <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)" }}>{t("account.loadingProfile")}</span>
               ) : null}
               {!hoverLoading && hoverBio ? (
                 <p style={{ margin: 0, fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
@@ -1858,9 +1864,9 @@ function ActivityStatusRow({
               ) : null}
               {!hoverLoading && (hoverFollowers != null || hoverFollowing != null || hoverStatuses != null) ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)" }}>
-                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowers)}</strong> followers</span> : null}
-                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowing)}</strong> following</span> : null}
-                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverStatuses)}</strong> posts</span> : null}
+                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowers)}</strong> {t("account.followers", { count: hoverFollowers })}</span> : null}
+                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowing)}</strong> {t("account.following", { count: hoverFollowing })}</span> : null}
+                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverStatuses)}</strong> {t("account.posts", { count: hoverStatuses })}</span> : null}
                 </div>
               ) : null}
             </div>
@@ -1898,7 +1904,7 @@ function ActivityStatusRow({
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
           {href ? (
             <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
-              Open post
+              {t("shared.openPost")}
             </a>
           ) : null}
           {showSocialActions ? (
@@ -1907,7 +1913,7 @@ function ActivityStatusRow({
                 <button
                   type="button"
                   aria-pressed={favourited}
-                  aria-label={favourited ? "Remove favourite" : "Favourite"}
+                  aria-label={favourited ? t("shared.removeFavourite") : t("shared.favourite")}
                   onClick={() => onFavourite(status.id, favourited)}
                   style={{
                     border: 0,
@@ -1934,7 +1940,7 @@ function ActivityStatusRow({
                 <button
                   type="button"
                   aria-pressed={bookmarked}
-                  aria-label={bookmarked ? "Remove bookmark" : "Bookmark"}
+                  aria-label={bookmarked ? t("shared.removeBookmark") : t("shared.bookmark")}
                   onClick={() => onBookmark(status.id, bookmarked)}
                   style={{
                     border: 0,
@@ -1948,7 +1954,7 @@ function ActivityStatusRow({
                     minHeight: "32px"
                   }}
                 >
-                  {bookmarked ? "Saved" : "Save"}
+                  {bookmarked ? t("shared.saved") : t("shared.save")}
                 </button>
               ) : null}
             </div>
@@ -1986,6 +1992,7 @@ function ActivityStatusRow({
 }
 
 function ActivityNotificationRow({ notification }: { notification: MastodonNotification }) {
+  const { t } = useTranslation();
   const statusText = useMemo(() => (
     notification.status ? mastodonStatusText(notification.status) : null
   ), [notification.status]);
@@ -2020,7 +2027,7 @@ function ActivityNotificationRow({ notification }: { notification: MastodonNotif
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
         <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>
-          {mastodonAccountLabel(notification.account)} {notificationVerb(notification.type)}
+          {mastodonAccountLabel(notification.account)} {notificationVerb(t, notification.type)}
         </strong>
         <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
           {formatActivityDate(notification.created_at)}
@@ -2039,7 +2046,7 @@ function ActivityNotificationRow({ notification }: { notification: MastodonNotif
       ) : null}
       {href ? (
         <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontSize: "var(--text-footnote)", fontWeight: 600 }}>
-          Open post
+          {t("shared.openPost")}
         </a>
       ) : null}
     </article>
@@ -2047,6 +2054,7 @@ function ActivityNotificationRow({ notification }: { notification: MastodonNotif
 }
 
 export function App() {
+  const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>("home");
   const [importUrl, setImportUrl] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -3061,7 +3069,7 @@ export function App() {
             <AnimatePresence mode="wait">
               {activeTab === "home" && (
                 <TabPanel id="home" activeTab={activeTab}>
-                  <ScreenTitle eyebrow="Good evening" title="Library" />
+                  <ScreenTitle eyebrow={t("screen.homeEyebrow")} title={t("screen.library")} />
                   {!connectedAccount ? (
                     <section style={{
                       padding: "0 var(--space-4)",
@@ -3079,9 +3087,9 @@ export function App() {
                         flexWrap: "wrap"
                       }}>
                         <div style={{ display: "grid", gap: "var(--space-1)", minWidth: "min(100%, 220px)" }}>
-                          <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>Member access</strong>
+                          <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", color: "var(--color-text)" }}>{t("home.memberAccessTitle")}</strong>
                           <span style={{ fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", color: "var(--color-text-secondary)" }}>
-                            Sign in or create an account to sync reading activity.
+                            {t("home.memberAccessDescription")}
                           </span>
                         </div>
                         <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap" }}>
@@ -3099,7 +3107,7 @@ export function App() {
                               padding: "0 var(--space-4)"
                             }}
                           >
-                            Member sign in
+                            {t("home.memberSignIn")}
                           </button>
                           <button
                             type="button"
@@ -3115,15 +3123,15 @@ export function App() {
                               padding: "0 var(--space-4)"
                             }}
                           >
-                            Become a member
+                            {t("home.becomeMember")}
                           </button>
                         </div>
                       </article>
                     </section>
                   ) : null}
                   <SectionHeader
-                    title="Currently Reading"
-                    actionLabel={nowReadingLoading ? undefined : "Refresh"}
+                    title={t("section.currentlyReading")}
+                    actionLabel={nowReadingLoading ? undefined : t("action.refresh")}
                     onAction={nowReadingLoading ? undefined : () => setNowReadingRefreshNonce((value) => value + 1)}
                   />
                   {nowReadingLoading && nowReadingStatuses.length === 0 ? (
@@ -3138,7 +3146,7 @@ export function App() {
                   ) : (
                     <div style={{ padding: "0 var(--space-4)" }}>
                       <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                        No live #NowReading posts found right now.
+                        {t("home.noNowReading")}
                       </p>
                     </div>
                   )}
@@ -3148,16 +3156,16 @@ export function App() {
                     </p>
                   ) : nowReadingLoadedAt ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      Currently Reading updated: {new Date(nowReadingLoadedAt).toLocaleString()}
+                      {t("home.currentlyReadingUpdatedAt", { date: new Date(nowReadingLoadedAt).toLocaleString(i18n.language) })}
                     </p>
                   ) : null}
                   <div style={{ height: "var(--space-8)" }} />
-                  <SectionHeader title={importedBooks.length > 0 ? "Imported From BookWyrm" : "Recently Added"} />
+                  <SectionHeader title={importedBooks.length > 0 ? t("home.importedFromBookWyrm") : t("home.recentlyAdded")} />
                   <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} onBookPress={setActiveBookDetail} />
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader
-                    title="BookTok Trending"
-                    actionLabel={bookTokLoading ? undefined : "Refresh"}
+                    title={t("section.bookTokTrending")}
+                    actionLabel={bookTokLoading ? undefined : t("action.refresh")}
                     onAction={bookTokLoading ? undefined : () => setBookTokRefreshNonce((value) => value + 1)}
                   />
                   {bookTokLoading && bookTokTrends.length === 0 ? (
@@ -3171,18 +3179,18 @@ export function App() {
                     </p>
                   ) : bookTokLoadedAt ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      BookTok updated: {new Date(bookTokLoadedAt).toLocaleString()}
+                      {t("home.bookTokUpdatedAt", { date: new Date(bookTokLoadedAt).toLocaleString(i18n.language) })}
                     </p>
                   ) : (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      Showing curated BookTok picks while live trend sync initializes.
+                      {t("home.bookTokFallback")}
                     </p>
                   )}
                 </TabPanel>
               )}
               {activeTab === "search" && (
                 <TabPanel id="search" activeTab={activeTab}>
-                  <ScreenTitle title="Search" />
+                  <ScreenTitle title={t("screen.search")} />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
                     <input
                       type="search"
@@ -3227,8 +3235,8 @@ export function App() {
                           setActiveAutocompleteIndex(-1);
                         }
                       }}
-                      placeholder="Search books, authors, ISBNs, themes..."
-                      aria-label="Search library"
+                      placeholder={t("search.placeholder")}
+                      aria-label={t("search.ariaLabel")}
                       role="combobox"
                       aria-autocomplete="list"
                       aria-expanded={visibleAutocompleteResults.length > 0}
@@ -3252,7 +3260,7 @@ export function App() {
                     {showFacetControls ? (
                       <div
                         role="group"
-                        aria-label="Search facets"
+                        aria-label={t("search.facetsLabel")}
                         style={{
                           display: "flex",
                           flexWrap: "wrap",
@@ -3260,20 +3268,20 @@ export function App() {
                           alignItems: "center"
                         }}
                       >
-                        <SearchFacetChip id="books" label="Books" selected={searchFacet === "books"} onSelect={setSearchFacet} />
-                        <SearchFacetChip id="writing" label="Writing" selected={searchFacet === "writing"} onSelect={setSearchFacet} />
-                        <SearchFacetChip id="fediverse" label="Fediverse" selected={searchFacet === "fediverse"} onSelect={setSearchFacet} />
+                        <SearchFacetChip id="books" label={t("search.facets.books")} selected={searchFacet === "books"} onSelect={setSearchFacet} />
+                        <SearchFacetChip id="writing" label={t("search.facets.writing")} selected={searchFacet === "writing"} onSelect={setSearchFacet} />
+                        <SearchFacetChip id="fediverse" label={t("search.facets.fediverse")} selected={searchFacet === "fediverse"} onSelect={setSearchFacet} />
                       </div>
                     ) : (
                       <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                        Smart Search blends your library with federated reading and writing discussion.
+                        {t("search.smartSearchDescription")}
                       </p>
                     )}
                     {visibleAutocompleteResults.length > 0 ? (
                       <div
                         id={SEARCH_AUTOCOMPLETE_LIST_ID}
                         role="listbox"
-                        aria-label="Search suggestions"
+                        aria-label={t("search.suggestionsLabel")}
                         style={{
                         display: "grid",
                         gap: "var(--space-2)",
@@ -3320,8 +3328,8 @@ export function App() {
                         inputMode="url"
                         value={importUrl}
                         onChange={(event) => setImportUrl(event.target.value)}
-                        placeholder="https://bookwyrm.social/book/..."
-                        aria-label="BookWyrm edition URL"
+                        placeholder={t("search.importPlaceholder")}
+                        aria-label={t("search.importAriaLabel")}
                         autoComplete="on"
                         spellCheck={false}
                         list={IMPORT_URL_DATALIST_ID}
@@ -3356,7 +3364,7 @@ export function App() {
                           opacity: isImporting || state !== "ready" || !importUrl.trim() ? 0.6 : 1
                         }}
                       >
-                        {isImporting ? "Importing..." : "Import edition"}
+                        {isImporting ? t("search.importing") : t("search.importEdition")}
                       </button>
                       {importError ? <p style={{ margin: 0, color: "#c23b3b" }}>{importError}</p> : null}
                     </div>
@@ -3370,7 +3378,7 @@ export function App() {
                       {relayDiscoveryError ? <p style={{ padding: "0 var(--space-4)", color: "#c23b3b" }}>{relayDiscoveryError}</p> : null}
                       {(discoveryStatuses.length > 0 || relayDiscoveryResults.length > 0) ? (
                         <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                          <SectionHeader title="Fediverse Discovery" />
+                          <SectionHeader title={t("search.fediverseDiscovery")} />
                           <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
                             {/* Display relay results first (more recent hashtag-based) */}
                             {relayDiscoveryResults.map((result) => (
@@ -3383,40 +3391,40 @@ export function App() {
                           </div>
                         </section>
                       ) : normalizeSearchQuery(searchQuery).length >= 2 && !(discoveryLoading || relayDiscoveryLoading) ? (
-                        <EmptyState title="No federated results" description="Try another phrase, hashtag, author, or book title." />
+                        <EmptyState title={t("search.noFederatedResultsTitle")} description={t("search.noFederatedResultsDescription")} />
                       ) : null}
                     </>
                   ) : null}
                   {showLocalSearchResults && isSearching ? <SkeletonCoverGrid count={3} /> : null}
                   {showLocalSearchResults && searchResults && searchResults.all.length > 0 ? (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-                      <SearchResultsSection title="Editions" query={normalizeSearchQuery(searchQuery)} results={searchResults.editions} onSelect={handleSearchResultSelect} />
-                      <SearchResultsSection title="Works" query={normalizeSearchQuery(searchQuery)} results={searchResults.works} onSelect={handleSearchResultSelect} />
-                      <SearchResultsSection title="Authors" query={normalizeSearchQuery(searchQuery)} results={searchResults.authors} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title={t("search.sections.editions")} query={normalizeSearchQuery(searchQuery)} results={searchResults.editions} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title={t("search.sections.works")} query={normalizeSearchQuery(searchQuery)} results={searchResults.works} onSelect={handleSearchResultSelect} />
+                      <SearchResultsSection title={t("search.sections.authors")} query={normalizeSearchQuery(searchQuery)} results={searchResults.authors} onSelect={handleSearchResultSelect} />
                     </div>
                   ) : showLocalSearchResults && normalizeSearchQuery(searchQuery).length >= 2 && !isSearching ? (
-                    <EmptyState title="No results" description="Try another title, author, ISBN, or theme." />
+                    <EmptyState title={t("search.noResultsTitle")} description={t("search.noResultsDescription")} />
                   ) : showLocalSearchResults && importedBooks.length > 0 ? (
                     <>
-                      <SectionHeader title="Imported Editions" />
+                      <SectionHeader title={t("search.importedEditions")} />
                       <CoverGrid books={importedBooks} onBookPress={setActiveBookDetail} />
                     </>
                   ) : showLocalSearchResults ? (
-                    <EmptyState title="No imported books yet" description="BookWyrm editions you import will appear here." />
+                    <EmptyState title={t("search.noImportedBooksTitle")} description={t("search.noImportedBooksDescription")} />
                   ) : null}
                 </TabPanel>
               )}
               {activeTab === "shelves" && (
                 <TabPanel id="shelves" activeTab={activeTab}>
-                  <ScreenTitle title="Shelves" />
+                  <ScreenTitle title={t("screen.shelves")} />
                   {!connectedAccount ? (
-                    <EmptyState title="Sign in to load shelves" description="Your Mastodon and BookWyrm shelves will appear here." />
+                    <EmptyState title={t("shelves.signInTitle")} description={t("shelves.signInDescription")} />
                   ) : (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
                         <SectionHeader
-                          title="Bookmarks"
-                          actionLabel={shelves.loading ? undefined : "Refresh"}
+                          title={t("shelves.bookmarks")}
+                          actionLabel={shelves.loading ? undefined : t("action.refresh")}
                           onAction={shelves.loading ? undefined : shelves.reload}
                         />
                         <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
@@ -3432,8 +3440,8 @@ export function App() {
                                 status={status}
                                 importedBooks={importedBooks}
                                 actions={[{
-                                  label: "Remove bookmark",
-                                  pendingLabel: "Removing...",
+                                  label: t("shelves.removeBookmark"),
+                                  pendingLabel: t("shared.removing"),
                                   handler: async () => {
                                     await apiUnbookmarkStatus(status.id);
                                     shelves.removeBookmark(status.id);
@@ -3443,13 +3451,13 @@ export function App() {
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              No bookmarks yet.
+                              {t("shelves.noBookmarks")}
                             </p>
                           )}
                         </div>
                       </section>
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                        <SectionHeader title="Favourites" />
+                        <SectionHeader title={t("shelves.favourites")} />
                         <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
                           {shelves.loading && shelves.favourites.length === 0 ? (
                             <>
@@ -3463,8 +3471,8 @@ export function App() {
                                 status={status}
                                 importedBooks={importedBooks}
                                 actions={[{
-                                  label: "Unfavourite",
-                                  pendingLabel: "Removing...",
+                                  label: t("shelves.unfavourite"),
+                                  pendingLabel: t("shared.removing"),
                                   handler: async () => {
                                     await apiUnfavouriteStatus(status.id);
                                     shelves.removeFavourite(status.id);
@@ -3474,14 +3482,14 @@ export function App() {
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              No favourites yet.
+                              {t("shelves.noFavourites")}
                             </p>
                           )}
                         </div>
                       </section>
                       {shelves.lists.length > 0 ? (
                         <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                          <SectionHeader title="Lists" />
+                          <SectionHeader title={t("shelves.lists")} />
                           <div style={{ display: "grid", gap: "var(--space-2)", padding: "0 var(--space-4)" }}>
                             {shelves.lists.map((list: MastodonList) => (
                               <div
@@ -3504,11 +3512,11 @@ export function App() {
                       ) : null}
                       {shelves.error === "unauthenticated" ? (
                         <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-                          Your session expired. Sign in again to load shelves.
+                          {t("shelves.errorUnauthenticated")}
                         </p>
                       ) : shelves.error === "network" ? (
                         <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-                          Shelves could not be loaded right now.
+                          {t("shelves.errorNetwork")}
                         </p>
                       ) : null}
                     </div>
@@ -3517,9 +3525,9 @@ export function App() {
               )}
               {activeTab === "activity" && (
                 <TabPanel id="activity" activeTab={activeTab}>
-                  <ScreenTitle title="Activity" />
+                  <ScreenTitle title={t("screen.activity")} />
                   {!connectedAccount ? (
-                    <EmptyState title="Sign in to load activity" description="Your home timeline, notifications, and reading updates will appear here." />
+                    <EmptyState title={t("activity.signInTitle")} description={t("activity.signInDescription")} />
                   ) : (
                     <div style={{ display: "grid", gap: "var(--space-6)" }}>
                       {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
@@ -3540,7 +3548,7 @@ export function App() {
                               cursor: "pointer"
                             }}
                           >
-                            What are you reading?
+                            {t("activity.composePrompt")}
                           </button>
                         </div>
                       ) : (
@@ -3553,16 +3561,16 @@ export function App() {
                           display: "grid",
                           gap: "var(--space-2)"
                         }}>
-                          <strong style={{ fontSize: "var(--text-subhead)" }}>Enable posting</strong>
+                          <strong style={{ fontSize: "var(--text-subhead)" }}>{t("activity.enablePostingTitle")}</strong>
                           <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                            Your current session does not include write permissions. Sign out and sign back in to enable posting.
+                            {t("activity.enablePostingDescription")}
                           </p>
                         </div>
                       )}
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
                         <SectionHeader
-                          title="Notifications"
-                          actionLabel={activityLoading ? undefined : "Refresh"}
+                          title={t("activity.notifications")}
+                          actionLabel={activityLoading ? undefined : t("action.refresh")}
                           onAction={activityLoading ? undefined : () => setActivityRefreshNonce((value) => value + 1)}
                         />
                         <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
@@ -3577,13 +3585,13 @@ export function App() {
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              No notifications yet.
+                              {t("activity.noNotifications")}
                             </p>
                           )}
                         </div>
                       </section>
                       <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                        <SectionHeader title="Home Timeline" />
+                        <SectionHeader title={t("activity.homeTimeline")} />
                         <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
                           {activityLoading && activityTimeline.length === 0 ? (
                             <>
@@ -3604,7 +3612,7 @@ export function App() {
                             ))
                           ) : (
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              No timeline posts yet.
+                              {t("activity.noTimelinePosts")}
                             </p>
                           )}
                         </div>
@@ -3615,7 +3623,7 @@ export function App() {
                         </p>
                       ) : activityLoadedAt ? (
                         <p style={{ margin: "0 var(--space-4)", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                          Last updated: {new Date(activityLoadedAt).toLocaleString()}
+                          {t("activity.lastUpdatedAt", { date: new Date(activityLoadedAt).toLocaleString(i18n.language) })}
                         </p>
                       ) : null}
                     </div>
@@ -3624,8 +3632,39 @@ export function App() {
               )}
               {activeTab === "profile" && (
                 <TabPanel id="profile" activeTab={activeTab}>
-                  <ScreenTitle title="Account" />
+                  <ScreenTitle title={t("screen.account")} />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
+                    <div style={{
+                      display: "grid",
+                      gap: "var(--space-2)",
+                      padding: "var(--space-4)",
+                      borderRadius: "var(--radius-lg)",
+                      background: "var(--color-bg-secondary)",
+                      boxShadow: "var(--shadow-card)"
+                    }}>
+                      <label htmlFor="language-select" style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
+                        {t("language.label")}
+                      </label>
+                      <select
+                        id="language-select"
+                        value={i18n.language.startsWith("es") ? "es" : "en"}
+                        onChange={(event) => {
+                          void i18n.changeLanguage(event.target.value);
+                        }}
+                        style={{
+                          minHeight: "var(--touch-min)",
+                          borderRadius: "var(--radius-md)",
+                          border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
+                          background: "var(--color-bg)",
+                          color: "var(--color-text)",
+                          padding: "0 var(--space-3)",
+                          fontSize: "var(--text-body)"
+                        }}
+                      >
+                        <option value="en">{t("language.english")}</option>
+                        <option value="es">{t("language.spanish")}</option>
+                      </select>
+                    </div>
                     <div style={{
                       display: "grid",
                       gap: "var(--space-3)",
@@ -3773,7 +3812,7 @@ export function App() {
                               ) : null}
                               <div style={{ display: "grid", gap: "var(--space-2)" }}>
                                 <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                  Featured hashtags
+                                  {t("account.featuredHashtags")}
                                 </strong>
                                 {profileFeaturedTags.length > 0 ? (
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
@@ -3817,13 +3856,13 @@ export function App() {
                                   </div>
                                 ) : (
                                   <span style={{ fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                                    No featured hashtags published.
+                                    {t("account.noFeaturedHashtags")}
                                   </span>
                                 )}
                               </div>
                               <div style={{ display: "grid", gap: "var(--space-2)" }}>
                                 <strong style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                                  Pinned posts
+                                  {t("account.pinnedPosts")}
                                 </strong>
                                 {profilePinnedStatuses.length > 0 ? (
                                   <>
@@ -3858,7 +3897,7 @@ export function App() {
                                             />
                                             {href ? (
                                               <a href={href} target="_blank" rel="noreferrer" style={{ color: "var(--color-accent)", fontWeight: 600, fontSize: "var(--text-footnote)", textDecoration: "none" }}>
-                                                Open post
+                                                {t("shared.openPost")}
                                               </a>
                                             ) : null}
                                           </article>
@@ -3881,7 +3920,7 @@ export function App() {
                                           opacity: profilePinnedIndex <= 0 ? 0.45 : 1
                                         }}
                                       >
-                                        Previous
+                                        {t("shared.previous")}
                                       </button>
                                       <span style={{ fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", textAlign: "center" }}>
                                         {profilePinnedIndex + 1} / {profilePinnedStatuses.length}
@@ -3901,7 +3940,7 @@ export function App() {
                                           opacity: profilePinnedIndex >= profilePinnedStatuses.length - 1 ? 0.45 : 1
                                         }}
                                       >
-                                        Next
+                                        {t("shared.next")}
                                       </button>
                                     </div>
                                   </>
@@ -3933,7 +3972,7 @@ export function App() {
                                   padding: "0 var(--space-4)"
                                 }}
                               >
-                                Post Reading Update
+                                {t("account.postReadingUpdate")}
                               </button>
                             ) : null}
                             <button
@@ -3955,7 +3994,7 @@ export function App() {
                                 opacity: isAuthWorking ? 0.6 : 1
                               }}
                             >
-                              Switch account
+                              {t("account.switchAccount")}
                             </button>
                             <button
                               type="button"
@@ -3972,7 +4011,7 @@ export function App() {
                                 opacity: isAuthWorking ? 0.6 : 1
                               }}
                             >
-                              {isAuthWorking ? "Signing out..." : "Sign out"}
+                              {isAuthWorking ? t("account.signingOut") : t("account.signOut")}
                             </button>
                           </div>
                         </>
@@ -3986,9 +4025,9 @@ export function App() {
                             background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-bg))",
                             border: "1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)"
                           }}>
-                            <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>Use the server you already know, or pick one and come back when your account is ready.</strong>
+                            <strong style={{ fontSize: "var(--text-subhead)", color: "var(--color-text)" }}>{t("auth.introTitle")}</strong>
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              RYU keeps sign-in and server discovery separate so you can move through either path cleanly.
+                              {t("auth.introDescription")}
                             </p>
                           </div>
                           <div style={{
@@ -4005,17 +4044,17 @@ export function App() {
                               border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)"
                             }}>
                               <div style={{ display: "grid", gap: "var(--space-1)" }}>
-                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>Sign in</h2>
+                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>{t("auth.signInTitle")}</h2>
                                 <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                                  Enter your home server and continue through secure OAuth sign-in.
+                                  {t("auth.signInDescription")}
                                 </p>
                               </div>
                               <input
                                 type="text"
                                 value={instanceInput}
                                 onChange={(event) => setInstanceInput(event.target.value)}
-                                placeholder="bookwyrm.social"
-                                aria-label="BookWyrm or Mastodon instance"
+                                placeholder={t("auth.instancePlaceholder")}
+                                aria-label={t("auth.instanceAriaLabel")}
                                 autoComplete="on"
                                 spellCheck={false}
                                 list={INSTANCE_DATALIST_ID}
@@ -4032,7 +4071,7 @@ export function App() {
                               />
                               <datalist id={INSTANCE_DATALIST_ID}>
                                 {topAutocompleteInstances.map((instance) => (
-                                  <option key={instance.domain} value={instance.domain} label={`${instance.softwareName ?? "Fediverse"}${instance.country ? ` • ${instance.country}` : ""}`} />
+                                  <option key={instance.domain} value={instance.domain} label={`${instance.softwareName ?? t("shared.fediverse")}${instance.country ? ` • ${instance.country}` : ""}`} />
                                 ))}
                               </datalist>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
@@ -4051,7 +4090,7 @@ export function App() {
                                     opacity: isAuthWorking || !instanceInput.trim() ? 0.6 : 1
                                   }}
                                 >
-                                  {isAuthWorking ? "Working..." : "Sign in with this server"}
+                                  {isAuthWorking ? t("shared.working") : t("auth.signInWithServer")}
                                 </button>
                                 <button
                                   type="button"
@@ -4066,7 +4105,7 @@ export function App() {
                                     padding: "0 var(--space-4)"
                                   }}
                                 >
-                                  Find server
+                                  {t("auth.findServer")}
                                 </button>
                               </div>
                             </section>
@@ -4079,9 +4118,9 @@ export function App() {
                               border: "1px solid color-mix(in srgb, var(--color-text) 10%, transparent)"
                             }}>
                               <div style={{ display: "grid", gap: "var(--space-1)" }}>
-                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>Create account</h2>
+                                <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)" }}>{t("auth.createAccountTitle")}</h2>
                                 <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                                  Browse open-registration servers filtered for compatibility and safety, then open one to create your account.
+                                  {t("auth.createAccountDescription")}
                                 </p>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
@@ -4100,7 +4139,7 @@ export function App() {
                                     opacity: signupInstancesLoading ? 0.6 : 1
                                   }}
                                 >
-                                  {signupInstancesLoading ? "Refreshing..." : "Refresh list"}
+                                  {signupInstancesLoading ? t("shared.refreshing") : t("auth.refreshList")}
                                 </button>
                                 <button
                                   type="button"
@@ -4116,13 +4155,13 @@ export function App() {
                                     fontWeight: 600
                                   }}
                                 >
-                                  Browse servers
+                                  {t("auth.browseServers")}
                                 </button>
                               </div>
                               {instanceInput.trim() ? (
                                 <div style={{ display: "grid", gap: "var(--space-2)" }}>
                                   <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                                    Selected server: <strong style={{ color: "var(--color-text)" }}>{selectedInstanceOrigin ?? instanceInput.trim()}</strong>
+                                    {t("auth.selectedServer")}: <strong style={{ color: "var(--color-text)" }}>{selectedInstanceOrigin ?? instanceInput.trim()}</strong>
                                   </p>
                                   <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
                                     <button
@@ -4138,7 +4177,7 @@ export function App() {
                                         padding: "0 var(--space-3)"
                                       }}
                                     >
-                                      Open server
+                                      {t("auth.openServer")}
                                     </button>
                                     <button
                                       type="button"
@@ -4155,7 +4194,7 @@ export function App() {
                                         opacity: isAuthWorking || !selectedInstanceOrigin ? 0.6 : 1
                                       }}
                                     >
-                                      {isAuthWorking ? "Working..." : "Continue with this server"}
+                                      {isAuthWorking ? t("shared.working") : t("auth.continueWithServer")}
                                     </button>
                                   </div>
                                 </div>
@@ -4167,12 +4206,12 @@ export function App() {
                               ) : null}
                               {signupInstances.length === 0 ? (
                                 <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                                  {signupInstancesLoading ? "Loading eligible instances..." : "No eligible instances found right now."}
+                                  {signupInstancesLoading ? t("auth.loadingEligibleInstances") : t("auth.noEligibleInstances")}
                                 </p>
                               ) : null}
                               {signupInstancesRefreshedAt ? (
                                 <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                                  Last refreshed: {new Date(signupInstancesRefreshedAt).toLocaleString()}
+                                  {t("auth.lastRefreshedAt", { date: new Date(signupInstancesRefreshedAt).toLocaleString(i18n.language) })}
                                 </p>
                               ) : null}
                             </section>
@@ -4183,15 +4222,15 @@ export function App() {
                       {authError ? <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>{authError}</p> : null}
                     </div>
                     <EmptyState
-                      title="Backend exchange required"
-                      description="Mastodon currently provisions confidential clients, so token exchange must run on a backend endpoint and never in browser-only code."
+                      title={t("auth.backendExchangeTitle")}
+                      description={t("auth.backendExchangeDescription")}
                     />
                   </section>
                   {pickerOpen ? (
                     <div
                       role="dialog"
                       aria-modal="true"
-                      aria-label="Instance picker"
+                      aria-label={t("auth.instancePicker")}
                       style={{
                         position: "fixed",
                         inset: 0,
@@ -4220,9 +4259,9 @@ export function App() {
                       >
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "var(--space-3)" }}>
                           <div style={{ display: "grid", gap: "var(--space-1)" }}>
-                            <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-title3)" }}>Find a server</h2>
+                            <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-title3)" }}>{t("auth.findServerTitle")}</h2>
                             <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              Open a server to create an account, or use it immediately if you already have one there.
+                              {t("auth.findServerDescription")}
                             </p>
                           </div>
                           <button
@@ -4237,7 +4276,7 @@ export function App() {
                               padding: "0 var(--space-3)"
                             }}
                           >
-                            Close
+                            {t("bookDetail.close")}
                           </button>
                         </div>
                         <div style={{ display: "grid", gap: "var(--space-2)" }}>
@@ -4245,8 +4284,8 @@ export function App() {
                             type="search"
                             value={instanceSearch}
                             onChange={(event) => setInstanceSearch(event.target.value)}
-                            placeholder="Search domain, software, country"
-                            aria-label="Search instances"
+                            placeholder={t("auth.searchInstancesPlaceholder")}
+                            aria-label={t("auth.searchInstancesAriaLabel")}
                             style={{
                               width: "100%",
                               minHeight: "var(--touch-min)",
@@ -4261,7 +4300,7 @@ export function App() {
                           <select
                             value={preferredSoftware}
                             onChange={(event) => setPreferredSoftware(event.target.value)}
-                            aria-label="Preferred software"
+                            aria-label={t("auth.preferredSoftware")}
                             style={{
                               minHeight: "var(--touch-min)",
                               borderRadius: "var(--radius-md)",
@@ -4271,14 +4310,14 @@ export function App() {
                               padding: "0 var(--space-2)"
                             }}
                           >
-                            <option value="bookwyrm">Prefer BookWyrm</option>
-                            <option value="mastodon">Prefer Mastodon</option>
-                            <option value="">No preference</option>
+                            <option value="bookwyrm">{t("auth.preferBookWyrm")}</option>
+                            <option value="mastodon">{t("auth.preferMastodon")}</option>
+                            <option value="">{t("auth.noPreference")}</option>
                           </select>
                           <select
                             value={preferredCountry}
                             onChange={(event) => setPreferredCountry(event.target.value)}
-                            aria-label="Preferred country"
+                            aria-label={t("auth.preferredCountry")}
                             style={{
                               minHeight: "var(--touch-min)",
                               borderRadius: "var(--radius-md)",
@@ -4288,7 +4327,7 @@ export function App() {
                               padding: "0 var(--space-2)"
                             }}
                           >
-                            <option value="">Any country</option>
+                            <option value="">{t("auth.anyCountry")}</option>
                             {availableCountries.map((country) => (
                               <option key={country} value={country}>{country}</option>
                             ))}
@@ -4311,9 +4350,9 @@ export function App() {
                               <div style={{ display: "grid", gap: "2px" }}>
                                 <span style={{ fontWeight: 700 }}>{instance.domain}</span>
                                 <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption1)" }}>
-                                  {instance.softwareName ?? "Fediverse"}
+                                  {instance.softwareName ?? t("shared.fediverse")}
                                   {instance.country ? ` · ${instance.country}` : ""}
-                                  {typeof instance.userCount === "number" ? ` · ${formatCount(instance.userCount)} users` : ""}
+                                  {typeof instance.userCount === "number" ? ` · ${formatCount(instance.userCount)} ${t("auth.users", { count: instance.userCount })}` : ""}
                                 </span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
@@ -4331,7 +4370,7 @@ export function App() {
                                     fontWeight: 600
                                   }}
                                 >
-                                  Use this server
+                                  {t("auth.useThisServer")}
                                 </button>
                                 <button
                                   type="button"
@@ -4347,17 +4386,17 @@ export function App() {
                                     fontWeight: 600
                                   }}
                                 >
-                                  Open site
+                                  {t("auth.openSite")}
                                 </button>
                               </div>
                             </article>
                           ))}
                           {!signupInstancesLoading && signupInstances.length === 0 ? (
-                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>No matches for current filters.</p>
+                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>{t("auth.noMatches")}</p>
                           ) : null}
                         </div>
                         <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                          Only open-registration instances are shown. Oliphant Tier 0 domains are excluded.
+                          {t("auth.instancesNote")}
                         </p>
                       </section>
                     </div>

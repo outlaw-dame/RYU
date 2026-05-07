@@ -60,11 +60,13 @@
     "dexie": "^4.0.10",
     "dompurify": "^3.2.3",
     "framer-motion": "^12.0.0",
+    "i18next": "^25.2.1",
     "lucide-react": "^0.468.0",
     "markdown-it": "^14.1.1",
     "mfm-js": "^0.25.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-i18next": "^15.5.3",
     "rxdb": "^16.19.0",
     "twemoji": "^14.0.2",
     "zod": "^3.24.1"

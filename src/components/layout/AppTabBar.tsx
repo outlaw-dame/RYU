@@ -1,23 +1,25 @@
 import { memo, useCallback, useRef } from "react";
 import { Bell, Home, LayoutGrid, Search, User } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 export type TabId = "home" | "search" | "shelves" | "activity" | "profile";
 
 type TabDefinition = {
   id: TabId;
-  label: string;
+  labelKey: string;
   Icon: typeof Home;
 };
 
 const tabs: TabDefinition[] = [
-  { id: "home", label: "Home", Icon: Home },
-  { id: "search", label: "Search", Icon: Search },
-  { id: "shelves", label: "Shelves", Icon: LayoutGrid },
-  { id: "activity", label: "Activity", Icon: Bell },
-  { id: "profile", label: "Account", Icon: User }
+  { id: "home", labelKey: "tabs.home", Icon: Home },
+  { id: "search", labelKey: "tabs.search", Icon: Search },
+  { id: "shelves", labelKey: "tabs.shelves", Icon: LayoutGrid },
+  { id: "activity", labelKey: "tabs.activity", Icon: Bell },
+  { id: "profile", labelKey: "tabs.account", Icon: User }
 ];
 
 export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { activeTab: TabId; onChange: (tab: TabId) => void }) {
+  const { t } = useTranslation();
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     let nextIndex = index;
@@ -31,7 +33,7 @@ export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { acti
   }, [onChange]);
 
   return (
-    <nav role="tablist" aria-label="Main navigation" style={{
+    <nav role="tablist" aria-label={t("nav.main")} style={{
       display: "flex",
       alignItems: "stretch",
       height: "calc(var(--tab-bar-height) + var(--safe-bottom))",
@@ -44,8 +46,9 @@ export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { acti
       WebkitBackdropFilter: "saturate(180%) blur(20px)",
       flexShrink: 0
     }}>
-      {tabs.map(({ id, label, Icon }, index) => {
+      {tabs.map(({ id, labelKey, Icon }, index) => {
         const active = id === activeTab;
+        const label = t(labelKey);
         return (
           <button
             key={id}

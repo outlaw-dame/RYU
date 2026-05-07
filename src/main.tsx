@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { applySearchRuntimeSettings } from "./search/runtime-configure";
 import "./design/tokens.css";
+import "./i18n";
 
 const App = React.lazy(() => import("./app/App").then((module) => ({ default: module.App })));
 
