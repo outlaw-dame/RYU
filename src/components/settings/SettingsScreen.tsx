@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { SearchRuntimeSettingsPanel } from './SearchRuntimeSettingsPanel';
 
 type SettingsPage = 'root' | 'intelligence';
@@ -48,6 +49,8 @@ function SettingsRow({
 }
 
 function BackButton({ onBack }: { onBack: () => void }) {
+  const { t } = useTranslation();
+
   return (
     <button
       type="button"
@@ -62,12 +65,13 @@ function BackButton({ onBack }: { onBack: () => void }) {
         textAlign: 'left'
       }}
     >
-      ‹ Settings
+      {t('settings.back')}
     </button>
   );
 }
 
 export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }) {
+  const { t } = useTranslation();
   const [page, setPage] = useState<SettingsPage>('root');
   const openIntelligence = useCallback(() => setPage('intelligence'), []);
   const openRoot = useCallback(() => setPage('root'), []);
@@ -84,10 +88,10 @@ export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }
             lineHeight: 'var(--leading-title1)',
             color: 'var(--color-text)'
           }}>
-            Intelligence
+            {t('settings.intelligence.title')}
           </h2>
           <p style={{ margin: 'var(--space-2) 0 0', color: 'var(--color-text-secondary)', fontSize: 'var(--text-footnote)', lineHeight: 1.35 }}>
-            Control local semantic search, advanced ranking, and AI-assisted query understanding.
+            {t('settings.intelligence.description')}
           </p>
         </header>
         <SearchRuntimeSettingsPanel />
@@ -98,18 +102,18 @@ export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }
   return (
     <section style={{ padding: '0 var(--space-4)', display: 'grid', gap: 'var(--space-4)' }}>
       <SettingsRow
-        title="Intelligence"
-        description="Search quality, semantic models, rerankers, and AI-assisted query understanding."
+        title={t('settings.intelligence.title')}
+        description={t('settings.rows.intelligence')}
         onSelect={openIntelligence}
       />
       <SettingsRow
-        title="Account"
-        description="Manage your connected Mastodon or BookWyrm account."
+        title={t('settings.account.title')}
+        description={t('settings.rows.account')}
         onSelect={onOpenAccount ?? (() => {})}
       />
       <SettingsRow
-        title="Privacy"
-        description="Local data, cache, and model-download controls will live here."
+        title={t('settings.privacy.title')}
+        description={t('settings.rows.privacy')}
         onSelect={() => {}}
       />
     </section>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { sanitizeUrl } from "../../lib/sanitize";
 
 type Book = {
@@ -244,6 +245,7 @@ function SkeletonLine({ width = "60%" }: { width?: string }) {
 }
 
 export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => void }) {
+  const { t } = useTranslation();
   const [doc, setDoc] = useState<OLDoc | null>(null);
   const [googleVolume, setGoogleVolume] = useState<GoogleBooksVolume | null>(null);
   const [loading, setLoading] = useState(true);
@@ -366,7 +368,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`${title} — book details`}
+      aria-label={`${title} - ${t("bookDetail.dialogLabel")}`}
       style={{
         position: "fixed",
         inset: 0,
@@ -409,14 +411,14 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
             </h2>
             {author ? (
               <p style={{ margin: "var(--space-1) 0 0", fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                by <strong style={{ color: "var(--color-text)", fontWeight: 600 }}>{author}</strong>
+                {t("bookDetail.by")} <strong style={{ color: "var(--color-text)", fontWeight: 600 }}>{author}</strong>
               </p>
             ) : null}
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close book detail"
+            aria-label={t("bookDetail.closeAria")}
             style={{
               flexShrink: 0,
               border: 0,
@@ -430,7 +432,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
               cursor: "pointer"
             }}
           >
-            Close
+            {t("bookDetail.close")}
           </button>
         </div>
 
@@ -457,7 +459,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
             {coverSrc ? (
               <img
                 src={coverSrc}
-                alt={`Cover of ${title}`}
+                alt={`${t("bookDetail.coverOf")} ${title}`}
                 loading="eager"
                 decoding="async"
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }}
@@ -479,12 +481,12 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
               </>
             ) : (
               <>
-                {pages ? <MetaRow label="Pages" value={pages.toLocaleString()} /> : null}
-                {year ? <MetaRow label="Published" value={publisher ? `${year} · ${publisher}` : String(year)} /> : null}
-                {langs ? <MetaRow label="Language" value={langs} /> : null}
+                {pages ? <MetaRow label={t("bookDetail.pages")} value={pages.toLocaleString()} /> : null}
+                {year ? <MetaRow label={t("bookDetail.published")} value={publisher ? `${year} · ${publisher}` : String(year)} /> : null}
+                {langs ? <MetaRow label={t("bookDetail.language")} value={langs} /> : null}
                 {isbn ? <MetaRow label="ISBN" value={isbn} /> : null}
                 {editionCount != null ? (
-                  <MetaRow label="Editions" value={`${editionCount.toLocaleString()} edition${editionCount !== 1 ? "s" : ""}`} />
+                  <MetaRow label={t("bookDetail.editions")} value={t("bookDetail.editionCount", { count: editionCount })} />
                 ) : null}
               </>
             )}
@@ -504,7 +506,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
                 letterSpacing: "0.06em"
               }}
             >
-              About
+              {t("bookDetail.about")}
             </p>
             <p
               style={{
@@ -550,7 +552,7 @@ export function BookDetailSheet({ book, onClose }: { book: Book; onClose: () => 
                 gap: "var(--space-2)"
               }}
             >
-              Open on OpenLibrary
+              {t("bookDetail.openOnOpenLibrary")}
             </a>
           ) : null}
           {!olUrl && loading ? (
