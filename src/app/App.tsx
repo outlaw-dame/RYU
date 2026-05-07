@@ -1437,7 +1437,7 @@ function ReaderProfileSheet({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={`${profile.displayName} ${t("account.profile")}`}
+      aria-label={t("account.profileAriaLabel", { name: profile.displayName })}
       style={{
         position: "fixed",
         inset: 0,
@@ -1484,7 +1484,7 @@ function ReaderProfileSheet({
               {profile.avatarSrc ? (
                 <img
                   src={profile.avatarSrc}
-                  alt={`${profile.displayName} ${t("account.avatar")}`}
+                  alt={t("account.avatarAlt", { name: profile.displayName })}
                   loading="lazy"
                   decoding="async"
                   referrerPolicy="no-referrer"
@@ -1503,7 +1503,7 @@ function ReaderProfileSheet({
                 {profile.username}
               </span>
               <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                {profile.originLabel} {t("account.profile")}
+                {t("account.profileLabel", { origin: profile.originLabel })}
               </span>
             </div>
           </div>
@@ -1647,7 +1647,7 @@ function NowReadingPostSheet({
             onClick={onClose}
             style={{ border: 0, borderRadius: "var(--radius-sm)", background: "var(--color-bg-secondary)", color: "var(--color-text)", minHeight: "36px", padding: "0 var(--space-3)" }}
           >
-            Close
+            {t("bookDetail.close")}
           </button>
         </div>
 
@@ -1672,7 +1672,7 @@ function NowReadingPostSheet({
             onClick={() => onOpenProfile(status)}
             style={{ minHeight: "calc(var(--touch-min) - 6px)", border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)", borderRadius: "var(--radius-md)", background: "transparent", color: "var(--color-text)", fontWeight: 700, padding: "0 var(--space-4)" }}
           >
-            View reader profile
+            {t("nowReading.viewReaderProfile")}
           </button>
           {externalHref ? (
             <button
@@ -1680,7 +1680,7 @@ function NowReadingPostSheet({
               onClick={() => window.open(externalHref, "_blank", "noopener,noreferrer")}
               style={{ minHeight: "calc(var(--touch-min) - 6px)", border: 0, borderRadius: "var(--radius-md)", background: "var(--color-accent)", color: "white", fontWeight: 700, padding: "0 var(--space-4)" }}
             >
-              Open original post
+              {t("nowReading.openOriginalPost")}
             </button>
           ) : null}
         </div>
@@ -1689,20 +1689,20 @@ function NowReadingPostSheet({
   );
 }
 
-function notificationVerb(type: string): string {
+function notificationVerb(t: (key: string) => string, type: string): string {
   switch (type) {
     case "follow":
-      return "followed you";
+      return t("activity.notificationVerbs.follow");
     case "favourite":
-      return "favourited your post";
+      return t("activity.notificationVerbs.favourite");
     case "mention":
-      return "mentioned you";
+      return t("activity.notificationVerbs.mention");
     case "reblog":
-      return "boosted your post";
+      return t("activity.notificationVerbs.reblog");
     case "status":
-      return "posted a new update";
+      return t("activity.notificationVerbs.status");
     case "update":
-      return "updated a post";
+      return t("activity.notificationVerbs.update");
     default:
       return type.replace(/_/g, " ");
   }
@@ -1864,9 +1864,9 @@ function ActivityStatusRow({
               ) : null}
               {!hoverLoading && (hoverFollowers != null || hoverFollowing != null || hoverStatuses != null) ? (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-secondary)" }}>
-                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowers)}</strong> {t("account.followers")}</span> : null}
-                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowing)}</strong> {t("account.following")}</span> : null}
-                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverStatuses)}</strong> {t("account.posts")}</span> : null}
+                  {hoverFollowers != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowers)}</strong> {t("account.followers", { count: hoverFollowers })}</span> : null}
+                  {hoverFollowing != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverFollowing)}</strong> {t("account.following", { count: hoverFollowing })}</span> : null}
+                  {hoverStatuses != null ? <span><strong style={{ color: "var(--color-text)" }}>{formatCount(hoverStatuses)}</strong> {t("account.posts", { count: hoverStatuses })}</span> : null}
                 </div>
               ) : null}
             </div>
@@ -2027,7 +2027,7 @@ function ActivityNotificationRow({ notification }: { notification: MastodonNotif
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
         <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>
-          {mastodonAccountLabel(notification.account)} {notificationVerb(notification.type)}
+          {mastodonAccountLabel(notification.account)} {notificationVerb(t, notification.type)}
         </strong>
         <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
           {formatActivityDate(notification.created_at)}
@@ -3156,7 +3156,7 @@ export function App() {
                     </p>
                   ) : nowReadingLoadedAt ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      Currently Reading updated: {new Date(nowReadingLoadedAt).toLocaleString()}
+                      {t("home.currentlyReadingUpdatedAt", { date: new Date(nowReadingLoadedAt).toLocaleString(i18n.language) })}
                     </p>
                   ) : null}
                   <div style={{ height: "var(--space-8)" }} />
@@ -3179,7 +3179,7 @@ export function App() {
                     </p>
                   ) : bookTokLoadedAt ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      {t("home.bookTokUpdated")}: {new Date(bookTokLoadedAt).toLocaleString()}
+                      {t("home.bookTokUpdatedAt", { date: new Date(bookTokLoadedAt).toLocaleString(i18n.language) })}
                     </p>
                   ) : (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
@@ -3623,7 +3623,7 @@ export function App() {
                         </p>
                       ) : activityLoadedAt ? (
                         <p style={{ margin: "0 var(--space-4)", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                          {t("activity.lastUpdated")}: {new Date(activityLoadedAt).toLocaleString()}
+                          {t("activity.lastUpdatedAt", { date: new Date(activityLoadedAt).toLocaleString(i18n.language) })}
                         </p>
                       ) : null}
                     </div>
@@ -4211,7 +4211,7 @@ export function App() {
                               ) : null}
                               {signupInstancesRefreshedAt ? (
                                 <p style={{ margin: 0, color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                                  {t("auth.lastRefreshed")}: {new Date(signupInstancesRefreshedAt).toLocaleString()}
+                                  {t("auth.lastRefreshedAt", { date: new Date(signupInstancesRefreshedAt).toLocaleString(i18n.language) })}
                                 </p>
                               ) : null}
                             </section>
@@ -4350,9 +4350,9 @@ export function App() {
                               <div style={{ display: "grid", gap: "2px" }}>
                                 <span style={{ fontWeight: 700 }}>{instance.domain}</span>
                                 <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-caption1)" }}>
-                                  {instance.softwareName ?? "Fediverse"}
+                                  {instance.softwareName ?? t("shared.fediverse")}
                                   {instance.country ? ` · ${instance.country}` : ""}
-                                  {typeof instance.userCount === "number" ? ` · ${formatCount(instance.userCount)} ${t("auth.users")}` : ""}
+                                  {typeof instance.userCount === "number" ? ` · ${formatCount(instance.userCount)} ${t("auth.users", { count: instance.userCount })}` : ""}
                                 </span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>

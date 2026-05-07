@@ -5,12 +5,18 @@ import { resources, supportedLanguages, type SupportedLanguage } from "./resourc
 const STORAGE_KEY = "ryu.language";
 
 function resolveInitialLanguage(): SupportedLanguage {
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored && supportedLanguages.includes(stored as SupportedLanguage)) {
-    return stored as SupportedLanguage;
+  if (typeof window !== "undefined") {
+    try {
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      if (stored && supportedLanguages.includes(stored as SupportedLanguage)) {
+        return stored as SupportedLanguage;
+      }
+    } catch {
+      // Fall back to browser language when storage access is unavailable.
+    }
   }
 
-  const browserLanguage = window.navigator.language.toLowerCase();
+  const browserLanguage = typeof navigator !== "undefined" ? navigator.language.toLowerCase() : "en";
   if (browserLanguage.startsWith("es")) {
     return "es";
   }
@@ -30,8 +36,12 @@ void i18n
   });
 
 i18n.on("languageChanged", (language) => {
-  if (supportedLanguages.includes(language as SupportedLanguage)) {
-    window.localStorage.setItem(STORAGE_KEY, language);
+  if (typeof window !== "undefined" && supportedLanguages.includes(language as SupportedLanguage)) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, language);
+    } catch {
+      // Ignore storage failures and keep the runtime language.
+    }
   }
 });
 

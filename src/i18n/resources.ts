@@ -37,9 +37,10 @@ export const resources = {
         memberSignIn: "Member sign in",
         becomeMember: "Become a member",
         noNowReading: "No live #NowReading posts found right now.",
+        currentlyReadingUpdatedAt: "Currently Reading updated: {{date}}",
         importedFromBookWyrm: "Imported From BookWyrm",
         recentlyAdded: "Recently Added",
-        bookTokUpdated: "BookTok updated",
+        bookTokUpdatedAt: "BookTok updated: {{date}}",
         bookTokFallback: "Showing curated BookTok picks while live trend sync initializes."
       },
       search: {
@@ -95,7 +96,16 @@ export const resources = {
         noNotifications: "No notifications yet.",
         homeTimeline: "Home Timeline",
         noTimelinePosts: "No timeline posts yet.",
-        lastUpdated: "Last updated"
+        lastUpdated: "Last updated",
+        lastUpdatedAt: "Last updated: {{date}}",
+        notificationVerbs: {
+          follow: "followed you",
+          favourite: "favourited your post",
+          mention: "mentioned you",
+          reblog: "boosted your post",
+          status: "posted a new update",
+          update: "updated a post"
+        }
       },
       settings: {
         back: "< Settings",
@@ -138,7 +148,10 @@ export const resources = {
         signingOut: "Signing out...",
         pinnedPosts: "Pinned posts",
         profile: "profile",
+        profileAriaLabel: "{{name}} profile",
+        profileLabel: "{{origin}} profile",
         avatar: "avatar",
+        avatarAlt: "{{name}} avatar",
         bio: "Bio",
         noBio: "No bio provided on this account yet.",
         featuredHashtags: "Featured hashtags",
@@ -146,9 +159,12 @@ export const resources = {
         recentReadingMentions: "Recent reading mentions",
         openRemoteProfile: "Open remote profile",
         loadingProfile: "Loading profile...",
-        followers: "followers",
-        following: "following",
-        posts: "posts"
+        followers_one: "follower",
+        followers_other: "followers",
+        following_one: "following",
+        following_other: "following",
+        posts_one: "post",
+        posts_other: "posts"
       },
       auth: {
         introTitle: "Use the server you already know, or pick one and come back when your account is ready.",
@@ -169,6 +185,7 @@ export const resources = {
         loadingEligibleInstances: "Loading eligible instances...",
         noEligibleInstances: "No eligible instances found right now.",
         lastRefreshed: "Last refreshed",
+        lastRefreshedAt: "Last refreshed: {{date}}",
         backendExchangeTitle: "Backend exchange required",
         backendExchangeDescription: "Mastodon currently provisions confidential clients, so token exchange must run on a backend endpoint and never in browser-only code.",
         instancePicker: "Instance picker",
@@ -182,7 +199,8 @@ export const resources = {
         noPreference: "No preference",
         preferredCountry: "Preferred country",
         anyCountry: "Any country",
-        users: "users",
+        users_one: "user",
+        users_other: "users",
         useThisServer: "Use this server",
         openSite: "Open site",
         noMatches: "No matches for current filters.",
@@ -202,6 +220,10 @@ export const resources = {
         editionCount_other: "{{count}} editions",
         about: "About",
         openOnOpenLibrary: "Open on OpenLibrary"
+      },
+      nowReading: {
+        viewReaderProfile: "View reader profile",
+        openOriginalPost: "Open original post"
       }
     }
   },
@@ -234,38 +256,39 @@ export const resources = {
       },
       language: {
         label: "Idioma",
-        english: "Ingles",
-        spanish: "Espanol"
+        english: "Inglés",
+        spanish: "Español"
       },
       home: {
         memberAccessTitle: "Acceso de miembro",
-        memberAccessDescription: "Inicia sesion o crea una cuenta para sincronizar tu actividad de lectura.",
-        memberSignIn: "Iniciar sesion",
+        memberAccessDescription: "Inicia sesión o crea una cuenta para sincronizar tu actividad de lectura.",
+        memberSignIn: "Iniciar sesión",
         becomeMember: "Hazte miembro",
         noNowReading: "No hay publicaciones #NowReading en este momento.",
+        currentlyReadingUpdatedAt: "Lectura actual actualizada: {{date}}",
         importedFromBookWyrm: "Importado desde BookWyrm",
-        recentlyAdded: "Recien agregado",
-        bookTokUpdated: "BookTok actualizado",
-        bookTokFallback: "Mostrando selecciones curadas de BookTok mientras se inicia la sincronizacion en vivo."
+        recentlyAdded: "Recién agregado",
+        bookTokUpdatedAt: "BookTok actualizado: {{date}}",
+        bookTokFallback: "Mostrando selecciones curadas de BookTok mientras se inicia la sincronización en vivo."
       },
       search: {
         placeholder: "Busca libros, autores, ISBN y temas...",
         ariaLabel: "Buscar en la biblioteca",
-        facetsLabel: "Facetas de busqueda",
-        suggestionsLabel: "Sugerencias de busqueda",
+        facetsLabel: "Facetas de búsqueda",
+        suggestionsLabel: "Sugerencias de búsqueda",
         importPlaceholder: "https://bookwyrm.social/book/...",
-        importAriaLabel: "URL de edicion de BookWyrm",
+        importAriaLabel: "URL de edición de BookWyrm",
         importing: "Importando...",
-        importEdition: "Importar edicion",
-        smartSearchDescription: "La busqueda inteligente combina tu biblioteca con conversaciones federadas sobre lectura y escritura.",
+        importEdition: "Importar edición",
+        smartSearchDescription: "La búsqueda inteligente combina tu biblioteca con conversaciones federadas sobre lectura y escritura.",
         fediverseDiscovery: "Descubrimiento en Fediverso",
         noFederatedResultsTitle: "Sin resultados federados",
-        noFederatedResultsDescription: "Prueba otra frase, hashtag, autor o titulo.",
+        noFederatedResultsDescription: "Prueba otra frase, hashtag, autor o título.",
         noResultsTitle: "Sin resultados",
-        noResultsDescription: "Prueba otro titulo, autor, ISBN o tema.",
+        noResultsDescription: "Prueba otro título, autor, ISBN o tema.",
         importedEditions: "Ediciones importadas",
-        noImportedBooksTitle: "Todavia no hay libros importados",
-        noImportedBooksDescription: "Las ediciones de BookWyrm que importes apareceran aqui.",
+        noImportedBooksTitle: "Todavía no hay libros importados",
+        noImportedBooksDescription: "Las ediciones de BookWyrm que importes aparecerán aquí.",
         facets: {
           books: "Libros",
           writing: "Escritura",
@@ -276,38 +299,47 @@ export const resources = {
           works: "Obras",
           authors: "Autores"
         },
-        whyThisResult: "Por que este resultado?"
+        whyThisResult: "¿Por qué este resultado?"
       },
       shelves: {
-        signInTitle: "Inicia sesion para cargar estanterias",
+        signInTitle: "Inicia sesión para cargar estanterías",
         signInDescription: "Tus estanterias de Mastodon y BookWyrm apareceran aqui.",
         bookmarks: "Marcadores",
         favourites: "Favoritos",
         lists: "Listas",
-        noBookmarks: "Aun no hay marcadores.",
-        noFavourites: "Aun no hay favoritos.",
+        noBookmarks: "Aún no hay marcadores.",
+        noFavourites: "Aún no hay favoritos.",
         removeBookmark: "Quitar marcador",
         unfavourite: "Quitar favorito",
-        errorUnauthenticated: "Tu sesion expiro. Inicia sesion de nuevo para cargar estanterias.",
+        errorUnauthenticated: "Tu sesión expiró. Inicia sesión de nuevo para cargar estanterías.",
         errorNetwork: "No se pudieron cargar las estanterias ahora."
       },
       activity: {
-        signInTitle: "Inicia sesion para cargar actividad",
-        signInDescription: "Tu timeline, notificaciones y actualizaciones de lectura apareceran aqui.",
-        composePrompt: "Que estas leyendo?",
+        signInTitle: "Inicia sesión para cargar actividad",
+        signInDescription: "Tu timeline, notificaciones y actualizaciones de lectura aparecerán aquí.",
+        composePrompt: "¿Qué estás leyendo?",
         enablePostingTitle: "Habilitar publicaciones",
-        enablePostingDescription: "Tu sesion actual no incluye permisos de escritura. Cierra sesion y vuelve a entrar para publicar.",
+        enablePostingDescription: "Tu sesión actual no incluye permisos de escritura. Cierra sesión y vuelve a entrar para publicar.",
         notifications: "Notificaciones",
-        noNotifications: "Aun no hay notificaciones.",
+        noNotifications: "Aún no hay notificaciones.",
         homeTimeline: "Timeline principal",
-        noTimelinePosts: "Aun no hay publicaciones en el timeline.",
-        lastUpdated: "Ultima actualizacion"
+        noTimelinePosts: "Aún no hay publicaciones en el timeline.",
+        lastUpdated: "Última actualización",
+        lastUpdatedAt: "Última actualización: {{date}}",
+        notificationVerbs: {
+          follow: "empezó a seguirte",
+          favourite: "marcó tu publicación como favorita",
+          mention: "te mencionó",
+          reblog: "impulsó tu publicación",
+          status: "publicó una nueva actualización",
+          update: "actualizó una publicación"
+        }
       },
       settings: {
         back: "< Ajustes",
         intelligence: {
           title: "Inteligencia",
-          description: "Controla la busqueda semantica local, el ranking avanzado y la comprension asistida por IA."
+          description: "Controla la búsqueda semántica local, el ranking avanzado y la comprensión asistida por IA."
         },
         account: {
           title: "Cuenta"
@@ -316,14 +348,14 @@ export const resources = {
           title: "Privacidad"
         },
         rows: {
-          intelligence: "Calidad de busqueda, modelos semanticos, rerankers y comprension asistida por IA.",
+          intelligence: "Calidad de búsqueda, modelos semánticos, rerankers y comprensión asistida por IA.",
           account: "Administra tu cuenta conectada de Mastodon o BookWyrm.",
-          privacy: "Los controles de datos locales, cache y descarga de modelos estaran aqui."
+          privacy: "Los controles de datos locales, cache y descarga de modelos estarán aquí."
         }
       },
       shared: {
-        openPost: "Abrir publicacion",
-        readingPost: "Publicacion de lectura",
+        openPost: "Abrir publicación",
+        readingPost: "Publicación de lectura",
         favourite: "Favorito",
         removeFavourite: "Quitar favorito",
         bookmark: "Marcador",
@@ -338,32 +370,38 @@ export const resources = {
         next: "Siguiente"
       },
       account: {
-        postReadingUpdate: "Publicar actualizacion de lectura",
+        postReadingUpdate: "Publicar actualización de lectura",
         switchAccount: "Cambiar cuenta",
-        signOut: "Cerrar sesion",
-        signingOut: "Cerrando sesion...",
+        signOut: "Cerrar sesión",
+        signingOut: "Cerrando sesión...",
         pinnedPosts: "Publicaciones fijadas",
         profile: "perfil",
+        profileAriaLabel: "Perfil de {{name}}",
+        profileLabel: "Perfil de {{origin}}",
         avatar: "avatar",
-        bio: "Biografia",
-        noBio: "Esta cuenta aun no tiene biografia.",
+        avatarAlt: "Avatar de {{name}}",
+        bio: "Biografía",
+        noBio: "Esta cuenta aún no tiene biografía.",
         featuredHashtags: "Hashtags destacados",
         noFeaturedHashtags: "No se detectaron hashtags en publicaciones recientes de lectura.",
         recentReadingMentions: "Menciones recientes de lectura",
         openRemoteProfile: "Abrir perfil remoto",
         loadingProfile: "Cargando perfil...",
-        followers: "seguidores",
-        following: "siguiendo",
-        posts: "publicaciones"
+        followers_one: "seguidor",
+        followers_other: "seguidores",
+        following_one: "seguido",
+        following_other: "seguidos",
+        posts_one: "publicación",
+        posts_other: "publicaciones"
       },
       auth: {
-        introTitle: "Usa el servidor que ya conoces, o elige uno y vuelve cuando tu cuenta este lista.",
-        introDescription: "RYU mantiene separados el inicio de sesion y el descubrimiento de servidores para que puedas avanzar por cualquiera de los dos caminos.",
-        signInTitle: "Iniciar sesion",
-        signInDescription: "Ingresa tu servidor y continua mediante OAuth seguro.",
+        introTitle: "Usa el servidor que ya conoces, o elige uno y vuelve cuando tu cuenta esté lista.",
+        introDescription: "RYU mantiene separados el inicio de sesión y el descubrimiento de servidores para que puedas avanzar por cualquiera de los dos caminos.",
+        signInTitle: "Iniciar sesión",
+        signInDescription: "Ingresa tu servidor y continúa mediante OAuth seguro.",
         instancePlaceholder: "bookwyrm.social",
         instanceAriaLabel: "Instancia de BookWyrm o Mastodon",
-        signInWithServer: "Iniciar sesion con este servidor",
+        signInWithServer: "Iniciar sesión con este servidor",
         findServer: "Buscar servidor",
         createAccountTitle: "Crear cuenta",
         createAccountDescription: "Explora servidores con registro abierto filtrados por compatibilidad y seguridad, luego abre uno para crear tu cuenta.",
@@ -374,21 +412,23 @@ export const resources = {
         continueWithServer: "Continuar con este servidor",
         loadingEligibleInstances: "Cargando instancias elegibles...",
         noEligibleInstances: "No se encontraron instancias elegibles ahora.",
-        lastRefreshed: "Ultima actualizacion",
+        lastRefreshed: "Última actualización",
+        lastRefreshedAt: "Última actualización: {{date}}",
         backendExchangeTitle: "Se requiere intercambio en backend",
-        backendExchangeDescription: "Mastodon aprovisiona clientes confidenciales, por lo que el intercambio de tokens debe ejecutarse en un endpoint de backend y nunca en codigo solo del navegador.",
+        backendExchangeDescription: "Mastodon aprovisiona clientes confidenciales, por lo que el intercambio de tokens debe ejecutarse en un endpoint de backend y nunca en código solo del navegador.",
         instancePicker: "Selector de instancias",
         findServerTitle: "Buscar un servidor",
-        findServerDescription: "Abre un servidor para crear una cuenta, o usalo de inmediato si ya tienes una.",
-        searchInstancesPlaceholder: "Buscar dominio, software o pais",
+        findServerDescription: "Abre un servidor para crear una cuenta, o úsalo de inmediato si ya tienes una.",
+        searchInstancesPlaceholder: "Buscar dominio, software o país",
         searchInstancesAriaLabel: "Buscar instancias",
         preferredSoftware: "Software preferido",
         preferBookWyrm: "Preferir BookWyrm",
         preferMastodon: "Preferir Mastodon",
         noPreference: "Sin preferencia",
-        preferredCountry: "Pais preferido",
-        anyCountry: "Cualquier pais",
-        users: "usuarios",
+        preferredCountry: "País preferido",
+        anyCountry: "Cualquier país",
+        users_one: "usuario",
+        users_other: "usuarios",
         useThisServer: "Usar este servidor",
         openSite: "Abrir sitio",
         noMatches: "No hay coincidencias para los filtros actuales.",
@@ -400,14 +440,18 @@ export const resources = {
         closeAria: "Cerrar detalle del libro",
         close: "Cerrar",
         coverOf: "Portada de",
-        pages: "Paginas",
+        pages: "Páginas",
         published: "Publicado",
         language: "Idioma",
         editions: "Ediciones",
-        editionCount_one: "{{count}} edicion",
+        editionCount_one: "{{count}} edición",
         editionCount_other: "{{count}} ediciones",
         about: "Acerca de",
         openOnOpenLibrary: "Abrir en OpenLibrary"
+      },
+      nowReading: {
+        viewReaderProfile: "Ver perfil del lector",
+        openOriginalPost: "Abrir publicación original"
       }
     }
   }
