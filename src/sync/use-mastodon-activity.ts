@@ -148,7 +148,10 @@ export function useDisconnectMastodon(): UseMutationResult<void, Error, void> {
       queryClient.removeQueries({ queryKey: mastodonActivityQueryKeys.homeTimelineRoot() });
       queryClient.removeQueries({ queryKey: mastodonActivityQueryKeys.notificationsRoot() });
       queryClient.removeQueries({ queryKey: mastodonActivityQueryKeys.accountStatusesRoot() });
-      await queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.session() });
+      await queryClient.invalidateQueries({
+        queryKey: mastodonActivityQueryKeys.session(),
+        refetchType: "none"
+      });
     }
   });
 }
