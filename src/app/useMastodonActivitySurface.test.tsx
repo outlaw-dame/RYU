@@ -92,6 +92,20 @@ describe("useMastodonActivitySurface", () => {
     expect(result.current.trendItems).toEqual(CURATED_BOOKTOK_TRENDS);
   });
 
+  it("keeps BookTok fallback errors out of the primary activity error while preserving observability", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    hookMocks.state.trends = query({
+      data: [],
+      error: new MastodonActivityApiError(503, "trend_unavailable", "trend sync unavailable")
+    });
+
+    const { result } = renderHook(() => useMastodonActivitySurface(true));
+
+    expect(result.current.activityError).toBeNull();
+    expect(result.current.trendError).toMatchObject({ kind: "refresh-failed" });
+    expect(result.current.trendItems).toEqual(CURATED_BOOKTOK_TRENDS);
+  });
+
   it("maps auth errors through the centralized activity error model", () => {
     hookMocks.state.session = query({ data: connectedSession() });
     hookMocks.state.homeTimeline = query({
