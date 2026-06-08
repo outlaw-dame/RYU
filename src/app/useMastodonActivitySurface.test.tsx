@@ -123,7 +123,7 @@ describe("useMastodonActivitySurface", () => {
   });
 
   it("reports loading activity only when account activity is enabled", () => {
-    hookMocks.state.homeTimeline = query({ isLoading: true });
+    hookMocks.state.homeTimeline = query({ isPending: true });
 
     const signedOut = renderHook(() => useMastodonActivitySurface(true));
     expect(signedOut.result.current.isLoadingActivity).toBe(false);
