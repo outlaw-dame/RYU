@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { CURATED_BOOKTOK_TRENDS } from "../sync/booktok-trending";
 import {
   getMastodonActivityErrorState,
@@ -29,6 +29,15 @@ export function useMastodonActivitySurface(enabled = true) {
     getMastodonActivityErrorState(accountStatuses.error),
     getMastodonActivityErrorState(bookTokTrends.error)
   ].find(Boolean) ?? null, [session.error, homeTimeline.error, notifications.error, accountStatuses.error, bookTokTrends.error]);
+  const refreshAll = useCallback(() => {
+    void session.refetch();
+    if (connected) {
+      void homeTimeline.refetch();
+      void notifications.refetch();
+      void accountStatuses.refetch();
+    }
+    void bookTokTrends.refetch();
+  }, [accountStatuses, bookTokTrends, connected, homeTimeline, notifications, session]);
 
   return {
     session,
@@ -49,6 +58,7 @@ export function useMastodonActivitySurface(enabled = true) {
       homeTimeline.isLoading || notifications.isLoading || accountStatuses.isLoading ||
       homeTimeline.isPending || notifications.isPending || accountStatuses.isPending
     ),
-    hasAnyActivity: timelineItems.length > 0 || notificationItems.length > 0 || accountStatusItems.length > 0
+    hasAnyActivity: timelineItems.length > 0 || notificationItems.length > 0 || accountStatusItems.length > 0,
+    refreshAll
   };
 }
