@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BookTokTrend } from "../sync/booktok-trending";
 import type { MastodonNotification, MastodonPage, MastodonStatus } from "../sync/mastodon-client";
-import type { MastodonSessionState } from "../sync/mastodon-activity-api";
+import { MastodonActivityApiError, type MastodonSessionState } from "../sync/mastodon-activity-api";
 
 type QueryMock<T> = {
   data?: T;
@@ -31,32 +31,18 @@ const hookMocks = vi.hoisted(() => ({
   disconnectMutateAsync: vi.fn()
 }));
 
-vi.mock("../sync/use-mastodon-activity", () => ({
-  getMastodonActivityErrorState: (error: unknown) => {
-    if (!error) return null;
-
-    const activityError = error as { status?: number; isAuthError?: boolean; isRateLimited?: boolean; retryAfterMs?: number };
-    if (activityError.isAuthError || activityError.status === 401 || activityError.status === 403) {
-      return { kind: "reconnect", message: "Session expired. Reconnect.", reconnectRequired: true };
-    }
-    if (activityError.isRateLimited || activityError.status === 429) {
-      return {
-        kind: "rate-limited",
-        message: "Activity is temporarily rate limited. Try again shortly.",
-        reconnectRequired: false,
-        retryAfterMs: activityError.retryAfterMs
-      };
-    }
-
-    return { kind: "refresh-failed", message: "Couldn’t refresh activity. Try again.", reconnectRequired: false };
-  },
-  useBookTokTrends: () => hookMocks.state.trends,
-  useDisconnectMastodon: () => hookMocks.state.disconnect,
-  useMastodonAccountStatuses: () => hookMocks.state.accountStatuses,
-  useMastodonHomeTimeline: () => hookMocks.state.homeTimeline,
-  useMastodonNotifications: () => hookMocks.state.notifications,
-  useMastodonSession: () => hookMocks.state.session
-}));
+vi.mock("../sync/use-mastodon-activity", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../sync/use-mastodon-activity")>();
+  return {
+    ...actual,
+    useBookTokTrends: () => hookMocks.state.trends,
+    useDisconnectMastodon: () => hookMocks.state.disconnect,
+    useMastodonAccountStatuses: () => hookMocks.state.accountStatuses,
+    useMastodonHomeTimeline: () => hookMocks.state.homeTimeline,
+    useMastodonNotifications: () => hookMocks.state.notifications,
+    useMastodonSession: () => hookMocks.state.session
+  };
+});
 
 import { MastodonActivityPanel } from "./MastodonActivityPanel";
 
@@ -121,7 +107,7 @@ describe("MastodonActivityPanel", () => {
     hookMocks.state.session = query({ data: connectedSession() });
     hookMocks.state.homeTimeline = query({
       data: page<MastodonStatus>([]),
-      error: Object.assign(new Error("upstream auth failure"), { status: 401, isAuthError: true })
+      error: new MastodonActivityApiError(401, "auth", "upstream auth failure")
     });
 
     render(<MastodonActivityPanel onConnect={vi.fn()} onReconnect={onReconnect} />);
@@ -135,7 +121,7 @@ describe("MastodonActivityPanel", () => {
     hookMocks.state.session = query({ data: connectedSession() });
     hookMocks.state.homeTimeline = query({
       data: page<MastodonStatus>([]),
-      error: Object.assign(new Error("too many requests"), { status: 429, isRateLimited: true })
+      error: new MastodonActivityApiError(429, "rate_limited", "too many requests")
     });
 
     render(<MastodonActivityPanel onConnect={vi.fn()} />);

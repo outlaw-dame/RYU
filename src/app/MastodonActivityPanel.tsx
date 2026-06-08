@@ -271,7 +271,7 @@ function ActivityCardHeader({ label, createdAt }: { label: string; createdAt: st
   return (
     <div style={{ display: "flex", justifyContent: "space-between", gap: "var(--space-3)", alignItems: "baseline" }}>
       <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere" }}>{label}</strong>
-      <span style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
+      <span suppressHydrationWarning style={{ flex: "0 0 auto", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
         {formatActivityDate(createdAt)}
       </span>
     </div>
