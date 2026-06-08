@@ -118,6 +118,31 @@ describe("useMastodonActivitySurface", () => {
     const signedIn = renderHook(() => useMastodonActivitySurface(true));
     expect(signedIn.result.current.isLoadingActivity).toBe(true);
   });
+
+  it("refreshes session and trends while signed out without fetching gated account activity", () => {
+    const { result } = renderHook(() => useMastodonActivitySurface(true));
+
+    result.current.refreshAll();
+
+    expect(hookMocks.state.session.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.trends.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.homeTimeline.refetch).not.toHaveBeenCalled();
+    expect(hookMocks.state.notifications.refetch).not.toHaveBeenCalled();
+    expect(hookMocks.state.accountStatuses.refetch).not.toHaveBeenCalled();
+  });
+
+  it("refreshes all account activity when signed in", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    const { result } = renderHook(() => useMastodonActivitySurface(true));
+
+    result.current.refreshAll();
+
+    expect(hookMocks.state.session.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.homeTimeline.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.notifications.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.accountStatuses.refetch).toHaveBeenCalledTimes(1);
+    expect(hookMocks.state.trends.refetch).toHaveBeenCalledTimes(1);
+  });
 });
 
 function defaultHookState(): HookState {
