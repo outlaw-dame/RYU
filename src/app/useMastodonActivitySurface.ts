@@ -56,9 +56,8 @@ export function useMastodonActivitySurface(enabled = true) {
     trendItems,
     trendError,
     activityError,
-    isLoadingSession: session.isLoading || session.isPending,
+    isLoadingSession: session.isPending,
     isLoadingActivity: activityEnabled && (
-      homeTimeline.isLoading || notifications.isLoading || accountStatuses.isLoading ||
       homeTimeline.isPending || notifications.isPending || accountStatuses.isPending
     ),
     hasAnyActivity: timelineItems.length > 0 || notificationItems.length > 0 || accountStatusItems.length > 0,
