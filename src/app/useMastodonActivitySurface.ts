@@ -24,13 +24,13 @@ export function useMastodonActivitySurface(enabled = true) {
   const notificationItems = notifications.data?.items ?? EMPTY_ARRAY;
   const accountStatusItems = accountStatuses.data?.items ?? EMPTY_ARRAY;
   const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_BOOKTOK_TRENDS;
+  const trendError = getMastodonActivityErrorState(bookTokTrends.error);
   const activityError = useMemo(() => [
     getMastodonActivityErrorState(session.error),
     getMastodonActivityErrorState(homeTimeline.error),
     getMastodonActivityErrorState(notifications.error),
-    getMastodonActivityErrorState(accountStatuses.error),
-    getMastodonActivityErrorState(bookTokTrends.error)
-  ].find(Boolean) ?? null, [session.error, homeTimeline.error, notifications.error, accountStatuses.error, bookTokTrends.error]);
+    getMastodonActivityErrorState(accountStatuses.error)
+  ].find(Boolean) ?? null, [session.error, homeTimeline.error, notifications.error, accountStatuses.error]);
   const refreshAll = useCallback(() => {
     void session.refetch();
     if (connected) {
@@ -54,6 +54,7 @@ export function useMastodonActivitySurface(enabled = true) {
     notificationItems,
     accountStatusItems,
     trendItems,
+    trendError,
     activityError,
     isLoadingSession: session.isLoading || session.isPending,
     isLoadingActivity: activityEnabled && (
