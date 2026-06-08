@@ -9,6 +9,8 @@ import {
   useMastodonSession
 } from "../sync/use-mastodon-activity";
 
+const EMPTY_ARRAY: never[] = [];
+
 export function useMastodonActivitySurface(enabled = true) {
   const session = useMastodonSession();
   const connected = Boolean(session.data?.connected && session.data.account?.acct);
@@ -18,9 +20,9 @@ export function useMastodonActivitySurface(enabled = true) {
   const accountStatuses = useMastodonAccountStatuses({ enabled: activityEnabled, limit: 10 });
   const bookTokTrends = useBookTokTrends({ enabled });
 
-  const timelineItems = homeTimeline.data?.items ?? [];
-  const notificationItems = notifications.data?.items ?? [];
-  const accountStatusItems = accountStatuses.data?.items ?? [];
+  const timelineItems = homeTimeline.data?.items ?? EMPTY_ARRAY;
+  const notificationItems = notifications.data?.items ?? EMPTY_ARRAY;
+  const accountStatusItems = accountStatuses.data?.items ?? EMPTY_ARRAY;
   const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_BOOKTOK_TRENDS;
   const activityError = useMemo(() => [
     getMastodonActivityErrorState(session.error),
