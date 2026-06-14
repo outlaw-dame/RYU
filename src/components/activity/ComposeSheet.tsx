@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MastodonStatus } from "../../sync/mastodon-client";
 import { postMastodonStatus } from "../../sync/mastodon-activity-api";
+import { AdaptiveSheet } from "../primitives/AdaptiveSheet";
 
 const MAX_LENGTH = 500;
 const WARN_AT = 450;
@@ -36,14 +37,6 @@ export function ComposeSheet({
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !posting) onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose, posting]);
 
   const remaining = MAX_LENGTH - text.length;
   const canPost = text.trim().length > 0 && remaining >= 0 && !posting;
@@ -85,33 +78,17 @@ export function ComposeSheet({
       : "var(--color-text-tertiary)";
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Compose reading update"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "color-mix(in srgb, var(--color-bg) 64%, black 36%)",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-end",
-        zIndex: 60
-      }}
-      onClick={() => { if (!posting) onClose(); }}
+    <AdaptiveSheet
+      opened
+      onClose={onClose}
+      ariaLabel="Compose reading update"
+      swipeToClose={!posting}
     >
       <section
-        onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--color-bg-elevated)",
-          borderRadius: "var(--radius-xl) var(--radius-xl) 0 0",
-          padding: "var(--space-5) var(--space-4)",
-          paddingBottom: "calc(var(--space-6) + env(safe-area-inset-bottom, 0px))",
+          padding: "var(--space-5) var(--space-4) 0",
           display: "grid",
-          gap: "var(--space-4)",
-          maxHeight: "88dvh",
-          overflowY: "auto",
-          boxShadow: "0 -2px 24px rgba(0,0,0,0.12)"
+          gap: "var(--space-4)"
         }}
       >
         {/* Header */}
@@ -272,6 +249,6 @@ export function ComposeSheet({
           {posting ? "Posting…" : "Post Update"}
         </button>
       </section>
-    </div>
+    </AdaptiveSheet>
   );
 }

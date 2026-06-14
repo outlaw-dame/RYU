@@ -1,21 +1,22 @@
 import { memo, useCallback, useRef } from "react";
-import { Bell, Home, LayoutGrid, Search, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { AppIcon, type AppIconProps } from "../../design/icons/AppIcon";
+import type { AppIconName } from "../../design/icons/iconMap";
 
 export type TabId = "home" | "search" | "shelves" | "activity" | "profile";
 
 type TabDefinition = {
   id: TabId;
   labelKey: string;
-  Icon: typeof Home;
+  icon: AppIconName;
 };
 
 const tabs: TabDefinition[] = [
-  { id: "home", labelKey: "tabs.home", Icon: Home },
-  { id: "search", labelKey: "tabs.search", Icon: Search },
-  { id: "shelves", labelKey: "tabs.shelves", Icon: LayoutGrid },
-  { id: "activity", labelKey: "tabs.activity", Icon: Bell },
-  { id: "profile", labelKey: "tabs.account", Icon: User }
+  { id: "home", labelKey: "tabs.home", icon: "home" },
+  { id: "search", labelKey: "tabs.search", icon: "search" },
+  { id: "shelves", labelKey: "tabs.shelves", icon: "grid" },
+  { id: "activity", labelKey: "tabs.activity", icon: "notification" },
+  { id: "profile", labelKey: "tabs.account", icon: "user" }
 ];
 
 export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { activeTab: TabId; onChange: (tab: TabId) => void }) {
@@ -46,7 +47,7 @@ export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { acti
       WebkitBackdropFilter: "saturate(180%) blur(20px)",
       flexShrink: 0
     }}>
-      {tabs.map(({ id, labelKey, Icon }, index) => {
+      {tabs.map(({ id, labelKey, icon }, index) => {
         const active = id === activeTab;
         const label = t(labelKey);
         return (
@@ -78,7 +79,7 @@ export const AppTabBar = memo(function AppTabBar({ activeTab, onChange }: { acti
               WebkitTapHighlightColor: "transparent"
             }}
           >
-            <Icon size={25} strokeWidth={1.6} fill="currentColor" aria-hidden="true" />
+            <AppIcon name={icon} size={25} color="currentColor" />
             <span style={{
               fontFamily: "var(--font-body)",
               fontSize: "var(--text-tab)",
