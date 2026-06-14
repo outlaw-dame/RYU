@@ -9,6 +9,7 @@ import { applySearchRuntimeSettings } from "./search/runtime-configure";
 import "./design/tokens.css";
 import "./i18n";
 import { PlatformProvider } from "./platform/PlatformProvider";
+import { detectPlatform } from "./platform/detectPlatform";
 import { IconContext } from "@phosphor-icons/react";
 
 // Initialize Framework7 with React plugin (exactly once)
@@ -48,10 +49,10 @@ const queryClient = new QueryClient({
   }
 });
 
-// Framework7 configuration — theme "auto" picks iOS on Apple, Material elsewhere
+// Framework7 configuration — feed the detected frameworkTheme to match RYU's theme fallback
 const f7Params = {
   name: "Ryu",
-  theme: "auto" as const,
+  theme: detectPlatform().frameworkTheme,
   darkMode: "auto" as const,
   iosTranslucentBars: true,
   iosTranslucentModals: true,
