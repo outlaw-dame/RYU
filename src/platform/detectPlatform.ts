@@ -69,6 +69,10 @@ export function detectDeviceClass(): RyuDeviceClass {
  * Detect the display mode (PWA installation state)
  */
 export function detectDisplayMode(): RyuDisplayMode {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return "browser";
+  }
+
   if (window.matchMedia("(display-mode: standalone)").matches) {
     return "standalone";
   }
@@ -88,6 +92,10 @@ export function detectDisplayMode(): RyuDisplayMode {
  * Detect input capabilities
  */
 export function detectInputCapabilities(): RyuInputCapabilities {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return { coarsePointer: false, hover: true, virtualKeyboardLikely: false };
+  }
+
   const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
   const hover = window.matchMedia("(hover: hover)").matches;
 
@@ -102,13 +110,16 @@ export function detectInputCapabilities(): RyuInputCapabilities {
  * Detect platform capabilities
  */
 export function detectPlatformCapabilities(): RyuPlatformCapabilities {
+  const hasNavigator = typeof navigator !== "undefined";
+  const hasWindow = typeof window !== "undefined";
+
   return {
     safeAreaInsets: typeof CSS !== "undefined" && typeof CSS.supports === "function"
       ? CSS.supports("padding-top: env(safe-area-inset-top)")
       : false,
-    webShare: "share" in navigator,
-    badging: "setAppBadge" in navigator,
-    fileSystemAccess: "showOpenFilePicker" in window
+    webShare: hasNavigator && "share" in navigator,
+    badging: hasNavigator && "setAppBadge" in navigator,
+    fileSystemAccess: hasWindow && "showOpenFilePicker" in window
   };
 }
 

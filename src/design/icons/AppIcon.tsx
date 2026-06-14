@@ -37,12 +37,15 @@ export const AppIcon = forwardRef<SVGSVGElement, AppIconProps>(
       className,
       style,
       ariaLabel,
-      ariaHidden = true,
+      ariaHidden,
       ...rest
     },
     ref
   ) => {
     const IconComponent = getIconComponent(name);
+    // When ariaLabel is provided the icon is meaningful — default aria-hidden to false.
+    // Otherwise default to true (decorative icon).
+    const resolvedAriaHidden = ariaHidden ?? (ariaLabel ? false : true);
 
     return (
       <IconComponent
@@ -53,7 +56,7 @@ export const AppIcon = forwardRef<SVGSVGElement, AppIconProps>(
         className={className}
         style={style}
         aria-label={ariaLabel}
-        aria-hidden={ariaHidden}
+        aria-hidden={resolvedAriaHidden}
         {...rest}
       />
     );

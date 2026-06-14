@@ -6,7 +6,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { RyuPlatform } from "./platformTypes";
-import { detectPlatform, getPlatformDataAttributes } from "./detectPlatform";
+import { detectPlatform } from "./detectPlatform";
 
 interface PlatformContextType {
   platform: RyuPlatform;
@@ -43,14 +43,14 @@ export function PlatformProvider({ children }: PlatformProviderProps): React.Rea
     };
   }, []);
 
-  // Set data attributes on root element
+  // Set data attributes on root element — reuse existing platform state
+  // to avoid redundant detection queries.
   useEffect(() => {
-    const { os, device, displayMode } = getPlatformDataAttributes();
     const root = document.documentElement;
 
-    root.dataset.os = os;
-    root.dataset.device = device;
-    root.dataset.displayMode = displayMode;
+    root.dataset.os = platform.os;
+    root.dataset.device = platform.deviceClass;
+    root.dataset.displayMode = platform.displayMode;
   }, [platform]);
 
   const contextValue = useMemo(() => ({ platform }), [platform]);

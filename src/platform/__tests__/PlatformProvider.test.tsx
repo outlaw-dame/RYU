@@ -25,11 +25,6 @@ vi.mock("../detectPlatform", () => ({
       badging: false,
       fileSystemAccess: false
     }
-  }),
-  getPlatformDataAttributes: () => ({
-    os: "ios" as const,
-    device: "phone" as const,
-    displayMode: "browser" as const
   })
 }));
 

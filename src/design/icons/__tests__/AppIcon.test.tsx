@@ -39,13 +39,21 @@ describe("AppIcon", () => {
     expect(svg?.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("should support aria-label for accessible icons", () => {
+  it("should not be aria-hidden when ariaLabel is provided", () => {
     const { container } = render(
-      <AppIcon name="search" ariaLabel="Search" ariaHidden={false} />
+      <AppIcon name="search" ariaLabel="Search" />
     );
     const svg = container.querySelector("svg");
     expect(svg?.getAttribute("aria-label")).toBe("Search");
     expect(svg?.getAttribute("aria-hidden")).toBe("false");
+  });
+
+  it("should allow explicit ariaHidden override when ariaLabel is provided", () => {
+    const { container } = render(
+      <AppIcon name="search" ariaLabel="Search" ariaHidden={true} />
+    );
+    const svg = container.querySelector("svg");
+    expect(svg?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("should render different icons", () => {
