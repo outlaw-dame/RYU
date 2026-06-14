@@ -1,12 +1,10 @@
 import React from "react";
 import { AppIcon } from "../icons/AppIcon";
 
-export interface AdaptiveSearchFieldProps {
+export interface AdaptiveSearchFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> {
   value: string;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
-  placeholder?: string;
   onClear?: () => void;
-  autoFocus?: boolean;
   className?: string;
 }
 
@@ -14,9 +12,10 @@ export function AdaptiveSearchField({
   value,
   onChange,
   placeholder = "Search...",
-  onClear,
   autoFocus = false,
-  className = ""
+  onClear,
+  className = "",
+  ...rest
 }: AdaptiveSearchFieldProps) {
   const handleClear = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -42,6 +41,7 @@ export function AdaptiveSearchField({
         placeholder={placeholder}
         autoFocus={autoFocus}
         className="adaptive-search-input"
+        {...rest}
       />
       {value && onClear && (
         <button
