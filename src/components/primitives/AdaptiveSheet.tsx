@@ -30,6 +30,10 @@ export interface AdaptiveSheetProps {
   ariaLabel?: string;
   /** Whether to allow swipe-to-close (default true) */
   swipeToClose?: boolean;
+  /** Whether to allow closing by clicking the backdrop (default true) */
+  closeByBackdropClick?: boolean;
+  /** Whether to allow closing by pressing the Escape key (default true) */
+  closeOnEscape?: boolean;
   /** Show backdrop overlay (default true) */
   backdrop?: boolean;
   /** Additional CSS class on sheet element */
@@ -53,6 +57,8 @@ export function AdaptiveSheet({
   children,
   ariaLabel = "Sheet",
   swipeToClose = true,
+  closeByBackdropClick = true,
+  closeOnEscape = true,
   backdrop = true,
   className,
   style
@@ -69,8 +75,8 @@ export function AdaptiveSheet({
     <Sheet
       opened={opened}
       backdrop={backdrop}
-      closeByBackdropClick
-      closeOnEscape
+      closeByBackdropClick={closeByBackdropClick}
+      closeOnEscape={closeOnEscape}
       swipeToClose={swipeToClose}
       onSheetClose={handleSheetClose}
       onSheetClosed={handleSheetClosed}

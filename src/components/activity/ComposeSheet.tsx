@@ -83,6 +83,8 @@ export function ComposeSheet({
       onClose={onClose}
       ariaLabel="Compose reading update"
       swipeToClose={!posting}
+      closeByBackdropClick={!posting}
+      closeOnEscape={!posting}
     >
       <section
         style={{
