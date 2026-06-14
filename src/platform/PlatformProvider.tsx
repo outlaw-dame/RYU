@@ -1,8 +1,7 @@
-import React, { createContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { RyuPlatform } from "./platformTypes";
 import { detectPlatform } from "./detectPlatform";
-import { usePlatform } from "./usePlatform";
 
 export const PlatformContext = createContext<RyuPlatform | null>(null);
 
@@ -31,13 +30,16 @@ export function PlatformProvider({ children }: PlatformProviderProps): React.Rea
 
     window.addEventListener("resize", handleResize);
 
-    const mqs = [
-      window.matchMedia("(display-mode: standalone)"),
-      window.matchMedia("(display-mode: fullscreen)"),
-      window.matchMedia("(display-mode: minimal-ui)"),
-      window.matchMedia("(pointer: coarse)"),
-      window.matchMedia("(hover: hover)")
-    ];
+    // Guard matchMedia check for environments where matchMedia is not a function
+    const mqs = typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? [
+          window.matchMedia("(display-mode: standalone)"),
+          window.matchMedia("(display-mode: fullscreen)"),
+          window.matchMedia("(display-mode: minimal-ui)"),
+          window.matchMedia("(pointer: coarse)"),
+          window.matchMedia("(hover: hover)")
+        ]
+      : [];
 
     mqs.forEach(mq => {
       if (typeof mq.addEventListener === "function") {
@@ -89,8 +91,17 @@ export function PlatformProvider({ children }: PlatformProviderProps): React.Rea
   );
 }
 
-// Re-export usePlatform for backwards compatibility
-export { usePlatform };
+/**
+ * Hook to access platform information.
+ * Resolves circular dependency by defining it here.
+ */
+export function usePlatform(): RyuPlatform {
+  const context = useContext(PlatformContext);
+  if (!context) {
+    throw new Error("usePlatform must be used within a PlatformProvider");
+  }
+  return context;
+}
 
 /**
  * Hook to access specific platform properties with type safety
