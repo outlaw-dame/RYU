@@ -1,215 +1,58 @@
-/**
- * Icon mapping for RYU
- * Centralizes icon library usage behind semantic names.
- * Currently uses Iconoir — swappable without touching consuming code.
- */
+import type { Icon } from "@phosphor-icons/react";
+import { Pulse } from "@phosphor-icons/react/dist/csr/Pulse";
+import { Plus } from "@phosphor-icons/react/dist/csr/Plus";
+import { CaretLeft } from "@phosphor-icons/react/dist/csr/CaretLeft";
+import { Book } from "@phosphor-icons/react/dist/csr/Book";
+import { Bookmark } from "@phosphor-icons/react/dist/csr/Bookmark";
+import { Check } from "@phosphor-icons/react/dist/csr/Check";
+import { X } from "@phosphor-icons/react/dist/csr/X";
+import { NotePencil } from "@phosphor-icons/react/dist/csr/NotePencil";
+import { Compass } from "@phosphor-icons/react/dist/csr/Compass";
+import { ArrowSquareOut } from "@phosphor-icons/react/dist/csr/ArrowSquareOut";
+import { Heart } from "@phosphor-icons/react/dist/csr/Heart";
+import { House } from "@phosphor-icons/react/dist/csr/House";
+import { Books } from "@phosphor-icons/react/dist/csr/Books";
+import { DotsThree } from "@phosphor-icons/react/dist/csr/DotsThree";
+import { Bell } from "@phosphor-icons/react/dist/csr/Bell";
+import { User } from "@phosphor-icons/react/dist/csr/User";
+import { MagnifyingGlass } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
+import { Gear } from "@phosphor-icons/react/dist/csr/Gear";
+import { Export } from "@phosphor-icons/react/dist/csr/Export";
+import { Folder } from "@phosphor-icons/react/dist/csr/Folder";
+import { Star } from "@phosphor-icons/react/dist/csr/Star";
+import { ArrowsCounterClockwise } from "@phosphor-icons/react/dist/csr/ArrowsCounterClockwise";
+import { Warning } from "@phosphor-icons/react/dist/csr/Warning";
+import { SquaresFour } from "@phosphor-icons/react/dist/csr/SquaresFour";
+import type { AppIconName } from "./iconTypes";
 
-import type { ComponentType, SVGProps } from "react";
-import {
-  Book,
-  Search,
-  Settings,
-  User,
-  Home,
-  BookStack,
-  Plus,
-  Edit,
-  Trash,
-  ShareIos,
-  Heart,
-  Star,
-  Bookmark,
-  MoreHoriz,
-  NavArrowLeft,
-  NavArrowRight,
-  Menu,
-  Xmark,
-  Refresh,
-  Download,
-  Upload,
-  Filter,
-  Sort,
-  ViewGrid,
-  List,
-  HalfMoon,
-  SunLight,
-  Bell,
-  ChatBubble,
-  Activity,
-  Label,
-  Hashtag,
-  Link,
-  OpenNewWindow,
-  Copy,
-  Check,
-  WarningTriangle,
-  InfoCircle,
-  WarningCircle,
-  CheckCircle,
-  Calendar,
-  Clock,
-  UserCircle,
-  Group,
-  Community,
-  Globe,
-  Language,
-  Translate,
-  RefreshDouble,
-  Wifi,
-  WifiOff,
-  BatteryFull,
-  Emoji,
-  MediaImage,
-  Camera,
-  MediaImageList,
-  Folder,
-  Database,
-  Server,
-  Barcode,
-  QrCode,
-  ScanBarcode
-} from "iconoir-react";
+export type { AppIconName } from "./iconTypes";
 
-/** SVG icon component type accepted by the icon map */
-export type IconComponent = ComponentType<SVGProps<SVGSVGElement>>;
+export type IconComponent = Icon;
 
-// Semantic icon names for RYU
-export type AppIconName =
-  | "book"
-  | "search"
-  | "settings"
-  | "user"
-  | "home"
-  | "library"
-  | "add"
-  | "edit"
-  | "delete"
-  | "share"
-  | "heart"
-  | "star"
-  | "bookmark"
-  | "more"
-  | "back"
-  | "forward"
-  | "menu"
-  | "close"
-  | "refresh"
-  | "download"
-  | "upload"
-  | "filter"
-  | "sort"
-  | "grid"
-  | "list"
-  | "dark-mode"
-  | "light-mode"
-  | "notification"
-  | "message"
-  | "activity"
-  | "tag"
-  | "hashtag"
-  | "link"
-  | "external-link"
-  | "copy"
-  | "check"
-  | "error"
-  | "warning"
-  | "info"
-  | "success"
-  | "calendar"
-  | "clock"
-  | "user-circle"
-  | "users"
-  | "community"
-  | "globe"
-  | "language"
-  | "translation"
-  | "sync"
-  | "wifi"
-  | "wifi-off"
-  | "battery"
-  | "emoji"
-  | "image"
-  | "camera"
-  | "gallery"
-  | "folder"
-  | "database"
-  | "server"
-  | "barcode"
-  | "qrcode"
-  | "scan";
-
-// Icon mapping: semantic name -> Iconoir component
-const iconMap: Record<AppIconName, IconComponent> = {
-  "book": Book as IconComponent,
-  "search": Search as IconComponent,
-  "settings": Settings as IconComponent,
-  "user": User as IconComponent,
-  "home": Home as IconComponent,
-  "library": BookStack as IconComponent,
-  "add": Plus as IconComponent,
-  "edit": Edit as IconComponent,
-  "delete": Trash as IconComponent,
-  "share": ShareIos as IconComponent,
-  "heart": Heart as IconComponent,
-  "star": Star as IconComponent,
-  "bookmark": Bookmark as IconComponent,
-  "more": MoreHoriz as IconComponent,
-  "back": NavArrowLeft as IconComponent,
-  "forward": NavArrowRight as IconComponent,
-  "menu": Menu as IconComponent,
-  "close": Xmark as IconComponent,
-  "refresh": Refresh as IconComponent,
-  "download": Download as IconComponent,
-  "upload": Upload as IconComponent,
-  "filter": Filter as IconComponent,
-  "sort": Sort as IconComponent,
-  "grid": ViewGrid as IconComponent,
-  "list": List as IconComponent,
-  "dark-mode": HalfMoon as IconComponent,
-  "light-mode": SunLight as IconComponent,
-  "notification": Bell as IconComponent,
-  "message": ChatBubble as IconComponent,
-  "activity": Activity as IconComponent,
-  "tag": Label as IconComponent,
-  "hashtag": Hashtag as IconComponent,
-  "link": Link as IconComponent,
-  "external-link": OpenNewWindow as IconComponent,
-  "copy": Copy as IconComponent,
-  "check": Check as IconComponent,
-  "error": WarningCircle as IconComponent,
-  "warning": WarningTriangle as IconComponent,
-  "info": InfoCircle as IconComponent,
-  "success": CheckCircle as IconComponent,
-  "calendar": Calendar as IconComponent,
-  "clock": Clock as IconComponent,
-  "user-circle": UserCircle as IconComponent,
-  "users": Group as IconComponent,
-  "community": Community as IconComponent,
-  "globe": Globe as IconComponent,
-  "language": Language as IconComponent,
-  "translation": Translate as IconComponent,
-  "sync": RefreshDouble as IconComponent,
-  "wifi": Wifi as IconComponent,
-  "wifi-off": WifiOff as IconComponent,
-  "battery": BatteryFull as IconComponent,
-  "emoji": Emoji as IconComponent,
-  "image": MediaImage as IconComponent,
-  "camera": Camera as IconComponent,
-  "gallery": MediaImageList as IconComponent,
-  "folder": Folder as IconComponent,
-  "database": Database as IconComponent,
-  "server": Server as IconComponent,
-  "barcode": Barcode as IconComponent,
-  "qrcode": QrCode as IconComponent,
-  "scan": ScanBarcode as IconComponent
+export const iconMap: Record<AppIconName, IconComponent> = {
+  activity: Pulse,
+  add: Plus,
+  back: CaretLeft,
+  book: Book,
+  bookmark: Bookmark,
+  check: Check,
+  close: X,
+  compose: NotePencil,
+  discover: Compass,
+  external: ArrowSquareOut,
+  heart: Heart,
+  home: House,
+  library: Books,
+  more: DotsThree,
+  notification: Bell,
+  profile: User,
+  search: MagnifyingGlass,
+  settings: Gear,
+  share: Export,
+  shelf: Folder,
+  star: Star,
+  sync: ArrowsCounterClockwise,
+  warning: Warning,
+  grid: SquaresFour,
+  user: User
 };
-
-export function getIconComponent(name: AppIconName): IconComponent {
-  return iconMap[name];
-}
-
-export function getAllIconNames(): AppIconName[] {
-  return Object.keys(iconMap) as AppIconName[];
-}
-
-export { iconMap };

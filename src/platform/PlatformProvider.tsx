@@ -1,78 +1,98 @@
-/**
- * Platform Provider Component
- * Provides platform detection context to the entire app
- */
-
-import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { RyuPlatform } from "./platformTypes";
 import { detectPlatform } from "./detectPlatform";
 
-interface PlatformContextType {
-  platform: RyuPlatform;
-}
-
-const PlatformContext = createContext<PlatformContextType | null>(null);
+export const PlatformContext = createContext<RyuPlatform | null>(null);
 
 interface PlatformProviderProps {
   children: ReactNode;
 }
 
 export function PlatformProvider({ children }: PlatformProviderProps): React.ReactElement {
-  const [platform, setPlatform] = useState<RyuPlatform>(detectPlatform);
+  const [platform, setPlatform] = useState<RyuPlatform>(() => detectPlatform());
 
-  // Update platform detection on resize and display mode changes
   useEffect(() => {
-    const handleResize = () => {
+    let timeoutId: number | undefined;
+
+    const updatePlatform = () => {
       setPlatform(detectPlatform());
     };
 
-    const handleDisplayModeChange = () => {
-      setPlatform(detectPlatform());
+    const handleResize = () => {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      timeoutId = window.setTimeout(() => {
+        updatePlatform();
+      }, 150);
     };
 
     window.addEventListener("resize", handleResize);
 
-    // Listen for display mode changes (PWA installation/uninstallation)
-    const displayModeMedia = window.matchMedia("(display-mode: standalone)");
-    displayModeMedia.addEventListener("change", handleDisplayModeChange);
+    // Guard matchMedia check for environments where matchMedia is not a function
+    const mqs = typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? [
+          window.matchMedia("(display-mode: standalone)"),
+          window.matchMedia("(display-mode: fullscreen)"),
+          window.matchMedia("(display-mode: minimal-ui)"),
+          window.matchMedia("(pointer: coarse)"),
+          window.matchMedia("(hover: hover)")
+        ]
+      : [];
+
+    mqs.forEach(mq => {
+      if (typeof mq.addEventListener === "function") {
+        mq.addEventListener("change", updatePlatform);
+      } else if (typeof mq.addListener === "function") {
+        mq.addListener(updatePlatform);
+      }
+    });
 
     return () => {
       window.removeEventListener("resize", handleResize);
-      displayModeMedia.removeEventListener("change", handleDisplayModeChange);
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      mqs.forEach(mq => {
+        if (typeof mq.removeEventListener === "function") {
+          mq.removeEventListener("change", updatePlatform);
+        } else if (typeof mq.removeListener === "function") {
+          mq.removeListener(updatePlatform);
+        }
+      });
     };
   }, []);
 
-  // Set data attributes on root element — reuse existing platform state
-  // to avoid redundant detection queries.
   useEffect(() => {
+    if (typeof document === "undefined" || !document.documentElement) return;
     const root = document.documentElement;
 
-    root.dataset.os = platform.os;
-    root.dataset.device = platform.deviceClass;
-    root.dataset.displayMode = platform.displayMode;
+    root.setAttribute("data-ryu-os", platform.os);
+    root.setAttribute("data-ryu-device", platform.deviceClass);
+    root.setAttribute("data-ryu-display-mode", platform.displayMode);
+    root.setAttribute("data-ryu-framework-theme", platform.frameworkTheme);
+    root.setAttribute("data-ryu-pointer", platform.input.coarsePointer ? "coarse" : "fine");
+    root.setAttribute("data-ryu-hover", platform.input.hover ? "hover" : "none");
   }, [platform]);
 
-  const contextValue = useMemo(() => ({ platform }), [platform]);
-
   return (
-    <PlatformContext.Provider value={contextValue}>
+    <PlatformContext.Provider value={platform}>
       {children}
     </PlatformContext.Provider>
   );
 }
 
 /**
- * Hook to access platform information
+ * Hook to access platform information.
+ * Resolves circular dependency by defining it here.
  */
 export function usePlatform(): RyuPlatform {
   const context = useContext(PlatformContext);
-
   if (!context) {
     throw new Error("usePlatform must be used within a PlatformProvider");
   }
-
-  return context.platform;
+  return context;
 }
 
 /**

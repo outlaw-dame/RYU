@@ -3,7 +3,7 @@
  * Provides convenient access to platform capabilities
  */
 
-import { usePlatform } from "./PlatformProvider";
+import { usePlatform } from "./usePlatform";
 
 /**
  * Check if running on iOS (including iPadOS)

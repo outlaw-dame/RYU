@@ -1,14 +1,19 @@
-/**
- * Platform detection types for RYU
- * Provides a stable abstraction over device, OS, and display mode detection
- */
+export type RyuOperatingSystem =
+  | "ios"
+  | "ipados"
+  | "android"
+  | "macos"
+  | "windows"
+  | "linux"
+  | "unknown";
 
-export type RyuOS = "ios" | "ipados" | "android" | "macos" | "windows" | "linux" | "unknown";
-export type RyuTheme = "ios" | "md";
 export type RyuDeviceClass = "phone" | "tablet" | "desktop";
+
 export type RyuDisplayMode = "browser" | "standalone" | "fullscreen" | "minimal-ui";
 
-export interface RyuInputCapabilities {
+export type RyuFrameworkTheme = "ios" | "md";
+
+export interface RyuPlatformInput {
   coarsePointer: boolean;
   hover: boolean;
   virtualKeyboardLikely: boolean;
@@ -22,17 +27,10 @@ export interface RyuPlatformCapabilities {
 }
 
 export interface RyuPlatform {
-  os: RyuOS;
-  theme: RyuTheme;
+  os: RyuOperatingSystem;
   deviceClass: RyuDeviceClass;
+  frameworkTheme: RyuFrameworkTheme;
   displayMode: RyuDisplayMode;
-  input: RyuInputCapabilities;
+  input: RyuPlatformInput;
   capabilities: RyuPlatformCapabilities;
-}
-
-// Platform detection result that can be used for CSS data attributes
-export interface PlatformDataAttributes {
-  os: RyuOS;
-  device: RyuDeviceClass;
-  displayMode: RyuDisplayMode;
 }
