@@ -102,6 +102,7 @@ export default defineConfig({
     }
   },
   server: {
+    allowedHosts: [".trycloudflare.com"],
     headers: {
       "Cross-Origin-Opener-Policy": "same-origin",
       "Cross-Origin-Embedder-Policy": "require-corp"
@@ -154,8 +155,8 @@ export default defineConfig({
             return "f7-vendor";
           }
 
-          if (moduleId.includes("node_modules/iconoir-react")) {
-            return "iconoir-vendor";
+          if (moduleId.includes("node_modules/@phosphor-icons/react")) {
+            return "phosphor-vendor";
           }
 
           if (moduleId.includes("node_modules/framer-motion") || moduleId.includes("node_modules/lucide-react")) {

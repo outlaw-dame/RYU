@@ -79,6 +79,20 @@
   --safe-right: env(safe-area-inset-right, 0px);
 }
 
+:root {
+  --f7-theme-color: var(--color-accent);
+  --f7-font-family: var(--font-body);
+  --f7-safe-area-top: var(--safe-top);
+  --f7-safe-area-bottom: var(--safe-bottom);
+  --f7-safe-area-left: var(--safe-left);
+  --f7-safe-area-right: var(--safe-right);
+}
+
+:root[data-ryu-framework-theme="ios"] {
+  --f7-bars-translucent-opacity: 0.82;
+  --f7-bars-translucent-blur: 20px;
+}
+
 :root,
 :root[data-theme="light"] {
   --color-bg: #f2f2f7;

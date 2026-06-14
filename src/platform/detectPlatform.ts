@@ -1,50 +1,48 @@
-/**
- * Platform detection utilities
- * Detects OS, device class, display mode, and capabilities
- */
-
 import type {
-  RyuOS,
-  RyuTheme,
+  RyuOperatingSystem,
   RyuDeviceClass,
   RyuDisplayMode,
-  RyuInputCapabilities,
+  RyuFrameworkTheme,
+  RyuPlatformInput,
   RyuPlatformCapabilities,
-  RyuPlatform,
-  PlatformDataAttributes
+  RyuPlatform
 } from "./platformTypes";
 
 /**
  * Detect the operating system
  */
-export function detectOS(): RyuOS {
-  const userAgent = navigator.userAgent;
+export function detectOS(): RyuOperatingSystem {
+  if (typeof navigator === "undefined") return "unknown";
+  const ua = navigator.userAgent || "";
+  const platform = navigator.platform || "";
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
 
-  if (/iPad|iPhone|iPod/.test(userAgent)) {
+  // 1. Android / iOS / iPadOS UA checks first
+  if (/Android/.test(ua)) {
+    return "android";
+  }
+  if (/iPad/.test(ua)) {
+    return "ipados";
+  }
+  if (/iPhone|iPod/.test(ua)) {
     return "ios";
   }
 
-  // iPad on iOS 13+ reports as Mac with touch support
-  if (/Mac/.test(userAgent) && navigator.maxTouchPoints > 1) {
+  // 2. iPadOS fallback (MacIntel + maxTouchPoints > 1) before general macOS check
+  if (platform === "MacIntel" && maxTouchPoints > 1) {
     return "ipados";
   }
 
-  if (/Android/.test(userAgent)) {
-    return "android";
-  }
-
-  if (/Mac/.test(userAgent)) {
-    return "macos";
-  }
-
-  if (/Windows/.test(userAgent)) {
+  // 3. Desktop UA/Platform checks
+  if (/Win/.test(ua) || platform.startsWith("Win")) {
     return "windows";
   }
-
-  if (/Linux/.test(userAgent)) {
+  if (/Linux/.test(ua) || platform.startsWith("Linux")) {
     return "linux";
   }
-
+  if (/Mac/.test(ua) || platform.startsWith("Mac")) {
+    return "macos";
+  }
   return "unknown";
 }
 
@@ -52,16 +50,19 @@ export function detectOS(): RyuOS {
  * Detect the device class based on screen size and capabilities
  */
 export function detectDeviceClass(): RyuDeviceClass {
+  if (typeof window === "undefined") {
+    const os = detectOS();
+    if (os === "ios" || os === "android") return "phone";
+    if (os === "ipados") return "tablet";
+    return "desktop";
+  }
   const width = window.innerWidth;
-
   if (width >= 1024) {
     return "desktop";
   }
-
   if (width >= 768) {
     return "tablet";
   }
-
   return "phone";
 }
 
@@ -69,47 +70,40 @@ export function detectDeviceClass(): RyuDeviceClass {
  * Detect the display mode (PWA installation state)
  */
 export function detectDisplayMode(): RyuDisplayMode {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return "browser";
+  if (typeof window === "undefined") return "browser";
+  if (typeof window.matchMedia === "function") {
+    if (window.matchMedia("(display-mode: standalone)").matches) return "standalone";
+    if (window.matchMedia("(display-mode: fullscreen)").matches) return "fullscreen";
+    if (window.matchMedia("(display-mode: minimal-ui)").matches) return "minimal-ui";
   }
-
-  if (window.matchMedia("(display-mode: standalone)").matches) {
+  if (typeof navigator !== "undefined" && (navigator as any).standalone === true) {
     return "standalone";
   }
-
-  if (window.matchMedia("(display-mode: fullscreen)").matches) {
-    return "fullscreen";
-  }
-
-  if (window.matchMedia("(display-mode: minimal-ui)").matches) {
-    return "minimal-ui";
-  }
-
   return "browser";
 }
 
 /**
  * Detect input capabilities
  */
-export function detectInputCapabilities(): RyuInputCapabilities {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return { coarsePointer: false, hover: true, virtualKeyboardLikely: false };
-  }
-
-  const coarsePointer = window.matchMedia("(pointer: coarse)").matches;
-  const hover = window.matchMedia("(hover: hover)").matches;
+export function detectInput(deviceClass: RyuDeviceClass): RyuPlatformInput {
+  const coarsePointer = typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false;
+  const hover = typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(hover: hover)").matches
+    : true;
 
   return {
     coarsePointer,
     hover,
-    virtualKeyboardLikely: coarsePointer && !hover
+    virtualKeyboardLikely: (deviceClass === "phone" || deviceClass === "tablet") && coarsePointer
   };
 }
 
 /**
  * Detect platform capabilities
  */
-export function detectPlatformCapabilities(): RyuPlatformCapabilities {
+export function detectCapabilities(): RyuPlatformCapabilities {
   const hasNavigator = typeof navigator !== "undefined";
   const hasWindow = typeof window !== "undefined";
 
@@ -126,15 +120,9 @@ export function detectPlatformCapabilities(): RyuPlatformCapabilities {
 /**
  * Map OS to Framework7 theme
  */
-export function mapOSToTheme(os: RyuOS): RyuTheme {
-  switch (os) {
-    case "ios":
-    case "ipados":
-    case "macos":
-      return "ios";
-    default:
-      return "md";
-  }
+export function mapOSToTheme(os: RyuOperatingSystem): RyuFrameworkTheme {
+  if (os === "android") return "md";
+  return "ios"; // default to ios for desktop/unknown as RYU fallback
 }
 
 /**
@@ -144,31 +132,16 @@ export function detectPlatform(): RyuPlatform {
   const os = detectOS();
   const deviceClass = detectDeviceClass();
   const displayMode = detectDisplayMode();
-  const input = detectInputCapabilities();
-  const capabilities = detectPlatformCapabilities();
-  const theme = mapOSToTheme(os);
+  const input = detectInput(deviceClass);
+  const capabilities = detectCapabilities();
+  const frameworkTheme = mapOSToTheme(os);
 
   return {
     os,
-    theme,
     deviceClass,
+    frameworkTheme,
     displayMode,
     input,
     capabilities
-  };
-}
-
-/**
- * Get data attributes for setting on root element
- */
-export function getPlatformDataAttributes(): PlatformDataAttributes {
-  const os = detectOS();
-  const deviceClass = detectDeviceClass();
-  const displayMode = detectDisplayMode();
-
-  return {
-    os,
-    device: deviceClass,
-    displayMode
   };
 }
