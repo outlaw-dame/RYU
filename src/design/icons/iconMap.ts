@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { Icon } from "@phosphor-icons/react";
 import { Pulse } from "@phosphor-icons/react/dist/csr/Pulse";
 import { Plus } from "@phosphor-icons/react/dist/csr/Plus";
 import { CaretLeft } from "@phosphor-icons/react/dist/csr/CaretLeft";
@@ -27,7 +27,7 @@ import type { AppIconName } from "./iconTypes";
 
 export type { AppIconName } from "./iconTypes";
 
-export type IconComponent = ComponentType<any>;
+export type IconComponent = Icon;
 
 export const iconMap: Record<AppIconName, IconComponent> = {
   activity: Pulse,

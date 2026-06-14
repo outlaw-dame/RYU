@@ -46,17 +46,31 @@ export function detectOS(): RyuOperatingSystem {
   return "unknown";
 }
 
-/**
- * Detect the device class based on screen size and capabilities
- */
 export function detectDeviceClass(): RyuDeviceClass {
+  const os = detectOS();
+
+  // 1. Apple OS explicit overrides
+  if (os === "ipados") return "tablet";
+  if (os === "ios") return "phone";
+
+  // 2. Non-browser environment defaults
   if (typeof window === "undefined") {
-    const os = detectOS();
-    if (os === "ios" || os === "android") return "phone";
-    if (os === "ipados") return "tablet";
+    if (os === "android") return "phone";
     return "desktop";
   }
+
   const width = window.innerWidth;
+
+  // 3. Android classification: use width + coarse touch pointer
+  if (os === "android") {
+    const isCoarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    if (width >= 600 && isCoarse) {
+      return "tablet";
+    }
+    return "phone";
+  }
+
+  // 4. Default classification based on screen size (for desktop resize compatibility)
   if (width >= 1024) {
     return "desktop";
   }

@@ -69,17 +69,9 @@ export function PlatformProvider({ children }: PlatformProviderProps): React.Rea
     const root = document.documentElement;
 
     root.setAttribute("data-ryu-os", platform.os);
-    root.setAttribute("data-os", platform.os);
-
     root.setAttribute("data-ryu-device", platform.deviceClass);
-    root.setAttribute("data-device", platform.deviceClass);
-
     root.setAttribute("data-ryu-display-mode", platform.displayMode);
-    root.setAttribute("data-display-mode", platform.displayMode);
-
     root.setAttribute("data-ryu-framework-theme", platform.frameworkTheme);
-    root.setAttribute("data-framework-theme", platform.frameworkTheme);
-
     root.setAttribute("data-ryu-pointer", platform.input.coarsePointer ? "coarse" : "fine");
     root.setAttribute("data-ryu-hover", platform.input.hover ? "hover" : "none");
   }, [platform]);

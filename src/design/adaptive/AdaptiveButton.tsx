@@ -1,4 +1,4 @@
-import React from "react";
+import type { ComponentProps } from "react";
 import { Button } from "framework7-react";
 
 export interface AdaptiveButtonProps {
@@ -20,21 +20,15 @@ export function AdaptiveButton({
   className = "",
   children
 }: AdaptiveButtonProps) {
-  const f7Props: any = {
+  const f7Props: ComponentProps<typeof Button> & { "aria-label"?: string; link?: boolean } = {
     type,
     disabled,
     onClick,
-    "aria-label": ariaLabel
+    "aria-label": ariaLabel,
+    fill: variant === "primary" || variant === "destructive",
+    color: variant === "destructive" ? "red" : undefined,
+    link: variant === "plain"
   };
-
-  if (variant === "primary") {
-    f7Props.fill = true;
-  } else if (variant === "destructive") {
-    f7Props.color = "red";
-    f7Props.fill = true;
-  } else if (variant === "plain") {
-    f7Props.link = true;
-  }
 
   return (
     <Button {...f7Props} className={className}>
