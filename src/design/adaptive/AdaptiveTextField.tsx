@@ -1,11 +1,20 @@
 import React, { forwardRef } from "react";
 
+/**
+ * AdaptiveTextField Props
+ */
 export interface AdaptiveTextFieldProps extends React.InputHTMLAttributes<HTMLInputElement | HTMLTextAreaElement> {
   label?: string;
   textarea?: boolean;
   isDomainOrHandle?: boolean;
 }
 
+/**
+ * A lightweight, platform-adaptive text field wrapper.
+ * NOTE: This component is implemented as a lightweight, native React input/textarea wrapper (rather than
+ * a Framework7 Input/ListInput component) to allow clean standard HTML prop forwarding, direct style control,
+ * and full type safety without Framework7 list container limitations.
+ */
 export const AdaptiveTextField = forwardRef<HTMLInputElement | HTMLTextAreaElement, AdaptiveTextFieldProps>(
   (
     {

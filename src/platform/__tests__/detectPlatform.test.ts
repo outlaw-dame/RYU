@@ -75,19 +75,56 @@ describe("detectPlatform", () => {
   });
 
   describe("detectDeviceClass", () => {
-    it("should detect phone for small screens", () => {
+    it("should detect phone for small screens by default", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
       Object.defineProperty(window, "innerWidth", { value: 375, writable: true, configurable: true });
       expect(detectDeviceClass()).toBe("phone");
     });
 
-    it("should detect tablet for medium screens", () => {
+    it("should detect tablet for medium screens by default", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
       Object.defineProperty(window, "innerWidth", { value: 800, writable: true, configurable: true });
       expect(detectDeviceClass()).toBe("tablet");
     });
 
-    it("should detect desktop for large screens", () => {
+    it("should detect desktop for large screens by default", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
       Object.defineProperty(window, "innerWidth", { value: 1440, writable: true, configurable: true });
       expect(detectDeviceClass()).toBe("desktop");
+    });
+
+    it("should always detect tablet for iPadOS regardless of viewport width", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X)");
+      Object.defineProperty(window, "innerWidth", { value: 1440, writable: true, configurable: true });
+      expect(detectDeviceClass()).toBe("tablet");
+    });
+
+    it("should always detect phone for iOS regardless of viewport width", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)");
+      Object.defineProperty(window, "innerWidth", { value: 800, writable: true, configurable: true });
+      expect(detectDeviceClass()).toBe("phone");
+    });
+
+    it("should detect tablet for Android on larger coarse touch viewports", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Linux; Android 12; Pixel 6)");
+      Object.defineProperty(window, "innerWidth", { value: 800, writable: true, configurable: true });
+      vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }));
+      expect(detectDeviceClass()).toBe("tablet");
+    });
+
+    it("should detect phone for Android on small viewports", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (Linux; Android 12; Pixel 6)");
+      Object.defineProperty(window, "innerWidth", { value: 375, writable: true, configurable: true });
+      expect(detectDeviceClass()).toBe("phone");
     });
   });
 

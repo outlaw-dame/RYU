@@ -35,4 +35,26 @@ describe("AdaptiveTextField", () => {
 
     expect(textarea.tagName).toBe("TEXTAREA");
   });
+
+  it("links label with input/textarea using htmlFor and id, and forwards custom props", () => {
+    render(
+      <AdaptiveTextField
+        label="Username"
+        placeholder="Enter username"
+        id="custom-id-override"
+        data-custom-prop="hello"
+      />
+    );
+    const label = screen.getByText("Username");
+    const input = screen.getByPlaceholderText("Enter username");
+
+    expect(label.getAttribute("for")).toBe("custom-id-override");
+    expect(input.getAttribute("id")).toBe("custom-id-override");
+    expect(input.getAttribute("data-custom-prop")).toBe("hello");
+
+    const container = label.parentElement;
+    expect(container?.className).toContain("adaptive-field-container");
+    expect(label.className).toContain("adaptive-field-label");
+    expect(input.className).toContain("adaptive-input");
+  });
 });

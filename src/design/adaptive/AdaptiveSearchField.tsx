@@ -1,6 +1,9 @@
 import React from "react";
 import { AppIcon } from "../icons/AppIcon";
 
+/**
+ * AdaptiveSearchField Props
+ */
 export interface AdaptiveSearchFieldProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange"> {
   value: string;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -8,6 +11,12 @@ export interface AdaptiveSearchFieldProps extends Omit<React.InputHTMLAttributes
   className?: string;
 }
 
+/**
+ * A lightweight, platform-adaptive search field wrapper.
+ * NOTE: This component is implemented as a lightweight, native React input wrapper (rather than
+ * a Framework7 Searchbar component) to allow clean standard HTML prop forwarding, direct style control,
+ * and full type safety without Framework7 list container limitations.
+ */
 export function AdaptiveSearchField({
   value,
   onChange,

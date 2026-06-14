@@ -11,7 +11,7 @@ import { PlatformProvider, usePlatform } from "../PlatformProvider";
 vi.mock("../detectPlatform", () => ({
   detectPlatform: () => ({
     os: "ios" as const,
-    theme: "ios" as const,
+    frameworkTheme: "ios" as const,
     deviceClass: "phone" as const,
     displayMode: "browser" as const,
     input: {
@@ -56,9 +56,16 @@ describe("PlatformProvider", () => {
     );
 
     const root = document.documentElement;
-    expect(root.dataset.os).toBe("ios");
-    expect(root.dataset.device).toBe("phone");
-    expect(root.dataset.displayMode).toBe("browser");
+    expect(root.dataset.ryuOs).toBe("ios");
+    expect(root.dataset.ryuDevice).toBe("phone");
+    expect(root.dataset.ryuDisplayMode).toBe("browser");
+    expect(root.dataset.ryuFrameworkTheme).toBe("ios");
+    
+    // Ensure generic ones are not set
+    expect(root.dataset.os).toBeUndefined();
+    expect(root.dataset.device).toBeUndefined();
+    expect(root.dataset.displayMode).toBeUndefined();
+    expect(root.dataset.frameworkTheme).toBeUndefined();
   });
 
   it("should throw error when usePlatform is used outside PlatformProvider", () => {
