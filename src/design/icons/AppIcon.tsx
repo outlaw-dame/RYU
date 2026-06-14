@@ -1,71 +1,54 @@
-/**
- * AppIcon Component
- * Semantic icon wrapper that abstracts the underlying icon library.
- * Currently uses Iconoir — swappable without changing consuming code.
- */
-
-import React, { forwardRef } from "react";
-import { getIconComponent, type AppIconName } from "./iconMap";
+import React from "react";
+import type { IconWeight } from "@phosphor-icons/react";
+import type { AppIconName, AppIconState } from "./iconTypes";
+import { iconMap } from "./iconMap";
 
 export interface AppIconProps {
   name: AppIconName;
-  /** Size in pixels (applied to both width and height) */
-  size?: number;
-  /** Stroke/fill color */
+  state?: AppIconState;
+  size?: number | string;
   color?: string;
-  /** Additional CSS classes */
+  label?: string;
+  decorative?: boolean;
   className?: string;
-  /** Inline styles */
-  style?: React.CSSProperties;
-  /** Accessibility label — when provided, sets aria-hidden=false */
-  ariaLabel?: string;
-  /** Explicitly set aria-hidden (defaults to true for decorative icons) */
-  ariaHidden?: boolean;
 }
 
-/**
- * AppIcon renders icons using the configured icon library.
- * This abstraction lets us swap the underlying library without
- * touching every consuming component.
- */
-export const AppIcon = forwardRef<SVGSVGElement, AppIconProps>(
-  (
-    {
-      name,
-      size = 24,
-      color,
-      className,
-      style,
-      ariaLabel,
-      ariaHidden,
-      ...rest
-    },
-    ref
-  ) => {
-    const IconComponent = getIconComponent(name);
-    // When ariaLabel is provided the icon is meaningful — default aria-hidden to false.
-    // Otherwise default to true (decorative icon).
-    const resolvedAriaHidden = ariaHidden ?? (ariaLabel ? false : true);
+const stateToWeight: Record<AppIconState, IconWeight> = {
+  default: "regular",
+  subtle: "light",
+  active: "fill",
+  emphasis: "bold"
+};
 
-    return (
-      <IconComponent
-        ref={ref}
-        width={size}
-        height={size}
-        color={color}
-        className={className}
-        style={style}
-        aria-label={ariaLabel}
-        aria-hidden={resolvedAriaHidden}
-        {...rest}
-      />
-    );
+export function AppIcon({
+  name,
+  state = "default",
+  size = 22,
+  color = "currentColor",
+  label,
+  decorative,
+  className
+}: AppIconProps) {
+  const Icon = iconMap[name];
+
+  if (!Icon) {
+    console.warn(`AppIcon: Icon "${name}" not found in mapping.`);
+    return null;
   }
-);
 
-AppIcon.displayName = "AppIcon";
+  const isDecorative = decorative ?? !label;
 
-/**
- * Memoized version for performance in lists and repeated renders
- */
+  return (
+    <Icon
+      size={size}
+      weight={stateToWeight[state]}
+      color={color}
+      className={className}
+      aria-hidden={isDecorative ? true : undefined}
+      aria-label={!isDecorative ? label : undefined}
+      role={!isDecorative ? "img" : undefined}
+    />
+  );
+}
+
 export const MemoAppIcon = React.memo(AppIcon);

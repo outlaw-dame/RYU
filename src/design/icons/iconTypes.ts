@@ -1,0 +1,28 @@
+export type AppIconName =
+  | "activity"
+  | "add"
+  | "back"
+  | "book"
+  | "bookmark"
+  | "check"
+  | "close"
+  | "compose"
+  | "discover"
+  | "external"
+  | "heart"
+  | "home"
+  | "library"
+  | "more"
+  | "notification"
+  | "profile"
+  | "search"
+  | "settings"
+  | "share"
+  | "shelf"
+  | "star"
+  | "sync"
+  | "warning"
+  | "grid"
+  | "user";
+
+export type AppIconState = "default" | "subtle" | "active" | "emphasis";

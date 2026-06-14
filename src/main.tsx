@@ -9,6 +9,7 @@ import { applySearchRuntimeSettings } from "./search/runtime-configure";
 import "./design/tokens.css";
 import "./i18n";
 import { PlatformProvider } from "./platform/PlatformProvider";
+import { IconContext } from "@phosphor-icons/react";
 
 // Initialize Framework7 with React plugin (exactly once)
 Framework7.use(Framework7React);
@@ -56,6 +57,11 @@ const f7Params = {
   iosTranslucentModals: true,
   colors: {
     primary: "#5856d6"
+  },
+  touch: {
+    activeState: true,
+    touchRipple: true,
+    touchHighlight: true
   }
 };
 
@@ -63,13 +69,15 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <PlatformProvider>
-        <F7App {...f7Params}>
-          <View main>
-            <React.Suspense fallback={null}>
-              <App />
-            </React.Suspense>
-          </View>
-        </F7App>
+        <IconContext.Provider value={{ color: "currentColor", size: 22, weight: "regular" }}>
+          <F7App {...f7Params}>
+            <View main>
+              <React.Suspense fallback={null}>
+                <App />
+              </React.Suspense>
+            </View>
+          </F7App>
+        </IconContext.Provider>
       </PlatformProvider>
     </QueryClientProvider>
   </React.StrictMode>

@@ -1,17 +1,12 @@
-/**
- * Tests for platform detection utilities
- */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   detectOS,
   detectDeviceClass,
   detectDisplayMode,
-  detectInputCapabilities,
-  detectPlatformCapabilities,
+  detectInput,
+  detectCapabilities,
   mapOSToTheme,
-  detectPlatform,
-  getPlatformDataAttributes
+  detectPlatform
 } from "../detectPlatform";
 
 describe("detectPlatform", () => {
@@ -27,6 +22,20 @@ describe("detectPlatform", () => {
       expect(detectOS()).toBe("ios");
     });
 
+    it("should detect iPadOS from userAgent or MacIntel maxTouchPoints", () => {
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+        "Mozilla/5.0 (iPad; CPU OS 15_0 like Mac OS X)"
+      );
+      expect(detectOS()).toBe("ipados");
+
+      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+      );
+      Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+      Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true });
+      expect(detectOS()).toBe("ipados");
+    });
+
     it("should detect Android from userAgent", () => {
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
         "Mozilla/5.0 (Linux; Android 12; Pixel 6)"
@@ -38,7 +47,8 @@ describe("detectPlatform", () => {
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
       );
-      Object.defineProperty(navigator, "maxTouchPoints", { value: 0, writable: true, configurable: true });
+      Object.defineProperty(navigator, "platform", { value: "MacIntel", configurable: true });
+      Object.defineProperty(navigator, "maxTouchPoints", { value: 0, configurable: true });
       expect(detectOS()).toBe("macos");
     });
 
@@ -58,7 +68,8 @@ describe("detectPlatform", () => {
 
     it("should return unknown for unrecognized userAgent", () => {
       vi.spyOn(navigator, "userAgent", "get").mockReturnValue("CustomBrowser/1.0");
-      Object.defineProperty(navigator, "maxTouchPoints", { value: 0, writable: true, configurable: true });
+      Object.defineProperty(navigator, "platform", { value: "Unknown", configurable: true });
+      Object.defineProperty(navigator, "maxTouchPoints", { value: 0, configurable: true });
       expect(detectOS()).toBe("unknown");
     });
   });
@@ -110,7 +121,7 @@ describe("detectPlatform", () => {
     });
   });
 
-  describe("detectInputCapabilities", () => {
+  describe("detectInput", () => {
     it("should detect touch device", () => {
       vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
         matches: query === "(pointer: coarse)",
@@ -122,7 +133,7 @@ describe("detectPlatform", () => {
         removeEventListener: vi.fn(),
         dispatchEvent: vi.fn()
       }));
-      const caps = detectInputCapabilities();
+      const caps = detectInput("phone");
       expect(caps.coarsePointer).toBe(true);
       expect(caps.hover).toBe(false);
       expect(caps.virtualKeyboardLikely).toBe(true);
@@ -139,16 +150,16 @@ describe("detectPlatform", () => {
         removeEventListener: vi.fn(),
         dispatchEvent: vi.fn()
       }));
-      const caps = detectInputCapabilities();
+      const caps = detectInput("desktop");
       expect(caps.coarsePointer).toBe(false);
       expect(caps.hover).toBe(true);
       expect(caps.virtualKeyboardLikely).toBe(false);
     });
   });
 
-  describe("detectPlatformCapabilities", () => {
+  describe("detectCapabilities", () => {
     it("should return boolean capability flags", () => {
-      const caps = detectPlatformCapabilities();
+      const caps = detectCapabilities();
       expect(typeof caps.safeAreaInsets).toBe("boolean");
       expect(typeof caps.webShare).toBe("boolean");
       expect(typeof caps.badging).toBe("boolean");
@@ -165,7 +176,7 @@ describe("detectPlatform", () => {
       expect(mapOSToTheme("ipados")).toBe("ios");
     });
 
-    it("should map macOS to ios theme", () => {
+    it("should map macOS to ios theme fallback", () => {
       expect(mapOSToTheme("macos")).toBe("ios");
     });
 
@@ -173,10 +184,10 @@ describe("detectPlatform", () => {
       expect(mapOSToTheme("android")).toBe("md");
     });
 
-    it("should map Windows/Linux/unknown to md theme", () => {
-      expect(mapOSToTheme("windows")).toBe("md");
-      expect(mapOSToTheme("linux")).toBe("md");
-      expect(mapOSToTheme("unknown")).toBe("md");
+    it("should map Windows/Linux/unknown to ios theme fallback", () => {
+      expect(mapOSToTheme("windows")).toBe("ios");
+      expect(mapOSToTheme("linux")).toBe("ios");
+      expect(mapOSToTheme("unknown")).toBe("ios");
     });
   });
 
@@ -200,35 +211,10 @@ describe("detectPlatform", () => {
       const platform = detectPlatform();
 
       expect(platform.os).toBe("ios");
-      expect(platform.theme).toBe("ios");
+      expect(platform.frameworkTheme).toBe("ios");
       expect(platform.deviceClass).toBe("phone");
       expect(platform.displayMode).toBe("browser");
       expect(platform.input.coarsePointer).toBe(true);
-    });
-  });
-
-  describe("getPlatformDataAttributes", () => {
-    it("should return data attributes for root element", () => {
-      vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
-        "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X)"
-      );
-      Object.defineProperty(window, "innerWidth", { value: 375, writable: true, configurable: true });
-      vi.spyOn(window, "matchMedia").mockImplementation(() => ({
-        matches: false,
-        media: "",
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn()
-      }));
-
-      const attrs = getPlatformDataAttributes();
-
-      expect(attrs.os).toBe("ios");
-      expect(attrs.device).toBe("phone");
-      expect(attrs.displayMode).toBe("browser");
     });
   });
 });
