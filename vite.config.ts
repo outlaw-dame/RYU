@@ -150,6 +150,14 @@ export default defineConfig({
             return "db-runtime";
           }
 
+          if (moduleId.includes("node_modules/framework7") || moduleId.includes("node_modules/framework7-react")) {
+            return "f7-vendor";
+          }
+
+          if (moduleId.includes("node_modules/iconoir-react")) {
+            return "iconoir-vendor";
+          }
+
           if (moduleId.includes("node_modules/framer-motion") || moduleId.includes("node_modules/lucide-react")) {
             return "ui-vendor";
           }
