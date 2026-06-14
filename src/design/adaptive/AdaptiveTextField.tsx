@@ -31,7 +31,11 @@ export const AdaptiveTextField = forwardRef<HTMLInputElement | HTMLTextAreaEleme
           enterKeyHint: "done" as const
         };
 
+    const uniqueId = React.useId();
+    const id = rest.id || uniqueId;
+
     const finalProps = {
+      id,
       ...defaultKeyboardProps,
       ...rest
     };
@@ -40,7 +44,7 @@ export const AdaptiveTextField = forwardRef<HTMLInputElement | HTMLTextAreaEleme
 
     return (
       <div className="adaptive-field-container">
-        {label && <label className="adaptive-field-label">{label}</label>}
+        {label && <label htmlFor={id} className="adaptive-field-label">{label}</label>}
         {textarea ? (
           <textarea
             ref={ref as React.ForwardedRef<HTMLTextAreaElement>}
