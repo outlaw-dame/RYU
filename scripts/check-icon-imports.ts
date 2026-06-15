@@ -13,8 +13,10 @@
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC_DIR = join(import.meta.dirname ?? ".", "..", "src");
+const __dirname = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+const SRC_DIR = join(__dirname, "..", "src");
 const ALLOWED_FILES = new Set([
   "src/design/icons/AppIcon.tsx",
   "src/design/icons/iconMap.ts",
@@ -43,7 +45,7 @@ let violations = 0;
 const root = join(SRC_DIR, "..");
 
 for (const file of walk(SRC_DIR)) {
-  const rel = relative(root, file);
+  const rel = relative(root, file).replace(/\\/g, "/");
   if (ALLOWED_FILES.has(rel)) continue;
 
   const content = readFileSync(file, "utf-8");
