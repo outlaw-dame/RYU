@@ -8,6 +8,40 @@ type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; 
 
 const vectorStore = new Map<string, VectorStoreEntry>();
 
+// Provider generation tracking for stale write protection.
+// Incremented whenever the embedding provider changes.
+let providerGeneration = 0;
+let currentProviderId = "";
+let currentProviderDimensions = 0;
+
+/**
+ * Get the current provider generation. Used by stale write protection.
+ */
+export function getProviderGeneration(): number {
+  return providerGeneration;
+}
+
+/**
+ * Advance the provider generation. Call this when switching embedding providers
+ * to invalidate in-flight embedding writes from the old provider.
+ */
+export function advanceProviderGeneration(providerId: string, dimensions: number): void {
+  providerGeneration++;
+  currentProviderId = providerId;
+  currentProviderDimensions = dimensions;
+}
+
+/**
+ * Sync provider generation state with the currently active provider.
+ * Safe to call multiple times — only advances if provider actually changed.
+ */
+export function syncProviderGeneration(): void {
+  const provider = getEmbeddingProvider();
+  if (provider.id !== currentProviderId || provider.dimensions !== currentProviderDimensions) {
+    advanceProviderGeneration(provider.id, provider.dimensions);
+  }
+}
+
 function inMemoryVectorKey(dbName: string, docId: string): string {
   return `${dbName}:${docId}`;
 }
@@ -50,6 +84,7 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
 export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
+  const generationAtStart = providerGeneration;
 
   const text = searchableText(doc);
   const textHash = hashText(text);
@@ -63,6 +98,11 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     vector = existing.vector;
   } else {
     vector = await provider.embed(text);
+
+    // Stale write protection: if provider changed while we were embedding, discard.
+    if (providerGeneration !== generationAtStart) {
+      return;
+    }
 
     if (vector.length !== provider.dimensions) {
       console.warn('Skipping search vector with invalid dimensions', {
@@ -96,6 +136,11 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     });
   }
 
+  // Final stale write check before updating in-memory store
+  if (providerGeneration !== generationAtStart) {
+    return;
+  }
+
   vectorStore.set(inMemoryVectorKey(database.name, doc.id), {
     vector,
     doc,
@@ -103,6 +148,66 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     dimensions: provider.dimensions,
     dbName: database.name
   });
+}
+
+/**
+ * Warmup: load persisted vectors for the active provider into the in-memory store.
+ * Idempotent — safe to call multiple times. Skips vectors with wrong dimensions
+ * and orphan vectors (no matching canonical doc lookup).
+ *
+ * Call this at app startup (after idle) to ensure semantic search is available
+ * without waiting for full re-indexing.
+ */
+export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number }> {
+  const database = db ?? await initializeDatabase();
+  const provider = getEmbeddingProvider();
+
+  syncProviderGeneration();
+
+  const all = await database.searchvectors
+    .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
+    .exec();
+
+  let loaded = 0;
+  let skipped = 0;
+
+  for (const entry of all) {
+    // Skip vectors with wrong dimensions (corruption or provider mismatch)
+    if (entry.vector.length !== provider.dimensions) {
+      skipped++;
+      continue;
+    }
+
+    const key = inMemoryVectorKey(database.name, entry.entityId);
+
+    // Skip if already warm
+    if (vectorStore.has(key)) {
+      continue;
+    }
+
+    // Build a minimal SearchDocument from the persisted entry.
+    // Full doc lookup is deferred to avoid blocking startup.
+    vectorStore.set(key, {
+      vector: entry.vector,
+      doc: {
+        id: entry.entityId,
+        type: entry.entityType as SearchDocument["type"],
+        title: "",
+        description: "",
+        authorText: "",
+        isbnText: "",
+        enrichmentText: "",
+        source: "local",
+        updatedAt: entry.updatedAt ?? entry.indexedAt ?? ""
+      },
+      model: entry.model,
+      dimensions: entry.dimensions,
+      dbName: database.name
+    });
+    loaded++;
+  }
+
+  return { loaded, skipped };
 }
 
 export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
