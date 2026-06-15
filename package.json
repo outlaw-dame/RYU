@@ -27,6 +27,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "check:icons": "tsx scripts/check-icon-imports.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui:smoke": "vitest run src/app/App.search-a11y.test.tsx",
