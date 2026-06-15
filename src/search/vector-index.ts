@@ -1,46 +1,12 @@
 import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase, type RyuDatabase } from '../db/client';
-import { getEmbeddingProvider } from './embedding-provider';
+import { getEmbeddingProvider, getEmbeddingProviderGeneration } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
 
 type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; dimensions: number; dbName: string };
 
 const vectorStore = new Map<string, VectorStoreEntry>();
-
-// Provider generation tracking for stale write protection.
-// Incremented whenever the embedding provider changes.
-let providerGeneration = 0;
-let currentProviderId = "";
-let currentProviderDimensions = 0;
-
-/**
- * Get the current provider generation. Used by stale write protection.
- */
-export function getProviderGeneration(): number {
-  return providerGeneration;
-}
-
-/**
- * Advance the provider generation. Call this when switching embedding providers
- * to invalidate in-flight embedding writes from the old provider.
- */
-export function advanceProviderGeneration(providerId: string, dimensions: number): void {
-  providerGeneration++;
-  currentProviderId = providerId;
-  currentProviderDimensions = dimensions;
-}
-
-/**
- * Sync provider generation state with the currently active provider.
- * Safe to call multiple times — only advances if provider actually changed.
- */
-export function syncProviderGeneration(): void {
-  const provider = getEmbeddingProvider();
-  if (provider.id !== currentProviderId || provider.dimensions !== currentProviderDimensions) {
-    advanceProviderGeneration(provider.id, provider.dimensions);
-  }
-}
 
 function inMemoryVectorKey(dbName: string, docId: string): string {
   return `${dbName}:${docId}`;
@@ -84,7 +50,7 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
 export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
-  const generationAtStart = providerGeneration;
+  const generationAtStart = getEmbeddingProviderGeneration();
 
   const text = searchableText(doc);
   const textHash = hashText(text);
@@ -100,7 +66,7 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     vector = await provider.embed(text);
 
     // Stale write protection: if provider changed while we were embedding, discard.
-    if (providerGeneration !== generationAtStart) {
+    if (getEmbeddingProviderGeneration() !== generationAtStart) {
       return;
     }
 
@@ -137,7 +103,7 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
   }
 
   // Final stale write check before updating in-memory store
-  if (providerGeneration !== generationAtStart) {
+  if (getEmbeddingProviderGeneration() !== generationAtStart) {
     return;
   }
 
@@ -162,8 +128,6 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
 
-  syncProviderGeneration();
-
   const all = await database.searchvectors
     .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
     .exec();
@@ -180,8 +144,10 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
 
     const key = inMemoryVectorKey(database.name, entry.entityId);
 
-    // Skip if already warm
-    if (vectorStore.has(key)) {
+    // Only skip if entry is already warm AND matches current provider/dimensions.
+    // Otherwise, replace the stale entry from a different provider.
+    const existing = vectorStore.get(key);
+    if (existing && existing.model === provider.id && existing.dimensions === provider.dimensions) {
       continue;
     }
 
