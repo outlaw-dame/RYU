@@ -20,14 +20,42 @@ import {
   parseMastodonStatusPageResponse
 } from "./mastodon-session-api";
 
-export const MASTODON_SESSION_ENDPOINT = (typeof import.meta !== "undefined" && import.meta.env?.VITE_MASTODON_AUTH_SESSION_ENDPOINT) || "/api/auth/mastodon/session";
-export const MASTODON_REVOKE_ENDPOINT = (typeof import.meta !== "undefined" && import.meta.env?.VITE_MASTODON_AUTH_REVOKE_ENDPOINT) || "/api/auth/mastodon/revoke";
+/**
+ * Safely extract a pathname (with search params) from an env-provided endpoint value.
+ * Handles absolute URLs, relative paths, and missing leading slashes.
+ * Returns fallback if the env value is empty/undefined or unparseable.
+ */
+function getEndpointPath(envVal: string | undefined, fallback: string): string {
+  if (!envVal) return fallback;
+
+  // Try parsing as an absolute URL first (handles http/https, case-insensitive)
+  try {
+    const url = new URL(envVal);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.search ? `${url.pathname}${url.search}` : url.pathname;
+    }
+  } catch { /* not an absolute URL — fall through to relative parsing */ }
+
+  // Normalize as a relative path
+  try {
+    const path = envVal.startsWith("/") ? envVal : `/${envVal}`;
+    const url = new URL(path, "https://ryu.local");
+    return url.search ? `${url.pathname}${url.search}` : url.pathname;
+  } catch {
+    return fallback;
+  }
+}
+
+const env = typeof import.meta !== "undefined" ? import.meta.env : undefined;
+
+export const MASTODON_SESSION_ENDPOINT = getEndpointPath(env?.VITE_MASTODON_AUTH_SESSION_ENDPOINT, "/api/auth/mastodon/session");
+export const MASTODON_REVOKE_ENDPOINT = getEndpointPath(env?.VITE_MASTODON_AUTH_REVOKE_ENDPOINT, "/api/auth/mastodon/revoke");
 export const MASTODON_PROFILE_ENDPOINT = "/api/auth/mastodon/profile";
 export const MASTODON_ACCOUNTS_ENDPOINT = "/api/auth/mastodon/accounts";
 export const MASTODON_ACCOUNT_PINNED_ENDPOINT = "/api/auth/mastodon/account/pinned";
 export const MASTODON_ACCOUNT_FEATURED_TAGS_ENDPOINT = "/api/auth/mastodon/account/featured-tags";
-export const MASTODON_HOME_TIMELINE_ENDPOINT = (typeof import.meta !== "undefined" && import.meta.env?.VITE_MASTODON_HOME_TIMELINE_ENDPOINT) || "/api/auth/mastodon/timelines/home";
-export const MASTODON_NOTIFICATIONS_ENDPOINT = (typeof import.meta !== "undefined" && import.meta.env?.VITE_MASTODON_NOTIFICATIONS_ENDPOINT) || "/api/auth/mastodon/notifications";
+export const MASTODON_HOME_TIMELINE_ENDPOINT = getEndpointPath(env?.VITE_MASTODON_HOME_TIMELINE_ENDPOINT, "/api/auth/mastodon/timelines/home");
+export const MASTODON_NOTIFICATIONS_ENDPOINT = getEndpointPath(env?.VITE_MASTODON_NOTIFICATIONS_ENDPOINT, "/api/auth/mastodon/notifications");
 export const MASTODON_ACCOUNT_STATUSES_ENDPOINT = "/api/auth/mastodon/account/statuses";
 export const MASTODON_BOOKMARKS_ENDPOINT = "/api/auth/mastodon/bookmarks";
 export const MASTODON_FAVOURITES_ENDPOINT = "/api/auth/mastodon/favourites";
@@ -35,7 +63,7 @@ export const MASTODON_LISTS_ENDPOINT = "/api/auth/mastodon/lists";
 export const MASTODON_SHELVES_ENDPOINT = "/api/auth/mastodon/shelves";
 export const MASTODON_DISCOVERY_SEARCH_ENDPOINT = "/api/auth/mastodon/search/statuses";
 export const MASTODON_STATUSES_ENDPOINT = "/api/auth/mastodon/statuses";
-export const BOOKTOK_TRENDING_ENDPOINT = (typeof import.meta !== "undefined" && import.meta.env?.VITE_BOOKTOK_TRENDING_ENDPOINT) || "/api/trends/booktok";
+export const BOOKTOK_TRENDING_ENDPOINT = getEndpointPath(env?.VITE_BOOKTOK_TRENDING_ENDPOINT, "/api/trends/booktok");
 
 export type MastodonSessionState = {
   connected: boolean;
