@@ -7,7 +7,9 @@
  * - Jobs with future nextAttemptAt are skipped until their time arrives
  * - Duplicate (entityId + providerId + textHash) enqueues collapse to one slot
  *   (the highest-priority enqueue wins)
- * - Bounded by maxSize; when full, the lowest-priority oldest job is evicted
+ * - Bounded by maxSize. When full, the lowest-priority oldest job is evicted
+ *   only if the incoming job has equal or higher priority. Otherwise the
+ *   incoming job is rejected so background work cannot displace user-visible jobs.
  */
 
 import {
@@ -15,13 +17,6 @@ import {
   type EmbeddingJob,
   type EmbeddingJobPriority
 } from "./embeddingJobTypes";
-
-const PRIORITY_ORDER: EmbeddingJobPriority[] = [
-  "user-visible",
-  "idle",
-  "repair",
-  "backfill"
-];
 
 const PRIORITY_RANK: Record<EmbeddingJobPriority, number> = {
   "user-visible": 0,
@@ -74,17 +69,24 @@ export function createEmbeddingJobQueue(
         return { added: false };
       }
 
-      // Capacity check: evict the lowest-priority oldest job if at capacity.
+      // Capacity check.
       let evicted: EmbeddingJob | undefined;
       if (jobs.size >= maxSize) {
-        evicted = findEvictionVictim(jobs);
-        if (evicted) {
-          const evictKey = embeddingJobKey(evicted.entityId, evicted.providerId, evicted.textHash);
-          jobs.delete(evictKey);
-        } else {
+        const victim = findEvictionVictim(jobs);
+        if (!victim) {
           // Queue is full and no victim found (shouldn't happen, defensive).
           return { added: false };
         }
+
+        // Refuse to evict a higher-priority job to make room for a lower-priority one.
+        // Background/backfill must never displace user-visible work.
+        if (PRIORITY_RANK[job.priority] > PRIORITY_RANK[victim.priority]) {
+          return { added: false };
+        }
+
+        const evictKey = embeddingJobKey(victim.entityId, victim.providerId, victim.textHash);
+        jobs.delete(evictKey);
+        evicted = victim;
       }
 
       jobs.set(key, job);
@@ -92,27 +94,25 @@ export function createEmbeddingJobQueue(
     },
 
     takeNext(now = Date.now()) {
+      // Single-pass scan: track the best candidate by (priority rank, enqueueAt).
       let chosen: EmbeddingJob | null = null;
       let chosenKey = "";
+      let chosenRank = Infinity;
+      let chosenEnqueuedAt = Infinity;
 
-      for (const priority of PRIORITY_ORDER) {
-        let candidate: EmbeddingJob | null = null;
-        let candidateKey = "";
+      for (const [key, job] of jobs.entries()) {
+        if (job.nextAttemptAt && Date.parse(job.nextAttemptAt) > now) continue;
 
-        for (const [key, job] of jobs.entries()) {
-          if (job.priority !== priority) continue;
-          if (job.nextAttemptAt && Date.parse(job.nextAttemptAt) > now) continue;
+        const rank = PRIORITY_RANK[job.priority];
+        if (rank > chosenRank) continue;
 
-          if (!candidate || Date.parse(job.enqueuedAt) < Date.parse(candidate.enqueuedAt)) {
-            candidate = job;
-            candidateKey = key;
-          }
-        }
+        const enqueuedAt = Date.parse(job.enqueuedAt);
 
-        if (candidate) {
-          chosen = candidate;
-          chosenKey = candidateKey;
-          break;
+        if (rank < chosenRank || (rank === chosenRank && enqueuedAt < chosenEnqueuedAt)) {
+          chosen = job;
+          chosenKey = key;
+          chosenRank = rank;
+          chosenEnqueuedAt = enqueuedAt;
         }
       }
 

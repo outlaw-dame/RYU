@@ -71,6 +71,36 @@ describe("EmbeddingJobQueue", () => {
       expect(queue.size()).toBe(2);
     });
 
+    it("rejects an incoming lower-priority job rather than evicting a higher-priority one", () => {
+      const queue = createEmbeddingJobQueue({ maxSize: 2 });
+      queue.enqueue(makeJob({ entityId: "u1", priority: "user-visible" }));
+      queue.enqueue(makeJob({ entityId: "u2", priority: "user-visible" }));
+
+      const result = queue.enqueue(makeJob({ entityId: "bf", priority: "backfill" }));
+
+      expect(result.added).toBe(false);
+      expect(result.evicted).toBeUndefined();
+      expect(queue.size()).toBe(2);
+      // Both user-visible jobs preserved
+      const ids = queue.snapshot().map((j) => j.entityId).sort();
+      expect(ids).toEqual(["u1", "u2"]);
+    });
+
+    it("allows equal-priority eviction at capacity", () => {
+      const queue = createEmbeddingJobQueue({ maxSize: 2 });
+      queue.enqueue(makeJob({ entityId: "old", priority: "user-visible", enqueuedAt: new Date(2026, 0, 1).toISOString() }));
+      queue.enqueue(makeJob({ entityId: "newer", priority: "user-visible", enqueuedAt: new Date(2026, 0, 2).toISOString() }));
+
+      const result = queue.enqueue(makeJob({
+        entityId: "newest",
+        priority: "user-visible",
+        enqueuedAt: new Date(2026, 0, 3).toISOString()
+      }));
+
+      expect(result.added).toBe(true);
+      expect(result.evicted?.entityId).toBe("old");
+    });
+
     it("treats different providers as distinct slots", () => {
       const queue = createEmbeddingJobQueue();
       queue.enqueue(makeJob({ entityId: "a", providerId: "deterministic-v1" }));

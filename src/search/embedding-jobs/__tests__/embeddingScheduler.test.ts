@@ -174,4 +174,86 @@ describe("createEmbeddingScheduler", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(scheduler.isRunning()).toBe(true);
   });
+
+  it("serializes overlapping drain calls so concurrency bound is respected", async () => {
+    const queue = createEmbeddingJobQueue();
+    let inFlightPeak = 0;
+    let active = 0;
+    const execute = vi.fn(async () => {
+      active++;
+      if (active > inFlightPeak) inFlightPeak = active;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      active--;
+    });
+    const scheduler = createEmbeddingScheduler({ queue, execute, concurrency: 2 });
+
+    for (let i = 0; i < 8; i++) {
+      queue.enqueue(makeJob({ entityId: `j-${i}` }));
+    }
+
+    // Trigger four overlapping drain calls; they should all share the same cycle.
+    const drains = [
+      scheduler.drain(),
+      scheduler.drain(),
+      scheduler.drain(),
+      scheduler.drain()
+    ];
+    await Promise.all(drains);
+
+    expect(execute).toHaveBeenCalledTimes(8);
+    // The advertised concurrency bound must hold despite multiple drain callers.
+    expect(inFlightPeak).toBeLessThanOrEqual(2);
+  });
+
+  it("does not crash if onResult throws", async () => {
+    const queue = createEmbeddingJobQueue();
+    const execute = vi.fn(async () => undefined);
+    const scheduler = createEmbeddingScheduler({
+      queue,
+      execute,
+      concurrency: 1,
+      onResult: () => {
+        throw new Error("listener exploded");
+      }
+    });
+
+    queue.enqueue(makeJob({ entityId: "a" }));
+    queue.enqueue(makeJob({ entityId: "b" }));
+    await expect(scheduler.drain()).resolves.toBeUndefined();
+    expect(execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("emits stale-dropped when a retry evicts a queued job", async () => {
+    const queue = createEmbeddingJobQueue({ maxSize: 1 });
+    const results: EmbeddingJobResult[] = [];
+
+    let attempts = 0;
+    const execute = vi.fn(async () => {
+      attempts++;
+      // First execution fails (the one taken from the queue), forcing a retry.
+      if (attempts === 1) {
+        // While we're "executing", simulate another job arriving in the now-empty queue.
+        queue.enqueue(makeJob({ entityId: "newcomer", priority: "backfill" }));
+        throw new Error("transient");
+      }
+    });
+
+    const scheduler = createEmbeddingScheduler({
+      queue,
+      execute,
+      concurrency: 1,
+      onResult: (r) => results.push(r)
+    });
+
+    // The original job has higher priority than the newcomer, so its retry
+    // re-enqueue should evict the newcomer.
+    queue.enqueue(makeJob({ entityId: "uv", priority: "user-visible" }));
+    await scheduler.drain();
+
+    const staleDropped = results.find((r) => r.kind === "stale-dropped");
+    expect(staleDropped).toBeDefined();
+    if (staleDropped && staleDropped.kind === "stale-dropped") {
+      expect(staleDropped.job.entityId).toBe("newcomer");
+    }
+  });
 });

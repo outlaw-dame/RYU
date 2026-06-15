@@ -7,7 +7,10 @@
  * Designed to keep embedding work off the critical UI path:
  * - Drains user-visible jobs first
  * - Schedules other priorities during idle time when available
- * - Respects provider generation (delegated to indexDocument internally)
+ * - Concurrent drain() calls share the same draining cycle so the
+ *   global concurrency bound is honored even under enqueue- or
+ *   timer-driven usage
+ * - Resilient to errors thrown by execute() or onResult()
  */
 
 import {
@@ -52,6 +55,16 @@ export function createEmbeddingScheduler(
   const now = options.now ?? Date.now;
   let running = true;
   let activeCount = 0;
+  let drainingPromise: Promise<void> | null = null;
+
+  function safeOnResult(result: EmbeddingJobResult): void {
+    if (!options.onResult) return;
+    try {
+      options.onResult(result);
+    } catch {
+      // onResult callback errors must never break the scheduler loop.
+    }
+  }
 
   async function executeJob(job: EmbeddingJob): Promise<EmbeddingJobResult> {
     try {
@@ -80,6 +93,15 @@ export function createEmbeddingScheduler(
         return { kind: "permanently-failed", job, reason: `queue rejected retry: ${reason}` };
       }
 
+      // Surface any eviction caused by the retry re-enqueue so callers can observe.
+      if (enqueueResult.evicted) {
+        safeOnResult({
+          kind: "stale-dropped",
+          job: enqueueResult.evicted,
+          reason: "evicted due to queue capacity limit during retry"
+        });
+      }
+
       return { kind: "retry-scheduled", job: retryJob, reason, nextAttemptAt };
     }
   }
@@ -88,13 +110,13 @@ export function createEmbeddingScheduler(
     activeCount++;
     try {
       const result = await executeJob(job);
-      options.onResult?.(result);
+      safeOnResult(result);
     } finally {
       activeCount--;
     }
   }
 
-  async function drain(): Promise<void> {
+  async function doDrain(): Promise<void> {
     if (!running) return;
 
     const inFlight = new Set<Promise<void>>();
@@ -105,9 +127,12 @@ export function createEmbeddingScheduler(
         const job = options.queue.takeNext(now());
         if (!job) break;
 
-        const slot = processSlot(job).then(() => {
-          inFlight.delete(slot);
-        });
+        // Swallow rejections so Promise.race() can never throw and crash the loop.
+        const slot = processSlot(job)
+          .catch(() => undefined)
+          .then(() => {
+            inFlight.delete(slot);
+          });
         inFlight.add(slot);
       }
 
@@ -121,6 +146,17 @@ export function createEmbeddingScheduler(
     if (inFlight.size > 0) {
       await Promise.allSettled(inFlight);
     }
+  }
+
+  function drain(): Promise<void> {
+    // Concurrent drain() calls share the same active cycle so the global
+    // concurrency bound is respected even under enqueue- or timer-driven usage.
+    if (drainingPromise) return drainingPromise;
+
+    drainingPromise = doDrain().finally(() => {
+      drainingPromise = null;
+    });
+    return drainingPromise;
   }
 
   return {
