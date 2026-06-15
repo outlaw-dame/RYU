@@ -2102,8 +2102,8 @@ export function App() {
     return {
       instanceOrigin: s.instanceOrigin,
       acct: s.account.acct,
-      displayName: (s.account as Record<string, unknown>).display_name as string | undefined,
-      avatar: (s.account as Record<string, unknown>).avatar as string | undefined,
+      displayName: s.account.display_name || undefined,
+      avatar: s.account.avatar || undefined,
       profileUrl: s.account.url || undefined,
       grantedScopes: s.scope ? s.scope.split(" ").filter(Boolean) : undefined
     };
@@ -2123,7 +2123,7 @@ export function App() {
   const activityTimeline = homeTimelineQuery.data?.items ?? [];
   const activityNotifications = notificationsQuery.data?.items ?? [];
   const activityLoading = (activeTab === "activity" && connectedAccount !== null) &&
-    (homeTimelineQuery.isPending || notificationsQuery.isPending);
+    (homeTimelineQuery.isFetching || notificationsQuery.isFetching);
   const activityError = useMemo(() => {
     const err = getMastodonActivityErrorState(homeTimelineQuery.error) ??
       getMastodonActivityErrorState(notificationsQuery.error);
@@ -2223,13 +2223,12 @@ export function App() {
     setComposeOpen(false);
   }, [connectedAccount]);
 
-  // Activity refresh: React Query handles fetching automatically.
-  // Trigger manual refetch on activityRefreshNonce change.
+  // Activity refresh: invalidate queries to trigger refetch.
   useEffect(() => {
     if (activityRefreshNonce === 0) return;
-    void homeTimelineQuery.refetch();
-    void notificationsQuery.refetch();
-  }, [activityRefreshNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.homeTimelineRoot() });
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.notificationsRoot() });
+  }, [activityRefreshNonce, queryClient]);
 
   // Handle auth errors from the activity hooks — clear session on 401/403
   useEffect(() => {
@@ -2238,10 +2237,12 @@ export function App() {
     const notifErr = getMastodonActivityErrorState(notificationsQuery.error);
     const reconnectNeeded = sessionErr?.reconnectRequired || timelineErr?.reconnectRequired || notifErr?.reconnectRequired;
     if (reconnectNeeded) {
+      // Clear the cached session so connectedAccount becomes null
+      queryClient.setQueryData(mastodonActivityQueryKeys.session(), { connected: false });
       setAuthInfo(null);
       setAuthError("Your session expired. Sign in again to load activity.");
     }
-  }, [sessionQuery.error, homeTimelineQuery.error, notificationsQuery.error]);
+  }, [sessionQuery.error, homeTimelineQuery.error, notificationsQuery.error, queryClient]);
 
   useEffect(() => {
     if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
@@ -2888,11 +2889,11 @@ export function App() {
   }, [bookTokTrends]);
 
   // BookTok trends are now fetched via useBookTokTrends hook.
-  // Manual refresh triggers React Query refetch.
+  // Manual refresh triggers query invalidation.
   useEffect(() => {
     if (bookTokRefreshNonce === 0) return;
-    void bookTokQuery.refetch();
-  }, [bookTokRefreshNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.bookTokTrends() });
+  }, [bookTokRefreshNonce, queryClient]);
 
   const profileAvatarSrc = resolveCoverProxySrc(
     mastodonProfileFull?.avatar ?? mastodonProfileFull?.avatar_static ?? connectedAccount?.avatar ?? null
