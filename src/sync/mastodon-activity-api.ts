@@ -21,17 +21,26 @@ import {
 } from "./mastodon-session-api";
 
 /**
- * Safely extract a pathname from an env-provided endpoint value.
+ * Safely extract a pathname (with search params) from an env-provided endpoint value.
  * Handles absolute URLs, relative paths, and missing leading slashes.
  * Returns fallback if the env value is empty/undefined or unparseable.
  */
 function getEndpointPath(envVal: string | undefined, fallback: string): string {
   if (!envVal) return fallback;
+
+  // Try parsing as an absolute URL first (handles http/https, case-insensitive)
   try {
-    const url = envVal.startsWith("http://") || envVal.startsWith("https://")
-      ? new URL(envVal)
-      : new URL(envVal.startsWith("/") ? envVal : `/${envVal}`, "https://ryu.local");
-    return url.pathname;
+    const url = new URL(envVal);
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return url.search ? `${url.pathname}${url.search}` : url.pathname;
+    }
+  } catch { /* not an absolute URL — fall through to relative parsing */ }
+
+  // Normalize as a relative path
+  try {
+    const path = envVal.startsWith("/") ? envVal : `/${envVal}`;
+    const url = new URL(path, "https://ryu.local");
+    return url.search ? `${url.pathname}${url.search}` : url.pathname;
   } catch {
     return fallback;
   }
