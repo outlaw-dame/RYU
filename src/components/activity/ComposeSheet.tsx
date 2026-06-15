@@ -55,7 +55,7 @@ export function ComposeSheet({
 
   async function handlePost() {
     const trimmed = text.trim();
-    if (!trimmed || posting || trimmed.length > MAX_LENGTH) return;
+    if (!trimmed || posting) return;
 
     setPosting(true);
     setError(null);
