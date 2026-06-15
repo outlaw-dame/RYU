@@ -114,7 +114,7 @@ export function ComposeSheet({
           ref={textareaRef}
           textarea
           value={text}
-          onChange={(e) => { setText((e.target as HTMLTextAreaElement).value); setError(null); }}
+          onChange={(e) => { setText(e.target.value); setError(null); }}
           placeholder="What are you reading? Share a book update with your community..."
           maxLength={520}
           disabled={posting}
@@ -123,7 +123,11 @@ export function ComposeSheet({
           spellCheck={true}
           enterKeyHint="done"
           aria-label="Compose text"
-          {...({ rows: 4 } as React.TextareaHTMLAttributes<HTMLTextAreaElement>)}
+          // rows is a valid textarea attribute; AdaptiveTextField's type surface
+          // inherits from InputHTMLAttributes which doesn't include it, but the
+          // underlying <textarea> accepts it at runtime.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          {...({ rows: 4 } as any)}
           style={{
             width: "100%",
             boxSizing: "border-box",
