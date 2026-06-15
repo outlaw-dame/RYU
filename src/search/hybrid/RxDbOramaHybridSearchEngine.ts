@@ -31,6 +31,7 @@ import {
 import { getEmbeddingProvider } from "../embedding-provider";
 import { normalizeSearchQuery } from "../query-normalize";
 import { searchProgressively, type ProgressiveSearchUpdate } from "./progressiveSearch";
+import { removeFromOramaIndex, removeAllFromOramaIndexById } from "../orama";
 
 /**
  * Creates an instance of the RxDB + Orama hybrid search engine.
@@ -48,6 +49,11 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
     async removeDocument(documentId: string, db?: RyuDatabase): Promise<void> {
       // Remove from in-memory vector store immediately
       removeFromInMemoryVectorIndex(documentId);
+
+      // Remove from the lexical (Orama) index across all entity types
+      await removeAllFromOramaIndexById(documentId, db).catch(() => {
+        // best-effort — health repair will catch missed lexical removals
+      });
 
       // Remove persisted vectors from RxDB
       const database = db ?? await initializeDatabase();
