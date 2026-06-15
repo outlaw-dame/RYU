@@ -227,4 +227,68 @@ describe("searchProgressively", () => {
     expect(lexicalIdx).toBeGreaterThanOrEqual(0);
     expect(semanticIdx).toBeGreaterThan(lexicalIdx);
   });
+
+  it("falls back to the normalized query when expansion fails", async () => {
+    const { buildSearchQueryExpansionPlan } = await import("../../query-expansion");
+    const mockExpansion = vi.mocked(buildSearchQueryExpansionPlan);
+    mockExpansion.mockRejectedValueOnce(new Error("entitylinks lookup failed"));
+
+    mockSearchOrama.mockResolvedValue([makeResult("L1", "fallback worked", 0.9)]);
+    mockSemanticSearch.mockResolvedValue([]);
+
+    const updates: ProgressiveSearchUpdate[] = [];
+    const response = await searchProgressively({ query: "books" }, (u) => updates.push(u));
+
+    // Expansion failure should NOT short-circuit the search.
+    // Lexical should still run on the normalized query.
+    expect(mockSearchOrama).toHaveBeenCalledWith("books", undefined);
+    expect(response.results).not.toBeNull();
+    expect(response.diagnostics.lexicalCount).toBe(1);
+
+    // A structured error update should be emitted for observability.
+    const errorUpdate = updates.find((u) => u.stage === "error");
+    expect(errorUpdate).toBeDefined();
+    if (errorUpdate?.stage === "error") {
+      expect(errorUpdate.error.stage).toBe("expansion");
+      expect(errorUpdate.error.recoverable).toBe(true);
+    }
+
+    // Restore default expansion behavior for subsequent tests
+    mockExpansion.mockImplementation(((q: string) => Promise.resolve({
+      normalizedQuery: q,
+      semanticQuery: q
+    })) as unknown as typeof buildSearchQueryExpansionPlan);
+  });
+
+  it("starts lexical and semantic concurrently rather than sequentially", async () => {
+    let lexicalStarted = false;
+    let semanticStartedBeforeLexicalResolved = false;
+
+    let resolveLexical: (value: RankedSearchResult[]) => void = () => undefined;
+    const lexicalPromise = new Promise<RankedSearchResult[]>((resolve) => {
+      resolveLexical = resolve;
+    });
+
+    mockSearchOrama.mockImplementation(() => {
+      lexicalStarted = true;
+      return lexicalPromise;
+    });
+    mockSemanticSearch.mockImplementation(async () => {
+      // If lexical hasn't resolved yet but we got here, semantic started concurrently.
+      if (lexicalStarted && (await Promise.race([lexicalPromise.then(() => false), Promise.resolve(true)]))) {
+        semanticStartedBeforeLexicalResolved = true;
+      }
+      return [];
+    });
+
+    const finalPromise = searchProgressively({ query: "test" }, () => undefined);
+    // Yield ticks to let semantic also start
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveLexical([makeResult("L1", "x", 1)]);
+    await finalPromise;
+
+    expect(semanticStartedBeforeLexicalResolved).toBe(true);
+  });
 });

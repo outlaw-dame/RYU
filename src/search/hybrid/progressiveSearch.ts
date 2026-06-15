@@ -7,9 +7,18 @@
  *   3. fused:    blended + ranked + reranked results
  *   4. complete: final HybridSearchResponse with diagnostics
  *
+ * Concurrency model (intentional):
+ *   - Lexical search and semantic search start concurrently as soon as the
+ *     query is normalized so the lexical stage can emit before any slow
+ *     embedding work or LLM intent refinement completes.
+ *   - LLM intent refinement runs in parallel with the searches and is only
+ *     awaited at fusion time, where alpha is needed.
+ *
  * Failures degrade safely:
  *   - Semantic provider failure → falls back to lexical-only
  *   - Lexical failure (rare) → still attempts semantic
+ *   - Expansion failure → falls back to the normalized query (does NOT
+ *     short-circuit the search) and emits a structured error update
  *   - Total failure → emits 'error' update with structured detail
  *
  * Keeps the existing non-progressive API (`engine.search()`) intact.
@@ -41,7 +50,7 @@ import type { HybridSearchDiagnostics, HybridSearchQuery, HybridSearchResponse }
  */
 export type SearchError = {
   message: string;
-  stage: "lexical" | "semantic" | "fusion" | "rerank" | "unknown";
+  stage: "lexical" | "semantic" | "fusion" | "rerank" | "expansion" | "unknown";
   recoverable: boolean;
 };
 
@@ -70,7 +79,7 @@ export async function searchProgressively(
 
   if (normalizedQuery.length < 2) {
     const empty = emptyResponse(request.query, normalizedQuery, provider, performance.now() - startMs);
-    onUpdate({ stage: "complete", response: empty });
+    safeEmit(onUpdate, { stage: "complete", response: empty });
     return empty;
   }
 
@@ -80,46 +89,63 @@ export async function searchProgressively(
     ...request.options
   };
 
-  // Query expansion is fast enough to do up front.
-  const expansion = await buildSearchQueryExpansionPlan(normalizedQuery, options.db).catch(() => null);
-  if (!expansion || expansion.normalizedQuery.length < 2) {
-    const empty = emptyResponse(request.query, normalizedQuery, provider, performance.now() - startMs);
-    onUpdate({ stage: "complete", response: empty });
-    return empty;
+  // Query expansion — fall back to the raw normalized query if it fails.
+  // A transient expansion failure must not be indistinguishable from
+  // a no-results query.
+  let primaryQuery = normalizedQuery;
+  let semanticQuery = normalizedQuery;
+  try {
+    const expansion = await buildSearchQueryExpansionPlan(normalizedQuery, options.db);
+    if (expansion.normalizedQuery.length >= 2) {
+      primaryQuery = expansion.normalizedQuery;
+      semanticQuery = expansion.semanticQuery || expansion.normalizedQuery;
+    }
+  } catch (error) {
+    safeEmit(onUpdate, {
+      stage: "error",
+      error: { message: messageOf(error), stage: "expansion", recoverable: true }
+    });
+    // Continue with normalizedQuery as the primary/semantic query.
   }
 
-  const primaryQuery = expansion.normalizedQuery;
-  const semanticQuery = expansion.semanticQuery || primaryQuery;
+  // Intent classification (sync) gates alpha — start LLM refinement now,
+  // but await it only at fusion time. This lets lexical/semantic stages
+  // emit immediately without waiting on a slow LLM call.
+  const baseIntent = classifyQueryIntent(primaryQuery);
+  const intentPromise = refineIntentWithLLM(primaryQuery, baseIntent).catch(() => baseIntent);
 
-  // Intent classification gates alpha. Continue on failure (alpha falls back).
-  let intent = classifyQueryIntent(primaryQuery);
-  intent = await refineIntentWithLLM(primaryQuery, intent).catch(() => intent);
-  const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
-
-  // Stage 1: lexical (fast). Run early so the UI can show something quickly.
+  // Stages 1 & 2: run lexical + semantic concurrently.
   let lexical: RankedSearchResult[] = [];
-  try {
-    lexical = await searchOrama(primaryQuery, options.db);
-    safeEmit(onUpdate, { stage: "lexical", results: lexical });
-  } catch (error) {
-    safeEmit(onUpdate, {
-      stage: "error",
-      error: { message: messageOf(error), stage: "lexical", recoverable: true }
+  const lexicalPromise = searchOrama(primaryQuery, options.db)
+    .then((results) => {
+      lexical = results;
+      safeEmit(onUpdate, { stage: "lexical", results });
+    })
+    .catch((error) => {
+      safeEmit(onUpdate, {
+        stage: "error",
+        error: { message: messageOf(error), stage: "lexical", recoverable: true }
+      });
     });
-    // Continue: lexical failure should not stop semantic.
-  }
 
-  // Stage 2: semantic. May fail (model unavailable) — degrade gracefully.
   let semantic: RankedSearchResult[] = [];
-  try {
-    semantic = await semanticSearchLocal(semanticQuery, 20, options.db);
-    safeEmit(onUpdate, { stage: "semantic", results: semantic });
-  } catch (error) {
-    safeEmit(onUpdate, {
-      stage: "error",
-      error: { message: messageOf(error), stage: "semantic", recoverable: true }
+  const semanticPromise = semanticSearchLocal(semanticQuery, 20, options.db)
+    .then((results) => {
+      semantic = results;
+      safeEmit(onUpdate, { stage: "semantic", results });
+    })
+    .catch((error) => {
+      safeEmit(onUpdate, {
+        stage: "error",
+        error: { message: messageOf(error), stage: "semantic", recoverable: true }
+      });
     });
-  }
+
+  await Promise.all([lexicalPromise, semanticPromise]);
+
+  // Now fold in the intent refinement result for ranking.
+  const intent = await intentPromise;
+  const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
   // Stage 3: fusion + ranking pipeline.
   let final: RankedSearchResult[] = [];
@@ -144,7 +170,6 @@ export async function searchProgressively(
       stage: "error",
       error: { message: messageOf(error), stage: "fusion", recoverable: true }
     });
-    // Even if fusion fails, attempt to surface lexical results alone.
     final = lexical;
   }
 
