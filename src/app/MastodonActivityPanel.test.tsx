@@ -150,6 +150,50 @@ describe("MastodonActivityPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     expect(hookMocks.disconnectMutateAsync).toHaveBeenCalledTimes(1);
   });
+
+  it("shows Disconnecting… label while disconnect is pending", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    hookMocks.state.disconnect = { mutateAsync: hookMocks.disconnectMutateAsync, isPending: true };
+
+    render(<MastodonActivityPanel onConnect={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "Disconnecting…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnecting…" })).toBeDisabled();
+  });
+
+  it("renders the loading skeleton when session is loading", () => {
+    hookMocks.state.session = query({ isLoading: true, isPending: true });
+
+    render(<MastodonActivityPanel onConnect={vi.fn()} />);
+
+    expect(screen.getByLabelText("Loading activity")).toBeInTheDocument();
+  });
+
+  it("renders the BookTok trend rail with trends", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    hookMocks.state.trends = query({
+      data: [
+        { id: "t1", title: "Iron Flame", author: "Rebecca Yarros", reason: "Romantasy surge", mentionCount: 42 },
+        { id: "t2", title: "Fourth Wing", author: "Rebecca Yarros", reason: "Series continuation", mentionCount: 31 }
+      ]
+    });
+
+    render(<MastodonActivityPanel onConnect={vi.fn()} />);
+
+    expect(screen.getByText("BookTok signals")).toBeInTheDocument();
+    expect(screen.getByText("Iron Flame")).toBeInTheDocument();
+    expect(screen.getByText("Fourth Wing")).toBeInTheDocument();
+    expect(screen.getByText("42 mentions")).toBeInTheDocument();
+  });
+
+  it("renders loading activity skeleton cards when activity is loading", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    hookMocks.state.homeTimeline = query({ isLoading: true, isPending: true });
+
+    render(<MastodonActivityPanel onConnect={vi.fn()} />);
+
+    expect(screen.getByLabelText("Loading account activity")).toBeInTheDocument();
+  });
 });
 
 function defaultHookState(): HookState {
