@@ -3247,16 +3247,6 @@ export function App() {
                           ? `search-autocomplete-option-${visibleAutocompleteResults[activeAutocompleteIndex].id}`
                           : undefined
                       }
-                      style={{
-                        width: "100%",
-                        minHeight: "var(--touch-min)",
-                        borderRadius: "var(--radius-md)",
-                        border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                        background: "var(--color-bg-secondary)",
-                        color: "var(--color-text)",
-                        padding: "0 var(--space-3)",
-                        fontSize: "var(--text-body)"
-                      }}
                     />
                     {showFacetControls ? (
                       <div
@@ -4287,16 +4277,6 @@ export function App() {
                             onClear={() => setInstanceSearch("")}
                             placeholder={t("auth.searchInstancesPlaceholder")}
                             aria-label={t("auth.searchInstancesAriaLabel")}
-                            style={{
-                              width: "100%",
-                              minHeight: "var(--touch-min)",
-                              borderRadius: "var(--radius-md)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                              background: "var(--color-bg)",
-                              color: "var(--color-text)",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-body)"
-                            }}
                           />
                           <select
                             value={preferredSoftware}
