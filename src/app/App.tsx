@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
+import { AdaptiveSearchField } from "../design/adaptive";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
@@ -3192,8 +3193,7 @@ export function App() {
                 <TabPanel id="search" activeTab={activeTab}>
                   <ScreenTitle title={t("screen.search")} />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
-                    <input
-                      type="search"
+                    <AdaptiveSearchField
                       value={searchQuery}
                       onChange={(event) => {
                         setSearchQuery(event.target.value);
@@ -3235,6 +3235,7 @@ export function App() {
                           setActiveAutocompleteIndex(-1);
                         }
                       }}
+                      onClear={() => { setSearchQuery(""); setActiveAutocompleteIndex(-1); }}
                       placeholder={t("search.placeholder")}
                       aria-label={t("search.ariaLabel")}
                       role="combobox"
@@ -3246,16 +3247,6 @@ export function App() {
                           ? `search-autocomplete-option-${visibleAutocompleteResults[activeAutocompleteIndex].id}`
                           : undefined
                       }
-                      style={{
-                        width: "100%",
-                        minHeight: "var(--touch-min)",
-                        borderRadius: "var(--radius-md)",
-                        border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                        background: "var(--color-bg-secondary)",
-                        color: "var(--color-text)",
-                        padding: "0 var(--space-3)",
-                        fontSize: "var(--text-body)"
-                      }}
                     />
                     {showFacetControls ? (
                       <div
@@ -4280,22 +4271,12 @@ export function App() {
                           </button>
                         </div>
                         <div style={{ display: "grid", gap: "var(--space-2)" }}>
-                          <input
-                            type="search"
+                          <AdaptiveSearchField
                             value={instanceSearch}
                             onChange={(event) => setInstanceSearch(event.target.value)}
+                            onClear={() => setInstanceSearch("")}
                             placeholder={t("auth.searchInstancesPlaceholder")}
                             aria-label={t("auth.searchInstancesAriaLabel")}
-                            style={{
-                              width: "100%",
-                              minHeight: "var(--touch-min)",
-                              borderRadius: "var(--radius-md)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                              background: "var(--color-bg)",
-                              color: "var(--color-text)",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-body)"
-                            }}
                           />
                           <select
                             value={preferredSoftware}
