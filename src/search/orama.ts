@@ -11,8 +11,11 @@ type OramaState = {
   /** Map from logical key (`type:id`) → Orama internal id, so updates/removes
    *  can target the right row even though our docs aren't keyed by Orama's id. */
   oramaIds: Map<string, string>;
-  pendingIds: Set<string>;
+  /** Per-key in-flight promise so concurrent updates/deletes for the same
+   *  document are queued instead of dropped. */
+  pendingPromises: Map<string, Promise<void>>;
   subscriptionsStarted: boolean;
+  database: RyuDatabase;
 };
 
 type AuthorNameCache = Map<string, string>;
@@ -39,6 +42,26 @@ function searchDocKey(doc: SearchDocument): string {
 
 function searchDocKeyByType(type: SearchDocument['type'], id: string): string {
   return `${type}:${id}`;
+}
+
+/**
+ * Run `task` after any in-flight task for the same key, then update the
+ * pendingPromises map. Errors are caught so a failed task does not block
+ * subsequent ones.
+ */
+function chainPending(state: OramaState, key: string, task: () => Promise<void>): Promise<void> {
+  const previous = state.pendingPromises.get(key) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(task)
+    .finally(() => {
+      // Only clear if this is still the most recent promise for the key.
+      if (state.pendingPromises.get(key) === next) {
+        state.pendingPromises.delete(key);
+      }
+    });
+  state.pendingPromises.set(key, next);
+  return next;
 }
 
 async function resolveAuthorNames(db: RyuDatabase, authorIds: string[], cache: AuthorNameCache): Promise<string> {
@@ -81,36 +104,44 @@ async function workToSearchDocument(db: RyuDatabase, work: WorkDoc, cache: Autho
 
 async function addDoc(state: OramaState, db: RyuDatabase, doc: SearchDocument): Promise<void> {
   const key = searchDocKey(doc);
-  if (state.oramaIds.has(key) || state.pendingIds.has(key)) return;
 
-  state.pendingIds.add(key);
-  try {
-    const oramaId = await insert(state.index, doc);
-    await indexDocument(doc, db);
-    state.oramaIds.set(key, String(oramaId));
-  } catch (error) {
-    console.error('Failed to add document to lexical search index', {
-      entityId: doc.id,
-      entityType: doc.type,
-      error
-    });
-  } finally {
-    state.pendingIds.delete(key);
-  }
+  return chainPending(state, key, async () => {
+    if (state.oramaIds.has(key)) {
+      // Already indexed — treat as update.
+      await updateDocInner(state, db, doc, key);
+      return;
+    }
+    try {
+      const oramaId = await insert(state.index, doc);
+      await indexDocument(doc, db);
+      state.oramaIds.set(key, String(oramaId));
+    } catch (error) {
+      console.error('Failed to add document to lexical search index', {
+        entityId: doc.id,
+        entityType: doc.type,
+        error
+      });
+    }
+  });
 }
 
-async function updateDoc(state: OramaState, db: RyuDatabase, doc: SearchDocument): Promise<void> {
-  const key = searchDocKey(doc);
+async function updateDocInner(state: OramaState, db: RyuDatabase, doc: SearchDocument, key: string): Promise<void> {
   const existingOramaId = state.oramaIds.get(key);
-
   if (!existingOramaId) {
-    // Not yet indexed — treat as insert.
-    await addDoc(state, db, doc);
+    // Not indexed — fall back to insert.
+    try {
+      const oramaId = await insert(state.index, doc);
+      await indexDocument(doc, db);
+      state.oramaIds.set(key, String(oramaId));
+    } catch (error) {
+      console.error('Failed to insert (during update) document into lexical search index', {
+        entityId: doc.id,
+        entityType: doc.type,
+        error
+      });
+    }
     return;
   }
-
-  if (state.pendingIds.has(key)) return;
-  state.pendingIds.add(key);
 
   try {
     const newOramaId = await update(state.index, existingOramaId, doc);
@@ -122,32 +153,54 @@ async function updateDoc(state: OramaState, db: RyuDatabase, doc: SearchDocument
       entityType: doc.type,
       error
     });
-  } finally {
-    state.pendingIds.delete(key);
+  }
+}
+
+async function updateDoc(state: OramaState, db: RyuDatabase, doc: SearchDocument): Promise<void> {
+  const key = searchDocKey(doc);
+  return chainPending(state, key, () => updateDocInner(state, db, doc, key));
+}
+
+/**
+ * Clean up persisted vectors from RxDB for the given entity id.
+ * Used by the reactive DELETE path so reload via warmSemanticVectorIndex
+ * does not bring deleted entities back from the dead.
+ */
+async function removePersistedVectors(db: RyuDatabase, id: string): Promise<void> {
+  try {
+    const collection = db.searchvectors;
+    if (!collection) return;
+    const docs = await collection.find({ selector: { entityId: id } }).exec();
+    await Promise.all(docs.map((doc: any) => doc.remove()));
+  } catch (error) {
+    console.error('Failed to remove persisted vectors for deleted entity', { id, error });
   }
 }
 
 async function removeDoc(state: OramaState, type: SearchDocument['type'], id: string): Promise<void> {
   const key = searchDocKeyByType(type, id);
-  const existingOramaId = state.oramaIds.get(key);
-  if (!existingOramaId) return;
 
-  state.pendingIds.add(key);
-  try {
-    await remove(state.index, existingOramaId);
-    state.oramaIds.delete(key);
-    // Evict from in-memory vector store immediately. Persisted vector cleanup
-    // is the engine adapter's responsibility (see RxDbOramaHybridSearchEngine.removeDocument).
+  return chainPending(state, key, async () => {
+    const existingOramaId = state.oramaIds.get(key);
+
+    // Always evict in-memory vector and persisted vector even if the lexical
+    // entry is missing — the persisted row could survive across reloads.
     removeFromInMemoryVectorIndex(id);
-  } catch (error) {
-    console.error('Failed to remove document from lexical search index', {
-      entityId: id,
-      entityType: type,
-      error
-    });
-  } finally {
-    state.pendingIds.delete(key);
-  }
+    await removePersistedVectors(state.database, id);
+
+    if (!existingOramaId) return;
+
+    try {
+      await remove(state.index, existingOramaId);
+      state.oramaIds.delete(key);
+    } catch (error) {
+      console.error('Failed to remove document from lexical search index', {
+        entityId: id,
+        entityType: type,
+        error
+      });
+    }
+  });
 }
 
 async function buildIndex(state: OramaState, db: RyuDatabase): Promise<void> {
@@ -174,18 +227,15 @@ async function reindexAuthorDependents(
   authorId: string
 ): Promise<void> {
   const cache: AuthorNameCache = new Map();
-  // Pre-warm the cache with the current author so resolveAuthorNames does not
-  // re-query.
   const author = await db.authors.findOne(authorId).exec().catch(() => null);
   if (author) cache.set(authorId, author.name);
 
-  // Use a permissive selector cast — RxDB's Mango selector typings don't fully
-  // model array-element matching, but the underlying engine supports it.
+  // RxDB Mango: $in checks array membership for primitive arrays.
   const dependentEditions = await db.editions.find({
-    selector: { authorIds: { $elemMatch: authorId } as any }
+    selector: { authorIds: { $in: [authorId] } }
   }).exec().catch(() => [] as EditionDoc[]);
   const dependentWorks = await db.works.find({
-    selector: { authorIds: { $elemMatch: authorId } as any }
+    selector: { authorIds: { $in: [authorId] } }
   }).exec().catch(() => [] as WorkDoc[]);
 
   for (const edition of dependentEditions) {
@@ -204,42 +254,74 @@ async function reindexAuthorDependents(
   }
 }
 
+/**
+ * Extract the entity id from an RxDB change event, regardless of operation.
+ * INSERT/UPDATE expose `documentData.id`. DELETE may expose only
+ * `documentId` and/or `previousDocumentData.id`.
+ */
+function extractChangeId(change: any): string | null {
+  return (
+    change?.documentId ??
+    change?.documentData?.id ??
+    change?.previousDocumentData?.id ??
+    null
+  );
+}
+
 function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
   if (state.subscriptionsStarted) return;
   state.subscriptionsStarted = true;
 
-  db.editions.$.subscribe(async (change: any) => {
-    const cache: AuthorNameCache = new Map();
-    if (change.operation === 'INSERT') {
-      await addDoc(state, db, await editionToSearchDocument(db, change.documentData, cache));
-    } else if (change.operation === 'UPDATE') {
-      await updateDoc(state, db, await editionToSearchDocument(db, change.documentData, cache));
-    } else if (change.operation === 'DELETE') {
-      await removeDoc(state, 'edition', change.documentData.id);
-    }
+  db.editions.$.subscribe((change: any) => {
+    const run = async () => {
+      const cache: AuthorNameCache = new Map();
+      if (change.operation === 'INSERT') {
+        await addDoc(state, db, await editionToSearchDocument(db, change.documentData, cache));
+      } else if (change.operation === 'UPDATE') {
+        await updateDoc(state, db, await editionToSearchDocument(db, change.documentData, cache));
+      } else if (change.operation === 'DELETE') {
+        const id = extractChangeId(change);
+        if (id) await removeDoc(state, 'edition', id);
+      }
+    };
+    run().catch((error) => {
+      console.error('Error in editions subscription handler', { change, error });
+    });
   });
 
-  db.works.$.subscribe(async (change: any) => {
-    const cache: AuthorNameCache = new Map();
-    if (change.operation === 'INSERT') {
-      await addDoc(state, db, await workToSearchDocument(db, change.documentData, cache));
-    } else if (change.operation === 'UPDATE') {
-      await updateDoc(state, db, await workToSearchDocument(db, change.documentData, cache));
-    } else if (change.operation === 'DELETE') {
-      await removeDoc(state, 'work', change.documentData.id);
-    }
+  db.works.$.subscribe((change: any) => {
+    const run = async () => {
+      const cache: AuthorNameCache = new Map();
+      if (change.operation === 'INSERT') {
+        await addDoc(state, db, await workToSearchDocument(db, change.documentData, cache));
+      } else if (change.operation === 'UPDATE') {
+        await updateDoc(state, db, await workToSearchDocument(db, change.documentData, cache));
+      } else if (change.operation === 'DELETE') {
+        const id = extractChangeId(change);
+        if (id) await removeDoc(state, 'work', id);
+      }
+    };
+    run().catch((error) => {
+      console.error('Error in works subscription handler', { change, error });
+    });
   });
 
-  db.authors.$.subscribe(async (change: any) => {
-    if (change.operation === 'INSERT') {
-      await addDoc(state, db, authorDocToSearchDocument(change.documentData));
-    } else if (change.operation === 'UPDATE') {
-      await updateDoc(state, db, authorDocToSearchDocument(change.documentData));
-      // Author rename affects all books/works attributing them — fan out.
-      await reindexAuthorDependents(state, db, change.documentData.id);
-    } else if (change.operation === 'DELETE') {
-      await removeDoc(state, 'author', change.documentData.id);
-    }
+  db.authors.$.subscribe((change: any) => {
+    const run = async () => {
+      if (change.operation === 'INSERT') {
+        await addDoc(state, db, authorDocToSearchDocument(change.documentData));
+      } else if (change.operation === 'UPDATE') {
+        await updateDoc(state, db, authorDocToSearchDocument(change.documentData));
+        // Author rename affects all books/works attributing them — fan out.
+        await reindexAuthorDependents(state, db, change.documentData.id);
+      } else if (change.operation === 'DELETE') {
+        const id = extractChangeId(change);
+        if (id) await removeDoc(state, 'author', id);
+      }
+    };
+    run().catch((error) => {
+      console.error('Error in authors subscription handler', { change, error });
+    });
   });
 }
 
@@ -247,8 +329,9 @@ async function createState(db: RyuDatabase): Promise<OramaState> {
   const state: OramaState = {
     index: await createIndex(),
     oramaIds: new Map(),
-    pendingIds: new Set(),
-    subscriptionsStarted: false
+    pendingPromises: new Map(),
+    subscriptionsStarted: false,
+    database: db
   };
   setupReactiveIndex(state, db);
   await buildIndex(state, db);

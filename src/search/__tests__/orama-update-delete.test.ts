@@ -158,15 +158,17 @@ describe("orama update/delete lifecycle", () => {
     expect(updateMock).toHaveBeenCalled();
   });
 
-  it("subscribes to DELETE events and calls Orama remove()", async () => {
+  it("subscribes to DELETE events using documentId or previousDocumentData", async () => {
     const db = makeMockDb();
     const state = await getOramaState(db);
 
     state.oramaIds.set("edition:e1", "orama-e-1");
 
+    // Real RxDB DELETE events expose the id via documentId / previousDocumentData
     db.emit("editions", {
       operation: "DELETE",
-      documentData: { id: "e1" }
+      documentId: "e1",
+      previousDocumentData: { id: "e1" }
     });
 
     await new Promise((r) => setTimeout(r, 0));
@@ -174,5 +176,50 @@ describe("orama update/delete lifecycle", () => {
     expect(removeMock).toHaveBeenCalled();
     expect(state.oramaIds.has("edition:e1")).toBe(false);
     expect(removeFromInMemoryMock).toHaveBeenCalledWith("e1");
+  });
+
+  it("queues concurrent updates for the same key sequentially", async () => {
+    const db = makeMockDb();
+    const state = await getOramaState(db);
+
+    let inflight = 0;
+    let peakInflight = 0;
+    insertMock.mockImplementation(async () => {
+      inflight++;
+      if (inflight > peakInflight) peakInflight = inflight;
+      await new Promise((r) => setTimeout(r, 5));
+      inflight--;
+      return `orama-id-${insertMock.mock.calls.length}`;
+    });
+    updateMock.mockImplementation(async () => {
+      inflight++;
+      if (inflight > peakInflight) peakInflight = inflight;
+      await new Promise((r) => setTimeout(r, 5));
+      inflight--;
+      return `orama-id-${updateMock.mock.calls.length}`;
+    });
+
+    // Fire three rapid UPDATE events for the same id
+    state.oramaIds.set("work:w1", "orama-w-1");
+    db.emit("works", {
+      operation: "UPDATE",
+      documentData: { id: "w1", title: "T1", summary: "", authorIds: [], updatedAt: "2026-01-01T00:00:00Z" }
+    });
+    db.emit("works", {
+      operation: "UPDATE",
+      documentData: { id: "w1", title: "T2", summary: "", authorIds: [], updatedAt: "2026-01-02T00:00:00Z" }
+    });
+    db.emit("works", {
+      operation: "UPDATE",
+      documentData: { id: "w1", title: "T3", summary: "", authorIds: [], updatedAt: "2026-01-03T00:00:00Z" }
+    });
+
+    // Wait for the chain to drain
+    await new Promise((r) => setTimeout(r, 50));
+
+    // All three updates should have been processed (none dropped) but never
+    // overlapping in flight for the same key.
+    expect(updateMock).toHaveBeenCalledTimes(3);
+    expect(peakInflight).toBeLessThanOrEqual(1);
   });
 });
