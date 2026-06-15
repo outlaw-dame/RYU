@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
+import { AdaptiveSearchField } from "../design/adaptive";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
@@ -3192,8 +3193,7 @@ export function App() {
                 <TabPanel id="search" activeTab={activeTab}>
                   <ScreenTitle title={t("screen.search")} />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
-                    <input
-                      type="search"
+                    <AdaptiveSearchField
                       value={searchQuery}
                       onChange={(event) => {
                         setSearchQuery(event.target.value);
@@ -3235,6 +3235,7 @@ export function App() {
                           setActiveAutocompleteIndex(-1);
                         }
                       }}
+                      onClear={() => { setSearchQuery(""); setActiveAutocompleteIndex(-1); }}
                       placeholder={t("search.placeholder")}
                       aria-label={t("search.ariaLabel")}
                       role="combobox"
@@ -4280,10 +4281,10 @@ export function App() {
                           </button>
                         </div>
                         <div style={{ display: "grid", gap: "var(--space-2)" }}>
-                          <input
-                            type="search"
+                          <AdaptiveSearchField
                             value={instanceSearch}
                             onChange={(event) => setInstanceSearch(event.target.value)}
+                            onClear={() => setInstanceSearch("")}
                             placeholder={t("auth.searchInstancesPlaceholder")}
                             aria-label={t("auth.searchInstancesAriaLabel")}
                             style={{
