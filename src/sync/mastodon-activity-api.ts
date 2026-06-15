@@ -44,6 +44,8 @@ export type MastodonSessionState = {
     id?: string;
     username?: string;
     acct: string;
+    display_name?: string;
+    avatar?: string;
     url?: string;
   } | null;
   scope?: string | null;
@@ -83,6 +85,8 @@ const sessionSchema = z.object({
     id: z.string().optional(),
     username: z.string().optional(),
     acct: z.string().min(1),
+    display_name: z.string().optional(),
+    avatar: z.string().optional(),
     url: z.string().optional()
   }).nullable().optional(),
   scope: z.string().nullable().optional()
