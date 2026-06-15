@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MastodonStatus } from "../../sync/mastodon-client";
 import { postMastodonStatus } from "../../sync/mastodon-activity-api";
-import { AdaptiveSheet } from "../primitives/AdaptiveSheet";
+import { AdaptiveSheet, AdaptiveTextField, AdaptiveButton } from "../../design/adaptive";
 
 const MAX_LENGTH = 500;
 const WARN_AT = 450;
@@ -98,36 +98,36 @@ export function ComposeSheet({
           <h2 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", fontWeight: 700, color: "var(--color-text)" }}>
             Reading Update
           </h2>
-          <button
-            type="button"
+          <AdaptiveButton
+            variant="secondary"
             onClick={onClose}
             disabled={posting}
-            style={{
-              border: 0,
-              borderRadius: "var(--radius-sm)",
-              background: "var(--color-bg-secondary)",
-              color: "var(--color-text-secondary)",
-              fontWeight: 600,
-              fontSize: "var(--text-footnote)",
-              minHeight: "var(--touch-min)",
-              padding: "0 var(--space-3)",
-              cursor: "pointer",
-              opacity: posting ? 0.5 : 1
-            }}
+            aria-label="Cancel compose"
+            className="compose-cancel-btn"
           >
             Cancel
-          </button>
+          </AdaptiveButton>
         </div>
 
-        {/* Textarea */}
-        <textarea
+        {/* Textarea — native keyboard attributes for mobile */}
+        <AdaptiveTextField
           ref={textareaRef}
+          textarea
           value={text}
           onChange={(e) => { setText(e.target.value); setError(null); }}
           placeholder="What are you reading? Share a book update with your community..."
           maxLength={520}
-          rows={4}
           disabled={posting}
+          autoCapitalize="sentences"
+          autoCorrect="on"
+          spellCheck={true}
+          enterKeyHint="done"
+          aria-label="Compose text"
+          // rows is a valid textarea attribute; AdaptiveTextField's type surface
+          // inherits from InputHTMLAttributes which doesn't include it, but the
+          // underlying <textarea> accepts it at runtime.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          {...({ rows: 4 } as any)}
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -147,13 +147,17 @@ export function ComposeSheet({
 
         {/* Character counter */}
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "calc(-1 * var(--space-3))" }}>
-          <span style={{ fontSize: "var(--text-caption1)", color: counterColor, fontVariantNumeric: "tabular-nums" }}>
+          <span
+            aria-live="polite"
+            aria-atomic="true"
+            style={{ fontSize: "var(--text-caption1)", color: counterColor, fontVariantNumeric: "tabular-nums" }}
+          >
             {remaining}
           </span>
         </div>
 
         {/* Hashtag chips */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
+        <div role="group" aria-label="Book hashtags" style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
           {BOOK_HASHTAGS.map((tag) => {
             const active = text.toLowerCase().includes(tag.toLowerCase());
             return (
@@ -186,20 +190,22 @@ export function ComposeSheet({
         </div>
 
         {/* Visibility selector */}
-        <div>
-          <p style={{ margin: "0 0 var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "var(--tracking-caps)" }}>
+        <fieldset style={{ margin: 0, padding: 0, border: 0 }}>
+          <legend style={{ margin: "0 0 var(--space-2)", fontSize: "var(--text-caption1)", color: "var(--color-text-tertiary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "var(--tracking-caps)" }}>
             Visibility
-          </p>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            {VISIBILITY_OPTIONS.map(({ value, label }) => {
+          </legend>
+          <div role="radiogroup" aria-label="Post visibility" style={{ display: "flex", gap: "var(--space-2)" }}>
+            {VISIBILITY_OPTIONS.map(({ value, label, desc }) => {
               const active = visibility === value;
               return (
                 <button
                   key={value}
                   type="button"
+                  role="radio"
+                  aria-checked={active}
+                  aria-label={`${label}: ${desc}`}
                   onClick={() => setVisibility(value)}
                   disabled={posting}
-                  aria-pressed={active}
                   style={{
                     flex: 1,
                     minHeight: "calc(var(--touch-min) - 8px)",
@@ -222,34 +228,23 @@ export function ComposeSheet({
               );
             })}
           </div>
-        </div>
+        </fieldset>
 
         {error ? (
-          <p style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)" }}>
+          <p role="alert" style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)" }}>
             {error}
           </p>
         ) : null}
 
         {/* Post button */}
-        <button
-          type="button"
+        <AdaptiveButton
+          variant="primary"
           onClick={() => { void handlePost(); }}
           disabled={!canPost}
-          style={{
-            minHeight: "var(--touch-min)",
-            border: 0,
-            borderRadius: "var(--radius-md)",
-            background: canPost ? "var(--color-accent)" : "color-mix(in srgb, var(--color-accent) 40%, var(--color-bg))",
-            color: "white",
-            fontFamily: "var(--font-body)",
-            fontSize: "var(--text-subhead)",
-            fontWeight: 700,
-            cursor: canPost ? "pointer" : "default",
-            transition: "background 0.15s"
-          }}
+          aria-label={posting ? "Posting update" : "Post update"}
         >
           {posting ? "Posting…" : "Post Update"}
-        </button>
+        </AdaptiveButton>
       </section>
     </AdaptiveSheet>
   );
