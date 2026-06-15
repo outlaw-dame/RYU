@@ -30,6 +30,7 @@ import {
 } from "../index-lifecycle";
 import { getEmbeddingProvider } from "../embedding-provider";
 import { normalizeSearchQuery } from "../query-normalize";
+import { searchProgressively, type ProgressiveSearchUpdate } from "./progressiveSearch";
 
 /**
  * Creates an instance of the RxDB + Orama hybrid search engine.
@@ -107,6 +108,13 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
       clearInMemoryVectorIndex();
       await clearPersistedVectorsForCurrentProvider();
       await rebuildSearchVectorsForCurrentProvider(db);
+    },
+
+    async searchProgressively(
+      request: HybridSearchQuery,
+      onUpdate: (update: ProgressiveSearchUpdate) => void
+    ): Promise<HybridSearchResponse> {
+      return searchProgressively(request, onUpdate);
     },
 
     async inspectHealth(db?: RyuDatabase): Promise<SearchIndexHealth> {

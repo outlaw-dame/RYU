@@ -70,6 +70,19 @@ export interface LocalHybridSearchEngine {
   search(request: HybridSearchQuery): Promise<HybridSearchResponse>;
 
   /**
+   * Execute a progressive search that streams partial results to onUpdate
+   * as the lexical → semantic → fused stages complete. Resolves with the
+   * final HybridSearchResponse, identical to what `search()` returns.
+   *
+   * Use this for UI surfaces that benefit from showing lexical results
+   * immediately while semantic embeddings load in the background.
+   */
+  searchProgressively(
+    request: HybridSearchQuery,
+    onUpdate: (update: import("./progressiveSearch").ProgressiveSearchUpdate) => void
+  ): Promise<HybridSearchResponse>;
+
+  /**
    * Rebuild all search indexes from scratch.
    * Used for provider changes, corruption recovery, or major schema migrations.
    */
