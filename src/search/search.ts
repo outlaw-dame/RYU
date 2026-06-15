@@ -16,12 +16,30 @@ import { normalizeSearchQuery } from './query-normalize';
 import { buildSearchQueryExpansionPlan } from './query-expansion';
 import type { SearchOptions } from './types';
 
+export type SearchAllDiagnostics = {
+  lexicalCount: number;
+  semanticCount: number;
+  fusedCount: number;
+  finalCount: number;
+  usedSemantic: boolean;
+};
+
+export type SearchAllResult = {
+  grouped: ReturnType<typeof groupResults> | null;
+  diagnostics: SearchAllDiagnostics;
+};
+
 export async function searchAll(query: string, options: SearchOptions = {}) {
+  const result = await searchAllWithDiagnostics(query, options);
+  return result.grouped;
+}
+
+export async function searchAllWithDiagnostics(query: string, options: SearchOptions = {}): Promise<SearchAllResult> {
   const normalizedQuery = normalizeSearchQuery(query);
-  if (normalizedQuery.length < 2) return null;
+  if (normalizedQuery.length < 2) return { grouped: null, diagnostics: { lexicalCount: 0, semanticCount: 0, fusedCount: 0, finalCount: 0, usedSemantic: false } };
 
   const expansion = await buildSearchQueryExpansionPlan(normalizedQuery, options.db);
-  if (expansion.normalizedQuery.length < 2) return null;
+  if (expansion.normalizedQuery.length < 2) return { grouped: null, diagnostics: { lexicalCount: 0, semanticCount: 0, fusedCount: 0, finalCount: 0, usedSemantic: false } };
 
   const primaryQuery = expansion.normalizedQuery;
   const semanticQuery = expansion.semanticQuery || primaryQuery;
@@ -32,7 +50,7 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   const adaptiveAlpha = getAdaptiveAlpha(intent.alpha, intent.intent);
 
   const lexical = await searchOrama(primaryQuery, options.db);
-  const semantic = await semanticSearchLocal(semanticQuery, 20, options.db);
+  const semantic = await semanticSearchLocal(semanticQuery, 20, options.db).catch(() => [] as import('./types').RankedSearchResult[]);
 
   const fused = fuseResults(lexical, semantic, adaptiveAlpha);
 
@@ -58,5 +76,16 @@ export async function searchAll(query: string, options: SearchOptions = {}) {
   const provider = getRerankerProvider();
   const finalResults = provider ? await provider.rerank(primaryQuery, explored) : explored;
 
-  return groupResults(attachExplanations(finalResults, { ...intent, alpha: adaptiveAlpha }, options.context));
+  const grouped = groupResults(attachExplanations(finalResults, { ...intent, alpha: adaptiveAlpha }, options.context));
+
+  return {
+    grouped,
+    diagnostics: {
+      lexicalCount: lexical.length,
+      semanticCount: semantic.length,
+      fusedCount: fused.length,
+      finalCount: grouped.all.length,
+      usedSemantic: semantic.length > 0
+    }
+  };
 }

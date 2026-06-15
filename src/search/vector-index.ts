@@ -16,6 +16,14 @@ export function clearInMemoryVectorIndex(): void {
   vectorStore.clear();
 }
 
+export function removeFromInMemoryVectorIndex(entityId: string): void {
+  for (const [key, entry] of vectorStore.entries()) {
+    if (entry.doc.id === entityId) {
+      vectorStore.delete(key);
+    }
+  }
+}
+
 export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
   const db = await initializeDatabase();
   const provider = getEmbeddingProvider();

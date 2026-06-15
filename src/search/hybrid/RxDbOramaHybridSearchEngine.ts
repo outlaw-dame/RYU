@@ -1,13 +1,13 @@
 /**
  * RxDB + Orama hybrid search engine adapter.
  *
- * Wraps the existing search pipeline (searchAll, vector-index, index-lifecycle)
+ * Wraps the existing search pipeline (searchAllWithDiagnostics, vector-index, index-lifecycle)
  * behind the stable LocalHybridSearchEngine interface.
  *
  * This adapter calls existing implementation — it does NOT duplicate logic.
  */
 
-import type { RyuDatabase } from "../../db/client";
+import { initializeDatabase, type RyuDatabase } from "../../db/client";
 import type { SearchDocument } from "../types";
 import type { SearchIndexHealth } from "../index-lifecycle";
 import type {
@@ -16,9 +16,13 @@ import type {
   HybridSearchResponse,
   LocalHybridSearchEngine
 } from "./hybridSearchTypes";
-import { searchAll } from "../search";
-import { indexDocument as vectorIndexDocument, semanticSearchLocal, clearInMemoryVectorIndex } from "../vector-index";
-import { searchOrama } from "../orama";
+import { searchAllWithDiagnostics } from "../search";
+import {
+  indexDocument as vectorIndexDocument,
+  clearInMemoryVectorIndex,
+  clearPersistedVectorsForCurrentProvider,
+  removeFromInMemoryVectorIndex
+} from "../vector-index";
 import {
   inspectSearchIndexHealth,
   repairSearchIndexHealth,
@@ -41,19 +45,17 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
     },
 
     async removeDocument(documentId: string, db?: RyuDatabase): Promise<void> {
-      // Remove from persisted vectors in RxDB.
-      // The in-memory vector map and Orama index are cleared on next rebuild.
-      // Full removal support will be added in Phase 5 (update/delete lifecycle).
-      const { initializeDatabase, DEFAULT_RYU_DATABASE_NAME } = await import("../../db/client");
+      // Remove from in-memory vector store immediately
+      removeFromInMemoryVectorIndex(documentId);
+
+      // Remove persisted vectors from RxDB
       const database = db ?? await initializeDatabase();
-      const vectorCollection = database.collections.searchvectors;
+      const vectorCollection = database.searchvectors;
       if (vectorCollection) {
         const docs = await vectorCollection.find({
           selector: { entityId: documentId }
         }).exec();
-        for (const doc of docs) {
-          await doc.remove();
-        }
+        await Promise.all(docs.map((doc) => doc.remove()));
       }
     },
 
@@ -71,34 +73,24 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
         };
       }
 
-      // Run lexical and semantic separately to capture counts for diagnostics.
-      const [lexicalResults, semanticResults] = await Promise.all([
-        searchOrama(normalizedQuery, request.db).catch(() => []),
-        semanticSearchLocal(normalizedQuery, 20, request.db).catch(() => [])
-      ]);
-
-      const usedSemantic = semanticResults.length > 0;
-
-      // Run the full pipeline through searchAll for the authoritative result.
-      const results = await searchAll(request.query, {
+      // Use searchAllWithDiagnostics to avoid duplicate execution.
+      // Semantic failures are caught internally by searchAllWithDiagnostics.
+      const result = await searchAllWithDiagnostics(request.query, {
         limit: request.limit,
         db: request.db,
         ...request.options
       });
 
       const durationMs = performance.now() - startMs;
-      const finalCount = results
-        ? results.all.length
-        : 0;
 
       const diagnostics: HybridSearchDiagnostics = {
-        lexicalCount: lexicalResults.length,
-        semanticCount: semanticResults.length,
-        fusedCount: finalCount,
-        finalCount,
+        lexicalCount: result.diagnostics.lexicalCount,
+        semanticCount: result.diagnostics.semanticCount,
+        fusedCount: result.diagnostics.fusedCount,
+        finalCount: result.diagnostics.finalCount,
         providerId: provider.id,
         providerDimensions: provider.dimensions,
-        usedSemantic,
+        usedSemantic: result.diagnostics.usedSemantic,
         repairedBeforeSearch: false,
         durationMs
       };
@@ -106,13 +98,14 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
       return {
         query: request.query,
         normalizedQuery,
-        results,
+        results: result.grouped,
         diagnostics
       };
     },
 
     async rebuild(db?: RyuDatabase): Promise<void> {
       clearInMemoryVectorIndex();
+      await clearPersistedVectorsForCurrentProvider();
       await rebuildSearchVectorsForCurrentProvider(db);
     },
 

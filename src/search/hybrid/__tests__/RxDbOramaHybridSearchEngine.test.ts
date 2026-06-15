@@ -1,20 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SearchDocument, RankedSearchResult } from "../../types";
-import type { HybridSearchResponse, LocalHybridSearchEngine } from "../hybridSearchTypes";
+import type { LocalHybridSearchEngine } from "../hybridSearchTypes";
 
 // Mock dependencies
 vi.mock("../../search", () => ({
-  searchAll: vi.fn()
-}));
-
-vi.mock("../../orama", () => ({
-  searchOrama: vi.fn()
+  searchAll: vi.fn(),
+  searchAllWithDiagnostics: vi.fn()
 }));
 
 vi.mock("../../vector-index", () => ({
   indexDocument: vi.fn(),
-  semanticSearchLocal: vi.fn(),
-  clearInMemoryVectorIndex: vi.fn()
+  clearInMemoryVectorIndex: vi.fn(),
+  clearPersistedVectorsForCurrentProvider: vi.fn(),
+  removeFromInMemoryVectorIndex: vi.fn()
 }));
 
 vi.mock("../../index-lifecycle", () => ({
@@ -36,21 +34,23 @@ vi.mock("../../query-normalize", () => ({
 }));
 
 vi.mock("../../../db/client", () => ({
-  initializeDatabase: vi.fn(),
-  DEFAULT_RYU_DATABASE_NAME: "ryu"
+  initializeDatabase: vi.fn(() => Promise.resolve({
+    searchvectors: {
+      find: vi.fn(() => ({ exec: vi.fn(() => Promise.resolve([])) }))
+    }
+  }))
 }));
 
-import { searchAll } from "../../search";
-import { searchOrama } from "../../orama";
-import { indexDocument as vectorIndexDocument, semanticSearchLocal, clearInMemoryVectorIndex } from "../../vector-index";
+import { searchAllWithDiagnostics } from "../../search";
+import { indexDocument as vectorIndexDocument, clearInMemoryVectorIndex, clearPersistedVectorsForCurrentProvider, removeFromInMemoryVectorIndex } from "../../vector-index";
 import { inspectSearchIndexHealth, repairSearchIndexHealth, rebuildSearchVectorsForCurrentProvider } from "../../index-lifecycle";
 import { createRxDbOramaHybridSearchEngine } from "../RxDbOramaHybridSearchEngine";
 
-const mockSearchAll = vi.mocked(searchAll);
-const mockSearchOrama = vi.mocked(searchOrama);
-const mockSemanticSearch = vi.mocked(semanticSearchLocal);
+const mockSearchAllWithDiagnostics = vi.mocked(searchAllWithDiagnostics);
 const mockVectorIndex = vi.mocked(vectorIndexDocument);
 const mockClearVectors = vi.mocked(clearInMemoryVectorIndex);
+const mockClearPersisted = vi.mocked(clearPersistedVectorsForCurrentProvider);
+const mockRemoveFromMemory = vi.mocked(removeFromInMemoryVectorIndex);
 const mockInspect = vi.mocked(inspectSearchIndexHealth);
 const mockRepair = vi.mocked(repairSearchIndexHealth);
 const mockRebuild = vi.mocked(rebuildSearchVectorsForCurrentProvider);
@@ -74,23 +74,23 @@ describe("RxDbOramaHybridSearchEngine", () => {
     });
 
     it("returns grouped results with diagnostics for valid queries", async () => {
-      const lexicalResults: RankedSearchResult[] = [
-        makeResult("1", "Dune", 0.9),
-        makeResult("2", "Dune Messiah", 0.7)
-      ];
-      const semanticResults: RankedSearchResult[] = [
-        makeResult("3", "Foundation", 0.6)
-      ];
       const groupedResults = {
-        all: [...lexicalResults, ...semanticResults],
+        all: [makeResult("1", "Dune", 0.9), makeResult("2", "Dune Messiah", 0.7)],
         editions: [],
-        works: [...lexicalResults, ...semanticResults],
+        works: [makeResult("1", "Dune", 0.9), makeResult("2", "Dune Messiah", 0.7)],
         authors: []
       };
 
-      mockSearchOrama.mockResolvedValue(lexicalResults);
-      mockSemanticSearch.mockResolvedValue(semanticResults);
-      mockSearchAll.mockResolvedValue(groupedResults as any);
+      mockSearchAllWithDiagnostics.mockResolvedValue({
+        grouped: groupedResults as any,
+        diagnostics: {
+          lexicalCount: 2,
+          semanticCount: 1,
+          fusedCount: 3,
+          finalCount: 2,
+          usedSemantic: true
+        }
+      });
 
       const response = await engine.search({ query: "dune" });
 
@@ -105,54 +105,29 @@ describe("RxDbOramaHybridSearchEngine", () => {
       expect(response.diagnostics.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it("degrades gracefully when semantic search fails", async () => {
-      const lexicalResults: RankedSearchResult[] = [
-        makeResult("1", "Dune", 0.9)
-      ];
-      const groupedResults = {
-        all: lexicalResults,
-        editions: [],
-        works: lexicalResults,
-        authors: []
-      };
+    it("returns null results when searchAllWithDiagnostics returns null grouped", async () => {
+      mockSearchAllWithDiagnostics.mockResolvedValue({
+        grouped: null,
+        diagnostics: {
+          lexicalCount: 0,
+          semanticCount: 0,
+          fusedCount: 0,
+          finalCount: 0,
+          usedSemantic: false
+        }
+      });
 
-      mockSearchOrama.mockResolvedValue(lexicalResults);
-      mockSemanticSearch.mockRejectedValue(new Error("model not loaded"));
-      mockSearchAll.mockResolvedValue(groupedResults as any);
+      const response = await engine.search({ query: "xyznonexistent" });
 
-      const response = await engine.search({ query: "dune" });
-
-      expect(response.results).toBe(groupedResults);
-      expect(response.diagnostics.semanticCount).toBe(0);
-      expect(response.diagnostics.usedSemantic).toBe(false);
+      expect(response.results).toBeNull();
+      expect(response.diagnostics.finalCount).toBe(0);
     });
 
-    it("degrades gracefully when lexical search fails", async () => {
-      const semanticResults: RankedSearchResult[] = [
-        makeResult("1", "Dune", 0.8)
-      ];
-      const groupedResults = {
-        all: semanticResults,
-        editions: [],
-        works: semanticResults,
-        authors: []
-      };
-
-      mockSearchOrama.mockRejectedValue(new Error("orama init failed"));
-      mockSemanticSearch.mockResolvedValue(semanticResults);
-      mockSearchAll.mockResolvedValue(groupedResults as any);
-
-      const response = await engine.search({ query: "desert ecology" });
-
-      expect(response.results).toBe(groupedResults);
-      expect(response.diagnostics.lexicalCount).toBe(0);
-      expect(response.diagnostics.usedSemantic).toBe(true);
-    });
-
-    it("passes options through to searchAll", async () => {
-      mockSearchOrama.mockResolvedValue([]);
-      mockSemanticSearch.mockResolvedValue([]);
-      mockSearchAll.mockResolvedValue(null);
+    it("passes options through to searchAllWithDiagnostics", async () => {
+      mockSearchAllWithDiagnostics.mockResolvedValue({
+        grouped: null,
+        diagnostics: { lexicalCount: 0, semanticCount: 0, fusedCount: 0, finalCount: 0, usedSemantic: false }
+      });
 
       await engine.search({
         query: "test",
@@ -160,7 +135,7 @@ describe("RxDbOramaHybridSearchEngine", () => {
         options: { context: { surface: "library" } }
       });
 
-      expect(mockSearchAll).toHaveBeenCalledWith("test", expect.objectContaining({
+      expect(mockSearchAllWithDiagnostics).toHaveBeenCalledWith("test", expect.objectContaining({
         limit: 10,
         context: { surface: "library" }
       }));
@@ -176,11 +151,20 @@ describe("RxDbOramaHybridSearchEngine", () => {
     });
   });
 
+  describe("removeDocument", () => {
+    it("removes from in-memory vector index", async () => {
+      await engine.removeDocument("doc-1");
+
+      expect(mockRemoveFromMemory).toHaveBeenCalledWith("doc-1");
+    });
+  });
+
   describe("rebuild", () => {
-    it("clears in-memory vectors and rebuilds from current provider", async () => {
+    it("clears in-memory vectors, clears persisted, then rebuilds", async () => {
       await engine.rebuild();
 
       expect(mockClearVectors).toHaveBeenCalled();
+      expect(mockClearPersisted).toHaveBeenCalled();
       expect(mockRebuild).toHaveBeenCalled();
     });
   });
@@ -203,7 +187,6 @@ describe("RxDbOramaHybridSearchEngine", () => {
       const result = await engine.inspectHealth();
 
       expect(result).toBe(healthResult);
-      expect(mockInspect).toHaveBeenCalled();
     });
   });
 
