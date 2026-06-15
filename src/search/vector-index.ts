@@ -1,7 +1,7 @@
 import { cosineSimilarity, searchableText } from './embeddings';
 import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase, type RyuDatabase } from '../db/client';
-import { getEmbeddingProvider } from './embedding-provider';
+import { getEmbeddingProvider, getEmbeddingProviderGeneration } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
 
 type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; dimensions: number; dbName: string };
@@ -50,6 +50,7 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
 export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
+  const generationAtStart = getEmbeddingProviderGeneration();
 
   const text = searchableText(doc);
   const textHash = hashText(text);
@@ -63,6 +64,11 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     vector = existing.vector;
   } else {
     vector = await provider.embed(text);
+
+    // Stale write protection: if provider changed while we were embedding, discard.
+    if (getEmbeddingProviderGeneration() !== generationAtStart) {
+      return;
+    }
 
     if (vector.length !== provider.dimensions) {
       console.warn('Skipping search vector with invalid dimensions', {
@@ -96,6 +102,11 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     });
   }
 
+  // Final stale write check before updating in-memory store
+  if (getEmbeddingProviderGeneration() !== generationAtStart) {
+    return;
+  }
+
   vectorStore.set(inMemoryVectorKey(database.name, doc.id), {
     vector,
     doc,
@@ -103,6 +114,66 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
     dimensions: provider.dimensions,
     dbName: database.name
   });
+}
+
+/**
+ * Warmup: load persisted vectors for the active provider into the in-memory store.
+ * Idempotent — safe to call multiple times. Skips vectors with wrong dimensions
+ * and orphan vectors (no matching canonical doc lookup).
+ *
+ * Call this at app startup (after idle) to ensure semantic search is available
+ * without waiting for full re-indexing.
+ */
+export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number }> {
+  const database = db ?? await initializeDatabase();
+  const provider = getEmbeddingProvider();
+
+  const all = await database.searchvectors
+    .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
+    .exec();
+
+  let loaded = 0;
+  let skipped = 0;
+
+  for (const entry of all) {
+    // Skip vectors with wrong dimensions (corruption or provider mismatch)
+    if (entry.vector.length !== provider.dimensions) {
+      skipped++;
+      continue;
+    }
+
+    const key = inMemoryVectorKey(database.name, entry.entityId);
+
+    // Only skip if entry is already warm AND matches current provider/dimensions.
+    // Otherwise, replace the stale entry from a different provider.
+    const existing = vectorStore.get(key);
+    if (existing && existing.model === provider.id && existing.dimensions === provider.dimensions) {
+      continue;
+    }
+
+    // Build a minimal SearchDocument from the persisted entry.
+    // Full doc lookup is deferred to avoid blocking startup.
+    vectorStore.set(key, {
+      vector: entry.vector,
+      doc: {
+        id: entry.entityId,
+        type: entry.entityType as SearchDocument["type"],
+        title: "",
+        description: "",
+        authorText: "",
+        isbnText: "",
+        enrichmentText: "",
+        source: "local",
+        updatedAt: entry.updatedAt ?? entry.indexedAt ?? ""
+      },
+      model: entry.model,
+      dimensions: entry.dimensions,
+      dbName: database.name
+    });
+    loaded++;
+  }
+
+  return { loaded, skipped };
 }
 
 export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
