@@ -8,6 +8,7 @@ import { getRerankerProvider } from './reranker-provider';
 import { classifyQueryIntent } from './intent';
 import { refineIntentWithLLM } from './intent-llm';
 import { applyContextBoosts } from './context-ranking';
+import { filterResultsByScope } from './scope-filter';
 import { attachExplanations } from './explain';
 import { getAdaptiveAlpha } from './weights';
 import { applyExploration } from './exploration';
@@ -56,7 +57,11 @@ export async function searchAllWithDiagnostics(query: string, options: SearchOpt
 
   const cleaned = dedupe(fused);
 
-  const withContext = applyContextBoosts(cleaned, options.context);
+  // Scope-based privacy filter — enforces that private/local-only docs
+  // don't leak into global/explore surfaces.
+  const scopeFiltered = filterResultsByScope(cleaned, options.context);
+
+  const withContext = applyContextBoosts(scopeFiltered, options.context);
 
   const withFeedback = applyFeedbackBoosts(primaryQuery, withContext);
 
