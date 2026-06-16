@@ -118,33 +118,45 @@ export async function canonicalEntityToSearchDocument(
  */
 export async function reviewDocToSearchDocument(
   db: RyuDatabase,
-  review: ReviewDoc
+  review: ReviewDoc,
+  editionTitleCache?: Map<string, string>
 ): Promise<SearchDocument> {
   // Resolve the edition title for context
   let editionTitle = "";
-  try {
-    const edition = await db.editions.findOne(review.editionId).exec();
-    if (edition) editionTitle = edition.title;
-  } catch {
-    // best effort
+  const editionId = review?.editionId;
+  if (editionId) {
+    if (editionTitleCache?.has(editionId)) {
+      editionTitle = editionTitleCache.get(editionId) || "";
+    } else {
+      try {
+        const edition = await db.editions.findOne(editionId).exec();
+        if (edition) {
+          editionTitle = edition.title;
+          editionTitleCache?.set(editionId, editionTitle);
+        }
+      } catch {
+        // best effort
+      }
+    }
   }
 
+  const content = review?.content || "";
   // Truncate content for embedding efficiency (first 500 chars)
-  const truncatedContent = review.content.length > 500
-    ? review.content.slice(0, 500) + "…"
-    : review.content;
+  const truncatedContent = content.length > 500
+    ? content.slice(0, 500) + "…"
+    : content;
 
   return {
-    id: review.id,
+    id: review?.id || "",
     type: "review",
-    title: review.title || (editionTitle ? `Review of ${editionTitle}` : "Review"),
+    title: review?.title || (editionTitle ? `Review of ${editionTitle}` : "Review"),
     description: truncatedContent,
-    authorText: review.accountId,
+    authorText: review?.accountId || "",
     isbnText: "",
     enrichmentText: editionTitle ? `Review of: ${editionTitle}` : "",
     source: "local",
     scope: "public",
-    ownerId: review.accountId,
-    updatedAt: review.updatedAt
+    ownerId: review?.accountId || "",
+    updatedAt: review?.updatedAt || ""
   };
 }

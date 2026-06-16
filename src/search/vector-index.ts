@@ -188,6 +188,7 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
   const editionMap = new Map((editionDocs as any[]).map((d) => [d.id, d]));
   const workMap = new Map((workDocs as any[]).map((d) => [d.id, d]));
   const reviewMap = new Map((reviewDocs as any[]).map((d) => [d.id, d]));
+  const editionTitleCache = new Map<string, string>((editionDocs as any[]).map((d) => [d.id, d.title]));
 
   let loaded = 0;
   let orphans = 0;
@@ -208,7 +209,7 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
         doc = raw ? await workDocToSearchDocument(database, raw) : null;
       } else if (entityType === "review") {
         const raw = reviewMap.get(entry.entityId);
-        doc = raw ? await reviewDocToSearchDocument(database, raw) : null;
+        doc = raw ? await reviewDocToSearchDocument(database, raw, editionTitleCache) : null;
       }
     } catch (error) {
       console.error("Failed to project search document during warmup", {

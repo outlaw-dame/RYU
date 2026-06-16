@@ -215,7 +215,8 @@ async function buildIndex(state: OramaState, db: RyuDatabase): Promise<void> {
 
   // Index reviews
   const reviews = await db.reviews.find().exec() as ReviewDoc[];
-  for (const review of reviews) await addDoc(state, db, await reviewDocToSearchDocument(db, review));
+  const editionTitleCache = new Map<string, string>(editions.map((e) => [e.id, e.title]));
+  for (const review of reviews) await addDoc(state, db, await reviewDocToSearchDocument(db, review, editionTitleCache));
 }
 
 /**
