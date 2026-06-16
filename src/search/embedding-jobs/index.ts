@@ -28,3 +28,8 @@ export type {
 } from "./embeddingScheduler";
 
 export { createEmbeddingScheduler } from "./embeddingScheduler";
+
+export {
+  createScheduledRepairIndexer,
+  createEmbeddingJobExecutor
+} from "./scheduledIndexer";
