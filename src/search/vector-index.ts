@@ -118,13 +118,16 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
 
 /**
  * Warmup: load persisted vectors for the active provider into the in-memory store.
+ * Resolves full SearchDocument metadata from RxDB so semantic results are
+ * immediately display-ready (not blank placeholder docs).
+ *
  * Idempotent — safe to call multiple times. Skips vectors with wrong dimensions
- * and orphan vectors (no matching canonical doc lookup).
+ * and orphan vectors (persisted vector with no matching canonical entity in RxDB).
  *
  * Call this at app startup (after idle) to ensure semantic search is available
  * without waiting for full re-indexing.
  */
-export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number }> {
+export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number; orphans: number }> {
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
 
@@ -134,6 +137,7 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
 
   let loaded = 0;
   let skipped = 0;
+  let orphans = 0;
 
   for (const entry of all) {
     // Skip vectors with wrong dimensions (corruption or provider mismatch)
@@ -145,27 +149,27 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
     const key = inMemoryVectorKey(database.name, entry.entityId);
 
     // Only skip if entry is already warm AND matches current provider/dimensions.
-    // Otherwise, replace the stale entry from a different provider.
     const existing = vectorStore.get(key);
     if (existing && existing.model === provider.id && existing.dimensions === provider.dimensions) {
       continue;
     }
 
-    // Build a minimal SearchDocument from the persisted entry.
-    // Full doc lookup is deferred to avoid blocking startup.
+    // Resolve the full SearchDocument from RxDB so display is immediate.
+    const doc = await resolveSearchDocumentFromDb(
+      database,
+      entry.entityId,
+      entry.entityType as SearchDocument["type"]
+    );
+
+    if (!doc) {
+      // Orphan vector — canonical entity no longer exists in RxDB.
+      orphans++;
+      continue;
+    }
+
     vectorStore.set(key, {
       vector: entry.vector,
-      doc: {
-        id: entry.entityId,
-        type: entry.entityType as SearchDocument["type"],
-        title: "",
-        description: "",
-        authorText: "",
-        isbnText: "",
-        enrichmentText: "",
-        source: "local",
-        updatedAt: entry.updatedAt ?? entry.indexedAt ?? ""
-      },
+      doc,
       model: entry.model,
       dimensions: entry.dimensions,
       dbName: database.name
@@ -173,7 +177,41 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
     loaded++;
   }
 
-  return { loaded, skipped };
+  return { loaded, skipped, orphans };
+}
+
+/**
+ * Resolve a full SearchDocument from the RxDB canonical collections.
+ * Returns null if the entity no longer exists (orphan).
+ */
+async function resolveSearchDocumentFromDb(
+  db: RyuDatabase,
+  entityId: string,
+  entityType: SearchDocument["type"]
+): Promise<SearchDocument | null> {
+  try {
+    if (entityType === "author") {
+      const doc = await db.authors.findOne(entityId).exec();
+      if (!doc) return null;
+      const { authorDocToSearchDocument } = await import("./search-document-projection");
+      return authorDocToSearchDocument(doc);
+    }
+    if (entityType === "edition") {
+      const doc = await db.editions.findOne(entityId).exec();
+      if (!doc) return null;
+      const { editionDocToSearchDocument } = await import("./search-document-projection");
+      return editionDocToSearchDocument(db, doc);
+    }
+    if (entityType === "work") {
+      const doc = await db.works.findOne(entityId).exec();
+      if (!doc) return null;
+      const { workDocToSearchDocument } = await import("./search-document-projection");
+      return workDocToSearchDocument(db, doc);
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
