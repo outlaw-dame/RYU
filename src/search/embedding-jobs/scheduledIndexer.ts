@@ -97,7 +97,21 @@ export function createScheduledRepairIndexer(
   };
 
   const flush = async (): Promise<void> => {
+    // Drain until queue is truly empty — including retries with future nextAttemptAt.
+    // A single drain() returns once no jobs are "ready" right now, but failed jobs
+    // get re-enqueued with a future nextAttemptAt. We loop with short sleeps to
+    // allow retry delays to expire, up to a maximum total wait.
+    const MAX_FLUSH_WAIT_MS = 60_000;
+    const RETRY_CHECK_INTERVAL_MS = 1_000;
+    const start = Date.now();
+
     await scheduler.drain();
+
+    while (queue.size() > 0 && (Date.now() - start) < MAX_FLUSH_WAIT_MS) {
+      // Wait briefly for retry delays to expire, then drain again.
+      await new Promise((resolve) => setTimeout(resolve, RETRY_CHECK_INTERVAL_MS));
+      await scheduler.drain();
+    }
   };
 
   return { indexer, flush };
@@ -130,6 +144,13 @@ export function createEmbeddingJobExecutor(
       // Entity no longer exists — skip silently (orphan cleanup).
       return;
     }
+
+    // Re-verify provider after async document resolution — the provider could
+    // have changed during the await above.
+    if (job.providerId !== getEmbeddingProvider().id) {
+      return;
+    }
+
     await indexDocument(doc, db);
   };
 }
