@@ -38,6 +38,8 @@ export type SearchContext = {
   activeShelfId?: string;
   entityTypeHint?: SearchEntityType;
   preferOwnedLibrary?: boolean;
+  /** Current authenticated user ID — required for ownership checks on private/local-only docs. */
+  currentUserId?: string;
 };
 
 export type SearchDocument = {

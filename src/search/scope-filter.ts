@@ -2,7 +2,8 @@
  * Scope-aware search result filtering.
  *
  * Enforces privacy rules at search time so that:
- * - Private/local-only documents only appear in the owning user's library surface
+ * - Private/local-only documents only appear when the owner matches the current user
+ *   AND the surface is library/shelf
  * - Cache-only documents are excluded from search results by default
  * - Public and followers-scoped documents appear in all surfaces
  *
@@ -13,11 +14,19 @@
 import type { RankedSearchResult, SearchContext, SearchDocumentScope, SearchSurface } from "./types";
 
 /**
- * Returns true if a document with the given scope is visible on the given surface.
+ * Returns true if a document with the given scope is visible on the given surface
+ * for the given user.
+ *
+ * SECURITY: Private/local-only documents require BOTH:
+ *   1. The surface is library or shelf
+ *   2. The document's ownerId matches the currentUserId
+ * If either condition fails, the document is hidden.
  */
 export function isScopeVisibleOnSurface(
   scope: SearchDocumentScope | undefined,
-  surface: SearchSurface | undefined
+  surface: SearchSurface | undefined,
+  ownerId?: string,
+  currentUserId?: string
 ): boolean {
   const effectiveScope = scope ?? "public";
   const effectiveSurface = surface ?? "global";
@@ -27,16 +36,23 @@ export function isScopeVisibleOnSurface(
       return true;
 
     case "followers":
-      // Followers-scoped content is visible everywhere except cache-filtered surfaces
       return true;
 
     case "private":
     case "local-only":
-      // Only visible in the user's own library or shelf surfaces
-      return effectiveSurface === "library" || effectiveSurface === "shelf";
+      // BOLA protection: private/local-only documents are ONLY visible if:
+      // 1. The surface is the user's own library or shelf
+      // 2. The document belongs to the current user (or has no ownerId set)
+      if (effectiveSurface !== "library" && effectiveSurface !== "shelf") {
+        return false;
+      }
+      // If ownerId is set, it MUST match the current user
+      if (ownerId && ownerId !== currentUserId) {
+        return false;
+      }
+      return true;
 
     case "cache-only":
-      // Not searchable by default — only shown if explicitly requested
       return false;
 
     default:
@@ -53,8 +69,9 @@ export function filterResultsByScope<T extends RankedSearchResult>(
   context?: SearchContext
 ): T[] {
   const surface = context?.surface;
+  const currentUserId = context?.currentUserId;
 
   return results.filter((result) => {
-    return isScopeVisibleOnSurface(result.scope, surface);
+    return isScopeVisibleOnSurface(result.scope, surface, result.ownerId, currentUserId);
   });
 }
