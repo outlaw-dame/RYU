@@ -1,8 +1,8 @@
 import { DEFAULT_RYU_DATABASE_NAME, initializeDatabase, type RyuDatabase } from '../db/client';
-import type { AuthorDoc, EditionDoc, SearchVectorDoc, WorkDoc } from '../db/schema';
+import type { AuthorDoc, EditionDoc, ReviewDoc, SearchVectorDoc, WorkDoc } from '../db/schema';
 import { searchableText } from './embeddings';
 import { getEmbeddingProvider } from './embedding-provider';
-import { authorDocToSearchDocument } from './search-document-projection';
+import { authorDocToSearchDocument, reviewDocToSearchDocument } from './search-document-projection';
 import type { SearchDocument } from './types';
 import { clearInMemoryVectorIndex, indexDocument } from './vector-index';
 import { hashText, vectorId } from './vector-utils';
@@ -129,6 +129,12 @@ async function visitDocumentBatches(db: RyuDatabase, visitor: (docs: SearchDocum
     await visitor(docs);
     total += docs.length;
   }
+  for await (const batch of iterate<ReviewDoc>(db.reviews as never)) {
+    const docs: SearchDocument[] = [];
+    for (const review of batch) docs.push(await reviewDocToSearchDocument(db, review));
+    await visitor(docs);
+    total += docs.length;
+  }
 
   return total;
 }
@@ -138,6 +144,7 @@ async function entityRefs(db: RyuDatabase): Promise<Set<string>> {
   for await (const batch of iterate<EditionDoc>(db.editions as never)) for (const row of batch) refs.add(`edition:${row.id}`);
   for await (const batch of iterate<WorkDoc>(db.works as never)) for (const row of batch) refs.add(`work:${row.id}`);
   for await (const batch of iterate<AuthorDoc>(db.authors as never)) for (const row of batch) refs.add(`author:${row.id}`);
+  for await (const batch of iterate<ReviewDoc>(db.reviews as never)) for (const row of batch) refs.add(`review:${row.id}`);
   return refs;
 }
 
