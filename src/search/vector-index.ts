@@ -3,6 +3,7 @@ import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase, type RyuDatabase } from '../db/client';
 import { getEmbeddingProvider, getEmbeddingProviderGeneration } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
+import { authorDocToSearchDocument, editionDocToSearchDocument, workDocToSearchDocument } from './search-document-projection';
 
 type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; dimensions: number; dbName: string };
 
@@ -118,13 +119,18 @@ export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Prom
 
 /**
  * Warmup: load persisted vectors for the active provider into the in-memory store.
+ * Resolves full SearchDocument metadata from RxDB so semantic results are
+ * immediately display-ready (not blank placeholder docs).
+ *
+ * Uses batch DB queries (one per entity type) to avoid O(N) sequential roundtrips.
+ *
  * Idempotent — safe to call multiple times. Skips vectors with wrong dimensions
- * and orphan vectors (no matching canonical doc lookup).
+ * and orphan vectors (persisted vector with no matching canonical entity in RxDB).
  *
  * Call this at app startup (after idle) to ensure semantic search is available
  * without waiting for full re-indexing.
  */
-export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number }> {
+export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loaded: number; skipped: number; orphans: number }> {
   const database = db ?? await initializeDatabase();
   const provider = getEmbeddingProvider();
 
@@ -132,40 +138,86 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
     .find({ selector: { model: provider.id, dimensions: provider.dimensions } })
     .exec();
 
-  let loaded = 0;
+  // Group vector entries by entity type for batch resolution.
+  const authorIds: string[] = [];
+  const editionIds: string[] = [];
+  const workIds: string[] = [];
+  const validEntries: Array<{ entry: any; key: string }> = [];
+
   let skipped = 0;
 
   for (const entry of all) {
-    // Skip vectors with wrong dimensions (corruption or provider mismatch)
     if (entry.vector.length !== provider.dimensions) {
       skipped++;
       continue;
     }
 
     const key = inMemoryVectorKey(database.name, entry.entityId);
-
-    // Only skip if entry is already warm AND matches current provider/dimensions.
-    // Otherwise, replace the stale entry from a different provider.
     const existing = vectorStore.get(key);
     if (existing && existing.model === provider.id && existing.dimensions === provider.dimensions) {
       continue;
     }
 
-    // Build a minimal SearchDocument from the persisted entry.
-    // Full doc lookup is deferred to avoid blocking startup.
+    validEntries.push({ entry, key });
+    const entityType = entry.entityType as SearchDocument["type"];
+    if (entityType === "author") authorIds.push(entry.entityId);
+    else if (entityType === "edition") editionIds.push(entry.entityId);
+    else if (entityType === "work") workIds.push(entry.entityId);
+  }
+
+  // Batch-resolve all canonical entities in 3 queries (instead of N sequential).
+  const [authorDocs, editionDocs, workDocs] = await Promise.all([
+    authorIds.length > 0
+      ? database.authors.find({ selector: { id: { $in: authorIds } } }).exec().catch(() => [])
+      : Promise.resolve([]),
+    editionIds.length > 0
+      ? database.editions.find({ selector: { id: { $in: editionIds } } }).exec().catch(() => [])
+      : Promise.resolve([]),
+    workIds.length > 0
+      ? database.works.find({ selector: { id: { $in: workIds } } }).exec().catch(() => [])
+      : Promise.resolve([])
+  ]);
+
+  // Build lookup maps for O(1) resolution.
+  const authorMap = new Map((authorDocs as any[]).map((d) => [d.id, d]));
+  const editionMap = new Map((editionDocs as any[]).map((d) => [d.id, d]));
+  const workMap = new Map((workDocs as any[]).map((d) => [d.id, d]));
+
+  let loaded = 0;
+  let orphans = 0;
+
+  for (const { entry, key } of validEntries) {
+    const entityType = entry.entityType as SearchDocument["type"];
+    let doc: SearchDocument | null = null;
+
+    try {
+      if (entityType === "author") {
+        const raw = authorMap.get(entry.entityId);
+        doc = raw ? authorDocToSearchDocument(raw) : null;
+      } else if (entityType === "edition") {
+        const raw = editionMap.get(entry.entityId);
+        doc = raw ? await editionDocToSearchDocument(database, raw) : null;
+      } else if (entityType === "work") {
+        const raw = workMap.get(entry.entityId);
+        doc = raw ? await workDocToSearchDocument(database, raw) : null;
+      }
+    } catch (error) {
+      console.error("Failed to project search document during warmup", {
+        entityId: entry.entityId,
+        entityType,
+        error
+      });
+      doc = null;
+    }
+
+    if (!doc) {
+      orphans++;
+      continue;
+    }
+
     vectorStore.set(key, {
       vector: entry.vector,
-      doc: {
-        id: entry.entityId,
-        type: entry.entityType as SearchDocument["type"],
-        title: "",
-        description: "",
-        authorText: "",
-        isbnText: "",
-        enrichmentText: "",
-        source: "local",
-        updatedAt: entry.updatedAt ?? entry.indexedAt ?? ""
-      },
+      doc,
       model: entry.model,
       dimensions: entry.dimensions,
       dbName: database.name
@@ -173,7 +225,7 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
     loaded++;
   }
 
-  return { loaded, skipped };
+  return { loaded, skipped, orphans };
 }
 
 export async function rebuildVectorIndex(getDoc: (id: string) => SearchDocument | null) {
