@@ -60,7 +60,7 @@ describe("createScheduledRepairIndexer", () => {
       concurrency: 1
     });
 
-    const indexer = createScheduledRepairIndexer(queue, scheduler);
+    const { indexer } = createScheduledRepairIndexer(queue, scheduler);
     await indexer(makeDoc("w1", "Dune"), {} as any);
 
     expect(mockIndexDocument).toHaveBeenCalledTimes(1);
@@ -81,7 +81,7 @@ describe("createScheduledRepairIndexer", () => {
       concurrency: 1
     });
 
-    const indexer = createScheduledRepairIndexer(queue, scheduler);
+    const { indexer } = createScheduledRepairIndexer(queue, scheduler);
     await indexer(makeDoc("w1", "Dune"), {} as any);
 
     // indexDocument was NOT called directly — it's enqueued for the scheduler.
@@ -108,7 +108,7 @@ describe("createScheduledRepairIndexer", () => {
       concurrency: 1
     });
 
-    const indexer = createScheduledRepairIndexer(queue, scheduler, { priority: "backfill" });
+    const { indexer } = createScheduledRepairIndexer(queue, scheduler, { priority: "backfill" });
     await indexer(makeDoc("w1", "Foundation"), {} as any);
 
     expect(queue.snapshot()[0].priority).toBe("backfill");
@@ -128,7 +128,7 @@ describe("createScheduledRepairIndexer", () => {
       concurrency: 1
     });
 
-    const indexer = createScheduledRepairIndexer(queue, scheduler);
+    const { indexer } = createScheduledRepairIndexer(queue, scheduler);
     const doc = makeDoc("w1", "Dune");
     await indexer(doc, {} as any);
     await indexer(doc, {} as any);
@@ -173,6 +173,12 @@ describe("createEmbeddingJobExecutor", () => {
   });
 
   it("skips silently when document no longer exists (orphan)", async () => {
+    mockGetProvider.mockReturnValue({
+      id: "minilm-v2",
+      dimensions: 384,
+      embed: vi.fn()
+    });
+
     const getDocument = vi.fn(async () => null);
     const executor = createEmbeddingJobExecutor({} as any, getDocument);
 
@@ -191,5 +197,65 @@ describe("createEmbeddingJobExecutor", () => {
     await executor(job);
 
     expect(mockIndexDocument).not.toHaveBeenCalled();
+  });
+
+  it("skips silently when the job provider does not match the active provider", async () => {
+    mockGetProvider.mockReturnValue({
+      id: "different-provider",
+      dimensions: 768,
+      embed: vi.fn()
+    });
+
+    const getDocument = vi.fn();
+    const executor = createEmbeddingJobExecutor({} as any, getDocument);
+
+    const job: EmbeddingJob = {
+      id: "test-job",
+      entityId: "w1",
+      entityType: "work",
+      textHash: "hash:whatever",
+      providerId: "minilm-v2",
+      dimensions: 384,
+      priority: "repair",
+      attempts: 0,
+      enqueuedAt: new Date().toISOString()
+    };
+
+    await executor(job);
+
+    // getDocument should not even be called if provider is stale
+    expect(getDocument).not.toHaveBeenCalled();
+    expect(mockIndexDocument).not.toHaveBeenCalled();
+  });
+
+  it("flush() drains enqueued jobs through the scheduler", async () => {
+    mockGetProvider.mockReturnValue({
+      id: "minilm-v2",
+      dimensions: 384,
+      embed: vi.fn()
+    });
+
+    const queue = createEmbeddingJobQueue();
+    const executeFn = vi.fn(async () => undefined);
+    const scheduler = createEmbeddingScheduler({
+      queue,
+      execute: executeFn,
+      concurrency: 1
+    });
+
+    const { indexer, flush } = createScheduledRepairIndexer(queue, scheduler);
+
+    // Enqueue two docs
+    await indexer(makeDoc("w1", "Dune"), {} as any);
+    await indexer(makeDoc("w2", "Foundation"), {} as any);
+
+    expect(queue.size()).toBe(2);
+    expect(executeFn).not.toHaveBeenCalled();
+
+    // flush drains the queue
+    await flush();
+
+    expect(executeFn).toHaveBeenCalledTimes(2);
+    expect(queue.size()).toBe(0);
   });
 });
