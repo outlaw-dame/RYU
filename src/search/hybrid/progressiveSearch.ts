@@ -31,6 +31,7 @@ import { searchOrama } from "../orama";
 import { semanticSearchLocal } from "../vector-index";
 import { dedupe, fuseResults } from "../ranking";
 import { applyContextBoosts } from "../context-ranking";
+import { filterResultsByScope } from "../scope-filter";
 import { applyFeedbackBoosts } from "../feedback-ranking";
 import { rerankResults } from "../rerank";
 import { applyExploration } from "../exploration";
@@ -119,7 +120,7 @@ export async function searchProgressively(
   const lexicalPromise = searchOrama(primaryQuery, options.db)
     .then((results) => {
       lexical = results;
-      safeEmit(onUpdate, { stage: "lexical", results });
+      safeEmit(onUpdate, { stage: "lexical", results: filterResultsByScope(results, options.context) });
     })
     .catch((error) => {
       safeEmit(onUpdate, {
@@ -132,7 +133,7 @@ export async function searchProgressively(
   const semanticPromise = semanticSearchLocal(semanticQuery, 20, options.db)
     .then((results) => {
       semantic = results;
-      safeEmit(onUpdate, { stage: "semantic", results });
+      safeEmit(onUpdate, { stage: "semantic", results: filterResultsByScope(results, options.context) });
     })
     .catch((error) => {
       safeEmit(onUpdate, {
@@ -164,7 +165,7 @@ export async function searchProgressively(
     const rerankerProvider = getRerankerProvider();
     final = rerankerProvider ? await rerankerProvider.rerank(primaryQuery, explored) : explored;
 
-    safeEmit(onUpdate, { stage: "fused", results: final });
+    safeEmit(onUpdate, { stage: "fused", results: filterResultsByScope(final, options.context) });
   } catch (error) {
     safeEmit(onUpdate, {
       stage: "error",
@@ -173,8 +174,11 @@ export async function searchProgressively(
     final = lexical;
   }
 
+  // Apply scope filter to final results before grouping to enforce privacy.
+  const scopeFiltered = filterResultsByScope(final, options.context);
+
   const grouped: GroupedSearchResults<RankedSearchResult> = groupResults(
-    attachExplanations(final, { ...intent, alpha: adaptiveAlpha }, options.context)
+    attachExplanations(scopeFiltered, { ...intent, alpha: adaptiveAlpha }, options.context)
   );
 
   const finalCount = grouped.all.length;
