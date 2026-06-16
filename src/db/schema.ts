@@ -1,6 +1,6 @@
 export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EntityType = 'author' | 'work' | 'edition' | 'review';
-export type SearchVectorEntityType = 'author' | 'work' | 'edition';
+export type SearchVectorEntityType = 'author' | 'work' | 'edition' | 'review';
 export type SearchIndexDependencyEntityType = 'work' | 'edition';
 export type ExternalEntitySource = 'wikidata' | 'dbpedia' | 'google_books' | 'open_library' | 'open_graph' | 'metron';
 
@@ -27,7 +27,7 @@ const idList = { type: 'array', items: id, default: [] } as const;
 const vector = { type: 'array', items: { type: 'number' }, default: [] } as const;
 const queueStatus = { type: 'string', enum: ['pending', 'processing', 'completed', 'failed'] } as const;
 const entityType = { type: 'string', enum: ['author', 'work', 'edition', 'review'] } as const;
-const searchVectorEntityType = { type: 'string', enum: ['author', 'work', 'edition'] } as const;
+const searchVectorEntityType = { type: 'string', enum: ['author', 'work', 'edition', 'review'] } as const;
 const searchIndexDependencyEntityType = { type: 'string', enum: ['work', 'edition'] } as const;
 const source = { type: 'string', enum: ['wikidata', 'dbpedia', 'google_books', 'open_library', 'open_graph', 'metron'] } as const;
 

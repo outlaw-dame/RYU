@@ -3,7 +3,7 @@ import type { RankedSearchResult, SearchDocument } from './types';
 import { initializeDatabase, type RyuDatabase } from '../db/client';
 import { getEmbeddingProvider, getEmbeddingProviderGeneration } from './embedding-provider';
 import { hashText, vectorId } from './vector-utils';
-import { authorDocToSearchDocument, editionDocToSearchDocument, workDocToSearchDocument } from './search-document-projection';
+import { authorDocToSearchDocument, editionDocToSearchDocument, workDocToSearchDocument, reviewDocToSearchDocument } from './search-document-projection';
 
 type VectorStoreEntry = { vector: number[]; doc: SearchDocument; model: string; dimensions: number; dbName: string };
 
@@ -142,6 +142,7 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
   const authorIds: string[] = [];
   const editionIds: string[] = [];
   const workIds: string[] = [];
+  const reviewIds: string[] = [];
   const validEntries: Array<{ entry: any; key: string }> = [];
 
   let skipped = 0;
@@ -163,10 +164,11 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
     if (entityType === "author") authorIds.push(entry.entityId);
     else if (entityType === "edition") editionIds.push(entry.entityId);
     else if (entityType === "work") workIds.push(entry.entityId);
+    else if (entityType === "review") reviewIds.push(entry.entityId);
   }
 
-  // Batch-resolve all canonical entities in 3 queries (instead of N sequential).
-  const [authorDocs, editionDocs, workDocs] = await Promise.all([
+  // Batch-resolve all canonical entities in up to 4 queries.
+  const [authorDocs, editionDocs, workDocs, reviewDocs] = await Promise.all([
     authorIds.length > 0
       ? database.authors.find({ selector: { id: { $in: authorIds } } }).exec().catch(() => [])
       : Promise.resolve([]),
@@ -175,6 +177,9 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
       : Promise.resolve([]),
     workIds.length > 0
       ? database.works.find({ selector: { id: { $in: workIds } } }).exec().catch(() => [])
+      : Promise.resolve([]),
+    reviewIds.length > 0
+      ? database.reviews.find({ selector: { id: { $in: reviewIds } } }).exec().catch(() => [])
       : Promise.resolve([])
   ]);
 
@@ -182,6 +187,8 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
   const authorMap = new Map((authorDocs as any[]).map((d) => [d.id, d]));
   const editionMap = new Map((editionDocs as any[]).map((d) => [d.id, d]));
   const workMap = new Map((workDocs as any[]).map((d) => [d.id, d]));
+  const reviewMap = new Map((reviewDocs as any[]).map((d) => [d.id, d]));
+  const editionTitleCache = new Map<string, string>((editionDocs as any[]).map((d) => [d.id, d.title]));
 
   let loaded = 0;
   let orphans = 0;
@@ -200,6 +207,9 @@ export async function warmSemanticVectorIndex(db?: RyuDatabase): Promise<{ loade
       } else if (entityType === "work") {
         const raw = workMap.get(entry.entityId);
         doc = raw ? await workDocToSearchDocument(database, raw) : null;
+      } else if (entityType === "review") {
+        const raw = reviewMap.get(entry.entityId);
+        doc = raw ? await reviewDocToSearchDocument(database, raw, editionTitleCache) : null;
       }
     } catch (error) {
       console.error("Failed to project search document during warmup", {

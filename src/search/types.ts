@@ -1,6 +1,6 @@
 import type { RyuDatabase } from '../db/client';
 
-export type SearchEntityType = 'edition' | 'work' | 'author';
+export type SearchEntityType = 'edition' | 'work' | 'author' | 'review';
 
 /**
  * Source provenance for a SearchDocument.
