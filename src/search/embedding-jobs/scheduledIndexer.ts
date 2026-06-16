@@ -99,17 +99,44 @@ export function createScheduledRepairIndexer(
   const flush = async (): Promise<void> => {
     // Drain until queue is truly empty — including retries with future nextAttemptAt.
     // A single drain() returns once no jobs are "ready" right now, but failed jobs
-    // get re-enqueued with a future nextAttemptAt. We loop with short sleeps to
-    // allow retry delays to expire, up to a maximum total wait.
-    const MAX_FLUSH_WAIT_MS = 60_000;
-    const RETRY_CHECK_INTERVAL_MS = 1_000;
-    const start = Date.now();
+    // get re-enqueued with a future nextAttemptAt. We loop, sleeping until the
+    // earliest scheduled retry becomes ready.
+    //
+    // The retry wait budget starts AFTER the first drain completes so that
+    // large initial repair/backfill drains don't consume the retry budget.
+    const MAX_RETRY_WAIT_MS = 60_000;
 
     await scheduler.drain();
 
-    while (queue.size() > 0 && (Date.now() - start) < MAX_FLUSH_WAIT_MS) {
-      // Wait briefly for retry delays to expire, then drain again.
-      await new Promise((resolve) => setTimeout(resolve, RETRY_CHECK_INTERVAL_MS));
+    // Start retry budget after initial drain.
+    const retryStart = Date.now();
+
+    while (queue.size() > 0 && scheduler.isRunning() && (Date.now() - retryStart) < MAX_RETRY_WAIT_MS) {
+      const now = Date.now();
+      const remainingWait = MAX_RETRY_WAIT_MS - (now - retryStart);
+      if (remainingWait <= 0) break;
+
+      // Find the earliest time a job will become ready to avoid fixed-interval polling
+      const snapshot = queue.snapshot();
+      let nextReadyAt = Infinity;
+      for (const job of snapshot) {
+        if (job.nextAttemptAt) {
+          const attemptAt = Date.parse(job.nextAttemptAt);
+          if (attemptAt < nextReadyAt) {
+            nextReadyAt = attemptAt;
+          }
+        } else {
+          // Job has no delay — it's ready now
+          nextReadyAt = now;
+          break;
+        }
+      }
+
+      const sleepMs = nextReadyAt === Infinity
+        ? remainingWait
+        : Math.min(remainingWait, Math.max(1, nextReadyAt - now));
+
+      await new Promise((resolve) => setTimeout(resolve, sleepMs));
       await scheduler.drain();
     }
   };
