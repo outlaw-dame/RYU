@@ -1,8 +1,8 @@
 import { create, insert, remove, update, search as oramaSearch } from '@orama/orama';
 import { initializeDatabase, type RyuDatabase } from '../db/client';
-import type { AuthorDoc, EditionDoc, WorkDoc } from '../db/schema';
+import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import { rankLexical, dedupe } from './ranking';
-import { authorDocToSearchDocument } from './search-document-projection';
+import { authorDocToSearchDocument, reviewDocToSearchDocument } from './search-document-projection';
 import { indexDocument, removeFromInMemoryVectorIndex } from './vector-index';
 import type { SearchDocument } from './types';
 
@@ -212,6 +212,10 @@ async function buildIndex(state: OramaState, db: RyuDatabase): Promise<void> {
   for (const edition of editions) await addDoc(state, db, await editionToSearchDocument(db, edition, cache));
   for (const work of works) await addDoc(state, db, await workToSearchDocument(db, work, cache));
   for (const author of authors) await addDoc(state, db, authorDocToSearchDocument(author));
+
+  // Index reviews
+  const reviews = await db.reviews.find().exec() as ReviewDoc[];
+  for (const review of reviews) await addDoc(state, db, await reviewDocToSearchDocument(db, review));
 }
 
 /**
@@ -323,6 +327,22 @@ function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
       console.error('Error in authors subscription handler', { change, error });
     });
   });
+
+  db.reviews.$.subscribe((change: any) => {
+    const run = async () => {
+      if (change.operation === 'INSERT') {
+        await addDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
+      } else if (change.operation === 'UPDATE') {
+        await updateDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
+      } else if (change.operation === 'DELETE') {
+        const id = extractChangeId(change);
+        if (id) await removeDoc(state, 'review', id);
+      }
+    };
+    run().catch((error) => {
+      console.error('Error in reviews subscription handler', { change, error });
+    });
+  });
 }
 
 async function createState(db: RyuDatabase): Promise<OramaState> {
@@ -399,7 +419,8 @@ export async function removeAllFromOramaIndexById(
   await Promise.all([
     removeDoc(state, 'author', id),
     removeDoc(state, 'edition', id),
-    removeDoc(state, 'work', id)
+    removeDoc(state, 'work', id),
+    removeDoc(state, 'review', id)
   ]);
 }
 

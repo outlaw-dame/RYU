@@ -1,5 +1,5 @@
 import type { RyuDatabase } from '../db/client';
-import type { AuthorDoc, EditionDoc, WorkDoc } from '../db/schema';
+import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import type { CanonicalApEntity } from '../sync/activitypub-client';
 import type { SearchDocument } from './types';
 
@@ -104,4 +104,47 @@ export async function canonicalEntityToSearchDocument(
     default:
       return null;
   }
+}
+
+
+/**
+ * Project a ReviewDoc into a SearchDocument.
+ *
+ * Reviews are scoped to 'public' by default. Private reviews should have
+ * their scope set by the indexing caller based on the review's visibility.
+ *
+ * The description combines the review content (truncated for embedding efficiency)
+ * with the associated edition title for better semantic matching.
+ */
+export async function reviewDocToSearchDocument(
+  db: RyuDatabase,
+  review: ReviewDoc
+): Promise<SearchDocument> {
+  // Resolve the edition title for context
+  let editionTitle = "";
+  try {
+    const edition = await db.editions.findOne(review.editionId).exec();
+    if (edition) editionTitle = edition.title;
+  } catch {
+    // best effort
+  }
+
+  // Truncate content for embedding efficiency (first 500 chars)
+  const truncatedContent = review.content.length > 500
+    ? review.content.slice(0, 500) + "…"
+    : review.content;
+
+  return {
+    id: review.id,
+    type: "review",
+    title: review.title || (editionTitle ? `Review of ${editionTitle}` : "Review"),
+    description: truncatedContent,
+    authorText: review.accountId,
+    isbnText: "",
+    enrichmentText: editionTitle ? `Review of: ${editionTitle}` : "",
+    source: "local",
+    scope: "public",
+    ownerId: review.accountId,
+    updatedAt: review.updatedAt
+  };
 }

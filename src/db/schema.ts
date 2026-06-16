@@ -1,6 +1,6 @@
 export type QueueStatus = 'pending' | 'processing' | 'completed' | 'failed';
 export type EntityType = 'author' | 'work' | 'edition' | 'review';
-export type SearchVectorEntityType = 'author' | 'work' | 'edition';
+export type SearchVectorEntityType = 'author' | 'work' | 'edition' | 'review';
 export type SearchIndexDependencyEntityType = 'work' | 'edition';
 export type ExternalEntitySource = 'wikidata' | 'dbpedia' | 'google_books' | 'open_library' | 'open_graph' | 'metron';
 

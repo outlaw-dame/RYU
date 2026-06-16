@@ -54,7 +54,8 @@ function makeMockDb() {
   const subscribers: Record<string, ((change: any) => void)[]> = {
     authors: [],
     editions: [],
-    works: []
+    works: [],
+    reviews: []
   };
   const collection = (kind: string, items: any[]) => ({
     find: () => ({ exec: async () => items }),
@@ -72,6 +73,7 @@ function makeMockDb() {
     authors: collection("authors", [{ id: "a1", name: "Octavia Butler", updatedAt: "2026-01-01T00:00:00Z" }]),
     editions: collection("editions", []),
     works: collection("works", []),
+    reviews: collection("reviews", []),
     searchvectors: collection("searchvectors", []),
     emit(kind: string, change: any) {
       for (const h of subscribers[kind]) h(change);
