@@ -213,10 +213,12 @@ async function buildIndex(state: OramaState, db: RyuDatabase): Promise<void> {
   for (const work of works) await addDoc(state, db, await workToSearchDocument(db, work, cache));
   for (const author of authors) await addDoc(state, db, authorDocToSearchDocument(author));
 
-  // Index reviews
-  const reviews = await db.reviews.find().exec() as ReviewDoc[];
-  const editionTitleCache = new Map<string, string>(editions.map((e) => [e.id, e.title]));
-  for (const review of reviews) await addDoc(state, db, await reviewDocToSearchDocument(db, review, editionTitleCache));
+  // Index reviews (collection may not exist in all database configurations)
+  if (db.reviews) {
+    const reviews = await db.reviews.find().exec() as ReviewDoc[];
+    const editionTitleCache = new Map<string, string>(editions.map((e) => [e.id, e.title]));
+    for (const review of reviews) await addDoc(state, db, await reviewDocToSearchDocument(db, review, editionTitleCache));
+  }
 }
 
 /**
@@ -329,21 +331,23 @@ function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
     });
   });
 
-  db.reviews.$.subscribe((change: any) => {
-    const run = async () => {
-      if (change.operation === 'INSERT') {
-        await addDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
-      } else if (change.operation === 'UPDATE') {
-        await updateDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
-      } else if (change.operation === 'DELETE') {
-        const id = extractChangeId(change);
-        if (id) await removeDoc(state, 'review', id);
-      }
-    };
-    run().catch((error) => {
-      console.error('Error in reviews subscription handler', { change, error });
+  if (db.reviews) {
+    db.reviews.$.subscribe((change: any) => {
+      const run = async () => {
+        if (change.operation === 'INSERT') {
+          await addDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
+        } else if (change.operation === 'UPDATE') {
+          await updateDoc(state, db, await reviewDocToSearchDocument(db, change.documentData));
+        } else if (change.operation === 'DELETE') {
+          const id = extractChangeId(change);
+          if (id) await removeDoc(state, 'review', id);
+        }
+      };
+      run().catch((error) => {
+        console.error('Error in reviews subscription handler', { change, error });
+      });
     });
-  });
+  }
 }
 
 async function createState(db: RyuDatabase): Promise<OramaState> {
