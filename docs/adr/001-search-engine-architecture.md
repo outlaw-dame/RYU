@@ -66,7 +66,7 @@ PGlite/pgvector is NOT adopted at this time. It may be evaluated later as an exp
 type SearchEngineFlag = "rxdb-orama" | "pglite-experimental";
 
 // Default: always rxdb-orama
-const activeEngine: SearchEngineFlag = getSearchRuntimeSettings().experimentalEngine ?? "rxdb-orama";
+// Future: const activeEngine: SearchEngineFlag = (getSearchRuntimeSettings() as any).experimentalEngine ?? "rxdb-orama";
 ```
 
 When/if PGlite is evaluated:
