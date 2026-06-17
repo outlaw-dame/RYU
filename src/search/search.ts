@@ -53,12 +53,18 @@ export async function searchAllWithDiagnostics(query: string, options: SearchOpt
   const lexical = await searchOrama(primaryQuery, options.db);
   const semantic = await semanticSearchLocal(semanticQuery, 20, options.db).catch(() => [] as import('./types').RankedSearchResult[]);
 
-  const fused = fuseResults(lexical, semantic, adaptiveAlpha);
+  // PRIVACY: Apply scope filter to each pre-fusion bucket BEFORE computing diagnostic
+  // counts so that lexical/semantic/fused counts cannot reveal hidden-document hits
+  // (side-channel metadata leakage of private/local-only matches on global surface).
+  const lexicalScoped = filterResultsByScope(lexical, options.context);
+  const semanticScoped = filterResultsByScope(semantic, options.context);
+
+  const fused = fuseResults(lexicalScoped, semanticScoped, adaptiveAlpha);
 
   const cleaned = dedupe(fused);
 
-  // Scope-based privacy filter — enforces that private/local-only docs
-  // don't leak into global/explore surfaces.
+  // Defense-in-depth: re-run the scope filter after fusion in case any
+  // downstream pipeline reintroduces a hidden document.
   const scopeFiltered = filterResultsByScope(cleaned, options.context);
 
   const withContext = applyContextBoosts(scopeFiltered, options.context);
@@ -86,11 +92,11 @@ export async function searchAllWithDiagnostics(query: string, options: SearchOpt
   return {
     grouped,
     diagnostics: {
-      lexicalCount: lexical.length,
-      semanticCount: semantic.length,
+      lexicalCount: lexicalScoped.length,
+      semanticCount: semanticScoped.length,
       fusedCount: fused.length,
       finalCount: grouped.all.length,
-      usedSemantic: semantic.length > 0
+      usedSemantic: semanticScoped.length > 0
     }
   };
 }

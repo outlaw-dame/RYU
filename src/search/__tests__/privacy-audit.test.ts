@@ -115,11 +115,15 @@ describe("Search Privacy Audit", () => {
       expect(filtered.find(r => r.id === "shared-public")).toBeDefined();
     });
 
-    it("unauthenticated user cannot see any private content", () => {
+    it("unauthenticated user cannot see any private content (including ownerless legacy data)", () => {
       const results = [
         makeResult("private-1", "private", "user-1"),
         makeResult("local-1", "local-only", "user-1"),
-        makeResult("public-1", "public")
+        makeResult("public-1", "public"),
+        // Defense-in-depth: ownerless private/local-only docs (legacy/unowned data)
+        // must NOT leak to anonymous callers — there's no identity to scope to.
+        makeResult("legacy-private", "private", undefined),
+        makeResult("legacy-local", "local-only", undefined)
       ];
 
       // No currentUserId = unauthenticated
@@ -127,6 +131,9 @@ describe("Search Privacy Audit", () => {
 
       expect(filtered.length).toBe(1);
       expect(filtered[0].id).toBe("public-1");
+      // Explicitly assert ownerless private docs are blocked.
+      expect(filtered.find(r => r.id === "legacy-private")).toBeUndefined();
+      expect(filtered.find(r => r.id === "legacy-local")).toBeUndefined();
     });
   });
 
