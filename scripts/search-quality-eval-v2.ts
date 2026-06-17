@@ -289,8 +289,12 @@ function main(): void {
   // as the classifier improves. The eval's purpose is to DETECT regressions,
   // not to block merges until the classifier is perfect.
   assert(intentAccuracy >= 0.50, `Intent accuracy ${Math.round(intentAccuracy * 100)}% below 50% threshold`);
-  // Strict exact-match gate: uses the same filtered set (only cases with expectedTopId).
-  assert(exactMatchRate >= 0.90, `Exact-match hit rate ${Math.round(exactMatchRate * 100)}% below 90% threshold`);
+  // Strict exact-match gate: any case with an expectedTopId must rank it #1.
+  // This covers exact-title, isbn, AND fuzzy-title cases that specify expectedTopId.
+  const strictExactCases = results.filter((r) => r.expectedTopId !== undefined);
+  const strictExactHit = strictExactCases.filter((r) => !r.failures.some((f) => f.startsWith('Top ID:')));
+  const strictExactRate = strictExactCases.length > 0 ? strictExactHit.length / strictExactCases.length : 1;
+  assert(strictExactRate >= 0.90, `Exact-match hit rate ${Math.round(strictExactRate * 100)}% below 90% threshold`);
   assert(maxDurationMs < 500, `Max query time ${maxDurationMs.toFixed(1)}ms exceeds 500ms threshold`);
 
   console.log('\nSearch quality eval v2 passed.');

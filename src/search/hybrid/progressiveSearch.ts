@@ -154,7 +154,7 @@ export async function searchProgressively(
     const fused = fuseResults(lexical, semantic, adaptiveAlpha);
     const cleaned = dedupe(fused);
     const withContext = applyContextBoosts(cleaned, options.context);
-    const withFeedback = applyFeedbackBoosts(primaryQuery, withContext);
+    const withFeedback = applyFeedbackBoosts(primaryQuery, withContext, options.context?.surface);
 
     const prefs = getSearchPreferences();
     const mergedPreferences = { ...intent.preferredTypes, ...prefs.preferredTypes };

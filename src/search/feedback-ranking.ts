@@ -1,12 +1,11 @@
 import type { RankedSearchResult } from './types';
 import { getBoostForDoc } from './feedback';
 import { effectiveSurfaceWeight, getPersonalizationPreferences } from './personalization';
-import type { FeedbackSurface } from './personalization';
 
 export function applyFeedbackBoosts(
   query: string,
   results: RankedSearchResult[],
-  surface?: FeedbackSurface
+  surface?: string
 ): RankedSearchResult[] {
   const prefs = getPersonalizationPreferences();
 

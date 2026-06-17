@@ -16,7 +16,7 @@
  *   reward, and timestamp. No document content, no private metadata.
  */
 
-export type FeedbackSurface = "global" | "library" | "shelf" | "entity" | "activity";
+export type FeedbackSurface = "global" | "library" | "shelf" | "entity" | "activity" | "onboarding";
 
 export type PersonalizationPreferences = {
   /** True when the user has enabled personalized ranking (default: true). */
@@ -33,29 +33,41 @@ export type PersonalizationPreferences = {
 
 const PREFS_KEY = "ryu.search.personalization.prefs.v1";
 
-const DEFAULT_PREFERENCES: PersonalizationPreferences = {
-  enabled: true,
-  surfaceWeights: {
-    global: 1.0,
-    library: 1.2,
-    shelf: 1.0,
-    entity: 0.8,
-    activity: 0.5
-  },
-  maxStoredEvents: 500,
-  decayHalfLifeDays: 7,
-  maxBoostPerDoc: 3
-};
+function getDefaultPreferences(): PersonalizationPreferences {
+  return {
+    enabled: true,
+    surfaceWeights: {
+      global: 1.0,
+      library: 1.2,
+      shelf: 1.0,
+      entity: 0.8,
+      activity: 0.5,
+      onboarding: 0.3
+    },
+    maxStoredEvents: 500,
+    decayHalfLifeDays: 7,
+    maxBoostPerDoc: 3
+  };
+}
 
 function loadPreferences(): PersonalizationPreferences {
-  if (typeof localStorage === "undefined") return { ...DEFAULT_PREFERENCES };
+  if (typeof localStorage === "undefined") return getDefaultPreferences();
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    if (!raw) return { ...DEFAULT_PREFERENCES };
+    if (!raw) return getDefaultPreferences();
     const parsed = JSON.parse(raw);
-    return { ...DEFAULT_PREFERENCES, ...parsed };
+    // Deep merge surfaceWeights so older stored prefs missing new keys
+    // don't wipe the defaults for those surfaces.
+    return {
+      ...getDefaultPreferences(),
+      ...parsed,
+      surfaceWeights: {
+        ...getDefaultPreferences().surfaceWeights,
+        ...(parsed && typeof parsed === "object" ? parsed.surfaceWeights : null)
+      }
+    };
   } catch {
-    return { ...DEFAULT_PREFERENCES };
+    return getDefaultPreferences();
   }
 }
 
@@ -81,14 +93,21 @@ export function setPersonalizationPreferences(
   patch: Partial<PersonalizationPreferences>
 ): PersonalizationPreferences {
   const current = getPersonalizationPreferences();
-  const next: PersonalizationPreferences = { ...current, ...patch };
+  const next: PersonalizationPreferences = {
+    ...current,
+    ...patch,
+    // Deep merge surfaceWeights so partial updates don't wipe other keys.
+    surfaceWeights: patch.surfaceWeights
+      ? { ...current.surfaceWeights, ...patch.surfaceWeights }
+      : current.surfaceWeights
+  };
   cachedPreferences = next;
   savePreferences(next);
   return next;
 }
 
 export function resetPersonalizationPreferences(): PersonalizationPreferences {
-  cachedPreferences = { ...DEFAULT_PREFERENCES };
+  cachedPreferences = getDefaultPreferences();
   savePreferences(cachedPreferences);
   return cachedPreferences;
 }
@@ -97,11 +116,11 @@ export function resetPersonalizationPreferences(): PersonalizationPreferences {
  * Compute the effective boost weight for a given surface, accounting for
  * the per-surface multiplier and the global enabled flag.
  */
-export function effectiveSurfaceWeight(surface: FeedbackSurface | undefined): number {
+export function effectiveSurfaceWeight(surface: string | undefined): number {
   const prefs = getPersonalizationPreferences();
   if (!prefs.enabled) return 0;
   if (!surface) return 1;
-  return prefs.surfaceWeights[surface] ?? 1;
+  return prefs.surfaceWeights[surface as FeedbackSurface] ?? 1;
 }
 
 /** Visible for tests. */
