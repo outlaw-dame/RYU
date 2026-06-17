@@ -35,7 +35,13 @@ const hookMocks = vi.hoisted(() => ({
   favouriteStatus: vi.fn(),
   unfavouriteStatus: vi.fn(),
   bookmarkStatus: vi.fn(),
-  unbookmarkStatus: vi.fn()
+  unbookmarkStatus: vi.fn(),
+  shelves: {
+    addBookmark: vi.fn(),
+    removeBookmark: vi.fn(),
+    addFavourite: vi.fn(),
+    removeFavourite: vi.fn()
+  }
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -68,6 +74,21 @@ vi.mock("../sync/mastodon-activity-api", async (importOriginal) => {
   };
 });
 
+vi.mock("../hooks/useMastodonShelves", () => ({
+  useMastodonShelves: () => ({
+    bookmarks: [],
+    favourites: [],
+    lists: [],
+    loading: false,
+    error: null,
+    reload: vi.fn(),
+    addBookmark: hookMocks.shelves.addBookmark,
+    removeBookmark: hookMocks.shelves.removeBookmark,
+    addFavourite: hookMocks.shelves.addFavourite,
+    removeFavourite: hookMocks.shelves.removeFavourite
+  })
+}));
+
 import { useActivityTab, hasWriteScope } from "./useActivityTab";
 
 beforeEach(() => {
@@ -79,6 +100,10 @@ beforeEach(() => {
   hookMocks.unfavouriteStatus.mockReset();
   hookMocks.bookmarkStatus.mockReset();
   hookMocks.unbookmarkStatus.mockReset();
+  hookMocks.shelves.addBookmark.mockReset();
+  hookMocks.shelves.removeBookmark.mockReset();
+  hookMocks.shelves.addFavourite.mockReset();
+  hookMocks.shelves.removeFavourite.mockReset();
   hookMocks.state = defaultHookState();
 });
 
