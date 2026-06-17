@@ -4,6 +4,7 @@ import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import { rankLexical, dedupe } from './ranking';
 import { authorDocToSearchDocument, reviewDocToSearchDocument } from './search-document-projection';
 import { indexDocument, removeFromInMemoryVectorIndex } from './vector-index';
+import { setupEntityResolutionIndexing } from './entity-resolution-indexing';
 import type { SearchDocument } from './types';
 
 type OramaState = {
@@ -360,6 +361,7 @@ async function createState(db: RyuDatabase): Promise<OramaState> {
     database: db
   };
   setupReactiveIndex(state, db);
+  setupEntityResolutionIndexing(db);
   await buildIndex(state, db);
   return state;
 }

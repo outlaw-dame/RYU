@@ -101,6 +101,33 @@ export async function canonicalEntityToSearchDocument(
         source: 'local',
         updatedAt: timestamp
       };
+    case 'review': {
+      // Resolve the edition title for contextual enrichment.
+      let editionTitle = '';
+      if (entity.editionId) {
+        try {
+          const edition = await db.editions.findOne(entity.editionId).exec();
+          if (edition) editionTitle = edition.title;
+        } catch {
+          // best effort
+        }
+      }
+      const content = entity.content || '';
+      const truncatedContent = content.length > 500 ? content.slice(0, 500) + '…' : content;
+      return {
+        id: entity.id,
+        type: 'review',
+        title: entity.title || (editionTitle ? `Review of ${editionTitle}` : 'Review'),
+        description: truncatedContent,
+        authorText: entity.accountId || '',
+        isbnText: '',
+        enrichmentText: editionTitle ? `Review of: ${editionTitle}` : '',
+        source: 'local',
+        scope: 'public',
+        ownerId: entity.accountId || '',
+        updatedAt: timestamp
+      };
+    }
     default:
       return null;
   }
