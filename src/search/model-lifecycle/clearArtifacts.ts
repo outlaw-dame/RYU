@@ -22,8 +22,8 @@
 
 import { resetEmbeddingProvider } from "../embedding-provider";
 import {
-  clearInMemoryVectorIndex,
-  clearPersistedVectorsForCurrentProvider
+  clearAllPersistedVectors,
+  clearInMemoryVectorIndex
 } from "../vector-index";
 import { resetAllModelStatuses } from "./modelStatus";
 import { listEmbeddingArtifactRecords, modelCacheNamespace } from "./modelRegistry";
@@ -169,24 +169,36 @@ export async function clearAllLocalAIArtifacts(): Promise<ClearArtifactsReport> 
     errors: []
   };
 
+  // Order matters here.
+  //
+  // Step 1: clear persisted vectors FIRST, while the user-facing provider
+  // identity is still whatever was active when they clicked the button.
+  // Doing this after resetEmbeddingProvider() would only remove deterministic
+  // rows and leave enhanced (MiniLM/EmbeddingGemma) vectors orphaned in
+  // RxDB — exactly the bug the user asked us to delete.
+  //
+  // We also use clearAllPersistedVectors so we evict rows from previously-
+  // active providers we may no longer know about (e.g. a registry version
+  // bump retired one). The action is "delete local AI/search artifacts" —
+  // the user expects EVERYTHING to be gone.
   try {
-    // Step 1: switch back to deterministic so any in-flight embed() racing
-    // with us cannot reintroduce vectors for the model we are clearing.
+    await clearAllPersistedVectors();
+    report.clearedPersistedVectors = true;
+  } catch (error) {
+    report.errors.push("clearAllPersistedVectors failed");
+  }
+
+  // Step 2: switch back to deterministic so any in-flight embed() racing
+  // with us is rejected by the generation-counter check in indexDocument()
+  // and cannot reintroduce vectors after we just cleared them.
+  try {
     resetEmbeddingProvider();
     report.resetProvider = true;
   } catch (error) {
     report.errors.push("resetEmbeddingProvider failed");
   }
 
-  // Step 2: clear persisted vectors before we drop the in-memory store so
-  // we don't lose track of which provider's vectors to wipe.
-  try {
-    await clearPersistedVectorsForCurrentProvider();
-    report.clearedPersistedVectors = true;
-  } catch (error) {
-    report.errors.push("clearPersistedVectorsForCurrentProvider failed");
-  }
-
+  // Step 3: drop the in-memory vector store regardless of database/provider.
   try {
     clearInMemoryVectorIndex();
     report.clearedInMemory = true;
@@ -194,7 +206,7 @@ export async function clearAllLocalAIArtifacts(): Promise<ClearArtifactsReport> 
     report.errors.push("clearInMemoryVectorIndex failed");
   }
 
-  // Step 3: drop cached extractor pipelines.
+  // Step 4: drop cached extractor pipelines.
   for (const reset of extractorResetCallbacks) {
     try {
       reset();
@@ -204,11 +216,11 @@ export async function clearAllLocalAIArtifacts(): Promise<ClearArtifactsReport> 
     }
   }
 
-  // Step 4: best-effort eviction of platform caches.
+  // Step 5: best-effort eviction of platform caches.
   await clearCacheStorageEntries(report);
   await clearTransformersIndexedDb(report);
 
-  // Step 5: clear status surface so the UI returns to a clean idle state.
+  // Step 6: clear status surface so the UI returns to a clean idle state.
   try {
     resetAllModelStatuses();
     report.resetStatuses = true;

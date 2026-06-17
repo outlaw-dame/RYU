@@ -8,10 +8,10 @@ vi.mock("../../embedding-provider", () => ({
 }));
 
 const clearInMemoryMock = vi.fn();
-const clearPersistedMock = vi.fn().mockResolvedValue(undefined);
+const clearAllPersistedMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("../../vector-index", () => ({
   clearInMemoryVectorIndex: () => clearInMemoryMock(),
-  clearPersistedVectorsForCurrentProvider: () => clearPersistedMock()
+  clearAllPersistedVectors: () => clearAllPersistedMock()
 }));
 
 import {
@@ -41,7 +41,7 @@ afterEach(() => {
 beforeEach(() => {
   resetEmbeddingProviderMock.mockReset();
   clearInMemoryMock.mockReset();
-  clearPersistedMock.mockReset().mockResolvedValue(undefined);
+  clearAllPersistedMock.mockReset().mockResolvedValue(undefined);
 });
 
 function installCachesMock(keys: string[]) {
@@ -85,7 +85,7 @@ describe("clearAllLocalAIArtifacts", () => {
     const report = await clearAllLocalAIArtifacts();
 
     expect(resetEmbeddingProviderMock).toHaveBeenCalledTimes(1);
-    expect(clearPersistedMock).toHaveBeenCalledTimes(1);
+    expect(clearAllPersistedMock).toHaveBeenCalledTimes(1);
     expect(clearInMemoryMock).toHaveBeenCalledTimes(1);
     expect(report.resetProvider).toBe(true);
     expect(report.clearedPersistedVectors).toBe(true);
@@ -93,6 +93,31 @@ describe("clearAllLocalAIArtifacts", () => {
     expect(report.resetStatuses).toBe(true);
     expect(report.errors).toEqual([]);
     expect(getModelStatus("minilm").state).toBe("idle");
+  });
+
+  it("clears persisted vectors BEFORE resetting the provider so enhanced rows are evicted", async () => {
+    delete (globalThis as any).caches;
+    delete (globalThis as any).indexedDB;
+
+    const callOrder: string[] = [];
+    clearAllPersistedMock.mockReset().mockImplementation(async () => {
+      callOrder.push("clearAllPersistedVectors");
+    });
+    resetEmbeddingProviderMock.mockReset().mockImplementation(() => {
+      callOrder.push("resetEmbeddingProvider");
+    });
+
+    await clearAllLocalAIArtifacts();
+
+    // Critical regression: persisted vectors must be cleared while the
+    // user-facing provider identity is still active. Otherwise the helper
+    // filters by the post-reset deterministic provider and the user's
+    // enhanced (MiniLM/EmbeddingGemma) vectors are left orphaned in RxDB.
+    const persistIndex = callOrder.indexOf("clearAllPersistedVectors");
+    const resetIndex = callOrder.indexOf("resetEmbeddingProvider");
+    expect(persistIndex).toBeGreaterThan(-1);
+    expect(resetIndex).toBeGreaterThan(-1);
+    expect(persistIndex).toBeLessThan(resetIndex);
   });
 
   it("evicts CacheStorage entries that match model namespaces", async () => {
@@ -127,10 +152,10 @@ describe("clearAllLocalAIArtifacts", () => {
     delete (globalThis as any).caches;
     delete (globalThis as any).indexedDB;
 
-    clearPersistedMock.mockReset().mockRejectedValueOnce(new Error("db gone"));
+    clearAllPersistedMock.mockReset().mockRejectedValueOnce(new Error("db gone"));
 
     const report = await clearAllLocalAIArtifacts();
-    expect(report.errors).toContain("clearPersistedVectorsForCurrentProvider failed");
+    expect(report.errors).toContain("clearAllPersistedVectors failed");
     // Subsequent steps still ran.
     expect(report.clearedInMemory).toBe(true);
     expect(report.resetStatuses).toBe(true);
