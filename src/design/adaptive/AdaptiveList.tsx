@@ -95,6 +95,9 @@ export function AdaptiveListItem({
   footer,
   link,
   onClick,
+  toggle,
+  checked,
+  onToggleChange,
   children
 }: AdaptiveListItemProps) {
   return (
@@ -106,6 +109,9 @@ export function AdaptiveListItem({
       footer={footer}
       link={link === true ? "#" : link || undefined}
       onClick={onClick}
+      checkbox={toggle}
+      checked={checked}
+      onChange={onToggleChange ? (event: any) => onToggleChange(event.target.checked) : undefined}
     >
       {children}
     </ListItem>

@@ -16,10 +16,33 @@ export function computeClientBackoffMs(attempt: number, baseMs = 200, capMs = 18
 }
 
 /**
+ * Abort-aware delay: resolves after `ms` or rejects immediately if the
+ * signal is aborted (so the UI doesn't block during backoff).
+ */
+function abortableDelay(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timeoutId);
+      reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
  * Fetch with exponential backoff, timeout, and abort propagation.
  *
  * Retries on retryable HTTP status codes (408, 425, 429, 5xx).
- * Respects external AbortSignal so callers can cancel in-flight requests.
+ * Respects external AbortSignal so callers can cancel in-flight requests
+ * and backoff delays immediately.
  */
 export async function fetchWithBackoff(
   url: string,
@@ -54,7 +77,7 @@ export async function fetchWithBackoff(
       }
 
       if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < attempts) {
-        await new Promise((resolve) => window.setTimeout(resolve, computeClientBackoffMs(attempt)));
+        await abortableDelay(computeClientBackoffMs(attempt), externalSignal);
         continue;
       }
 
@@ -67,7 +90,7 @@ export async function fetchWithBackoff(
       }
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < attempts) {
-        await new Promise((resolve) => window.setTimeout(resolve, computeClientBackoffMs(attempt)));
+        await abortableDelay(computeClientBackoffMs(attempt), externalSignal);
       }
     }
   }

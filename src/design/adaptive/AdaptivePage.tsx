@@ -59,6 +59,7 @@ export function AdaptivePage({
       tabs={tabs}
       id={id}
       className={className}
+      pageContent={false}
       style={{
         "--f7-page-bg-color": "var(--color-bg)",
         color: "var(--color-text)",

@@ -45,10 +45,12 @@ export function AdaptiveNavbar({
   className,
   transparent
 }: AdaptiveNavbarProps) {
+  const showCustomTitle = Boolean(subtitle && !large);
+
   return (
     <Navbar
-      title={title}
-      subtitle={subtitle}
+      title={showCustomTitle ? undefined : title}
+      subtitle={showCustomTitle ? undefined : subtitle}
       large={large}
       backLink={backLink === true ? "Back" : backLink || undefined}
       transparent={transparent}
@@ -62,18 +64,16 @@ export function AdaptiveNavbar({
       } as React.CSSProperties}
     >
       {left ? <NavLeft>{left}</NavLeft> : null}
-      {subtitle && !large ? (
+      {showCustomTitle ? (
         <NavTitle>
           <div style={{ display: "grid", gap: 1, textAlign: "center" }}>
-            {subtitle ? (
-              <span style={{
-                fontSize: "var(--text-caption1)",
-                color: "var(--color-text-tertiary)",
-                fontWeight: 500
-              }}>
-                {subtitle}
-              </span>
-            ) : null}
+            <span style={{
+              fontSize: "var(--text-caption1)",
+              color: "var(--color-text-tertiary)",
+              fontWeight: 500
+            }}>
+              {subtitle}
+            </span>
             <span>{title}</span>
           </div>
         </NavTitle>

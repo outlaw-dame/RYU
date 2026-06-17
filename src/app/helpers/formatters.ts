@@ -1,41 +1,61 @@
 /**
  * Phase 23 — Date and number formatting utilities extracted from App.tsx.
  *
- * Uses Intl formatters for locale-aware output. All formatters are
- * created once (module-level singletons) to avoid unnecessary GC pressure.
+ * Uses Intl formatters for locale-aware output. Formatters are cached
+ * per-locale so language switches are handled correctly without creating
+ * new Intl objects on every render.
  */
 
-const activityDateFormatter = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-  minute: "2-digit"
-});
+const activityFormatters = new Map<string, Intl.DateTimeFormat>();
+const fullDateFormatters = new Map<string, Intl.DateTimeFormat>();
 
-const fullDateFormatter = new Intl.DateTimeFormat(undefined, {
-  year: "numeric",
-  month: "short",
-  day: "numeric"
-});
+function getActivityFormatter(locale?: string): Intl.DateTimeFormat {
+  const key = locale || "default";
+  let formatter = activityFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit"
+    });
+    activityFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+function getFullDateFormatter(locale?: string): Intl.DateTimeFormat {
+  const key = locale || "default";
+  let formatter = fullDateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
+    fullDateFormatters.set(key, formatter);
+  }
+  return formatter;
+}
 
 const numberFormatter = new Intl.NumberFormat();
 
 /**
  * Format a date string into a short activity-style label (e.g., "Jun 17, 3:42 PM").
  */
-export function formatActivityDate(value: string): string {
+export function formatActivityDate(value: string, locale?: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return activityDateFormatter.format(date);
+  return getActivityFormatter(locale).format(date);
 }
 
 /**
  * Format a date string into a full date label (e.g., "Jun 17, 2026").
  */
-export function formatFullDate(value: string): string | null {
+export function formatFullDate(value: string, locale?: string): string | null {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return fullDateFormatter.format(date);
+  return getFullDateFormatter(locale).format(date);
 }
 
 /**
