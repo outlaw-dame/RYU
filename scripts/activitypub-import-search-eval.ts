@@ -59,6 +59,7 @@ const evalCollections = {
   authors: collections.authors,
   works: collections.works,
   editions: collections.editions,
+  reviews: collections.reviews,
   entityresolutions: collections.entityresolutions,
   searchindexdependencies: collections.searchindexdependencies,
   searchvectors: collections.searchvectors
