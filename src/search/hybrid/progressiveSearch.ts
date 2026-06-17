@@ -28,6 +28,7 @@ import type { RankedSearchResult, SearchOptions } from "../types";
 import type { GroupedSearchResults } from "../group";
 import { groupResults } from "../group";
 import { searchOrama } from "../orama";
+import { searchAllWithDiagnostics } from "../search";
 import { semanticSearchLocal } from "../vector-index";
 import { dedupe, fuseResults } from "../ranking";
 import { applyContextBoosts } from "../context-ranking";
@@ -79,12 +80,33 @@ export async function searchProgressively(
   const provider = getEmbeddingProvider();
   const normalizedQuery = normalizeSearchQuery(request.query);
 
-  // Phase 22: when progressive_search is disabled, return an empty response
-  // immediately. Callers should fall back to the non-progressive searchAll().
+  // Phase 22: when progressive_search is disabled, fall back to the
+  // non-progressive search pipeline so callers still get real results.
   if (!isSearchFeatureEnabled('progressive_search')) {
-    const empty = emptyResponse(request.query, normalizedQuery, provider, performance.now() - startMs);
-    safeEmit(onUpdate, { stage: "complete", response: empty });
-    return empty;
+    const options: SearchOptions = {
+      limit: request.limit,
+      db: request.db,
+      ...request.options
+    };
+    const result = await searchAllWithDiagnostics(request.query, options);
+    const response: HybridSearchResponse = {
+      query: request.query,
+      normalizedQuery,
+      results: result.grouped,
+      diagnostics: {
+        lexicalCount: result.diagnostics.lexicalCount,
+        semanticCount: result.diagnostics.semanticCount,
+        fusedCount: result.diagnostics.fusedCount,
+        finalCount: result.diagnostics.finalCount,
+        providerId: provider.id,
+        providerDimensions: provider.dimensions,
+        usedSemantic: result.diagnostics.usedSemantic,
+        repairedBeforeSearch: false,
+        durationMs: performance.now() - startMs
+      }
+    };
+    safeEmit(onUpdate, { stage: "complete", response });
+    return response;
   }
 
   if (normalizedQuery.length < 2) {
