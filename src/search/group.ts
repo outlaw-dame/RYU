@@ -4,6 +4,7 @@ export type GroupedSearchResults<T extends RankedSearchResult = RankedSearchResu
   editions: T[];
   works: T[];
   authors: T[];
+  reviews: T[];
   all: T[];
 };
 
@@ -12,6 +13,7 @@ export function groupResults<T extends RankedSearchResult>(results: T[]): Groupe
     editions: results.filter((result) => result.type === 'edition'),
     works: results.filter((result) => result.type === 'work'),
     authors: results.filter((result) => result.type === 'author'),
+    reviews: results.filter((result) => result.type === 'review'),
     all: results
   };
 }

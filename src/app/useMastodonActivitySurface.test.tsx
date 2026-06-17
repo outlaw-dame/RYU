@@ -157,6 +157,24 @@ describe("useMastodonActivitySurface", () => {
     expect(hookMocks.state.accountStatuses.refetch).toHaveBeenCalledTimes(1);
     expect(hookMocks.state.trends.refetch).toHaveBeenCalledTimes(1);
   });
+
+  it("disables all hooks when enabled=false is passed", () => {
+    hookMocks.state.session = query({ data: connectedSession() });
+    const { result } = renderHook(() => useMastodonActivitySurface(false));
+
+    expect(result.current.activityEnabled).toBe(false);
+    expect(hookMocks.useMastodonHomeTimeline).toHaveBeenCalledWith({ enabled: false, limit: 20 });
+    expect(hookMocks.useMastodonNotifications).toHaveBeenCalledWith({ enabled: false, limit: 20 });
+    expect(hookMocks.useMastodonAccountStatuses).toHaveBeenCalledWith({ enabled: false, limit: 10 });
+    expect(hookMocks.useBookTokTrends).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("reports isLoadingSession when session query is pending", () => {
+    hookMocks.state.session = query({ isPending: true });
+    const { result } = renderHook(() => useMastodonActivitySurface(true));
+
+    expect(result.current.isLoadingSession).toBe(true);
+  });
 });
 
 function defaultHookState(): HookState {

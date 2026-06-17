@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { AnimatePresence, motion, MotionConfig } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
+import { AdaptiveSearchField } from "../design/adaptive";
 import { ErrorBoundary } from "../components/common/ErrorBoundary";
 import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
@@ -53,6 +54,16 @@ import {
 } from "../sync/mastodon-activity-api";
 import { ComposeSheet } from "../components/activity/ComposeSheet";
 import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
+import {
+  useMastodonSession,
+  useMastodonHomeTimeline,
+  useMastodonNotifications,
+  useBookTokTrends,
+  useDisconnectMastodon,
+  getMastodonActivityErrorState,
+  mastodonActivityQueryKeys
+} from "../sync/use-mastodon-activity";
+import { useQueryClient } from "@tanstack/react-query";
 
 const sampleBooks = [
   { id: "1", title: "Kafka on the Shore", author: "Haruki Murakami", coverUrl: "https://covers.openlibrary.org/b/isbn/9781400079278-M.jpg" },
@@ -2081,22 +2092,60 @@ export function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authInfo, setAuthInfo] = useState<string | null>(null);
   const [isAuthWorking, setIsAuthWorking] = useState(false);
-  const [connectedAccount, setConnectedAccount] = useState<{ instanceOrigin: string; acct: string; displayName?: string; avatar?: string; profileUrl?: string; grantedScopes?: string[] } | null>(null);
-  const [activityTimeline, setActivityTimeline] = useState<MastodonStatus[]>([]);
-  const [activityNotifications, setActivityNotifications] = useState<MastodonNotification[]>([]);
-  const [activityError, setActivityError] = useState<string | null>(null);
-  const [activityLoading, setActivityLoading] = useState(false);
-  const [activityLoadedAt, setActivityLoadedAt] = useState<number | null>(null);
+
+  // --- Activity hook layer (issue #38) ---
+  const queryClient = useQueryClient();
+  const sessionQuery = useMastodonSession();
+  const connectedAccount = useMemo(() => {
+    const s = sessionQuery.data;
+    if (!s?.connected || !s.account?.acct || !s.instanceOrigin) return null;
+    return {
+      instanceOrigin: s.instanceOrigin,
+      acct: s.account.acct,
+      displayName: s.account.display_name || undefined,
+      avatar: s.account.avatar || undefined,
+      profileUrl: s.account.url || undefined,
+      grantedScopes: s.scope ? s.scope.split(" ").filter(Boolean) : undefined
+    };
+  }, [sessionQuery.data]);
+
+  const homeTimelineQuery = useMastodonHomeTimeline({
+    enabled: activeTab === "activity" && connectedAccount !== null,
+    limit: 20
+  });
+  const notificationsQuery = useMastodonNotifications({
+    enabled: activeTab === "activity" && connectedAccount !== null,
+    limit: 20
+  });
+  const bookTokQuery = useBookTokTrends({ enabled: activeTab === "home" });
+  const disconnectMutation = useDisconnectMastodon();
+
+  const activityTimeline = homeTimelineQuery.data?.items ?? [];
+  const activityNotifications = notificationsQuery.data?.items ?? [];
+  const activityLoading = (activeTab === "activity" && connectedAccount !== null) &&
+    (homeTimelineQuery.isFetching || notificationsQuery.isFetching);
+  const activityError = useMemo(() => {
+    const err = getMastodonActivityErrorState(homeTimelineQuery.error) ??
+      getMastodonActivityErrorState(notificationsQuery.error);
+    return err?.message ?? null;
+  }, [homeTimelineQuery.error, notificationsQuery.error]);
+
+  const bookTokTrends = bookTokQuery.data?.length ? bookTokQuery.data : CURATED_BOOKTOK_TRENDS;
+  const bookTokLoading = bookTokQuery.isPending;
+  const bookTokError = useMemo(() => {
+    const err = getMastodonActivityErrorState(bookTokQuery.error);
+    return err ? `Live BookTok sync unavailable. Showing curated picks. (${err.message})` : null;
+  }, [bookTokQuery.error]);
+  const bookTokLoadedAt = bookTokQuery.dataUpdatedAt || null;
+  const activityLoadedAt = homeTimelineQuery.dataUpdatedAt || null;
+  // --- End activity hook layer ---
+
   const [activityRefreshNonce, setActivityRefreshNonce] = useState(0);
   const [nowReadingStatuses, setNowReadingStatuses] = useState<MastodonStatus[]>([]);
   const [nowReadingLoading, setNowReadingLoading] = useState(false);
   const [nowReadingError, setNowReadingError] = useState<string | null>(null);
   const [nowReadingLoadedAt, setNowReadingLoadedAt] = useState<number | null>(null);
   const [nowReadingRefreshNonce, setNowReadingRefreshNonce] = useState(0);
-  const [bookTokTrends, setBookTokTrends] = useState<BookTokTrend[]>(CURATED_BOOKTOK_TRENDS);
-  const [bookTokLoading, setBookTokLoading] = useState(false);
-  const [bookTokError, setBookTokError] = useState<string | null>(null);
-  const [bookTokLoadedAt, setBookTokLoadedAt] = useState<number | null>(null);
   const [bookTokRefreshNonce, setBookTokRefreshNonce] = useState(0);
   const [activeReaderProfile, setActiveReaderProfile] = useState<InAppReaderProfile | null>(null);
   const [activeNowReadingStatus, setActiveNowReadingStatus] = useState<MastodonStatus | null>(null);
@@ -2163,45 +2212,9 @@ export function App() {
     }
   }, [manualFacetControls, searchFacet]);
 
-  const buildActivityEndpoint = useCallback((endpoint: string, limit: number) => {
-    const url = new URL(endpoint, window.location.origin);
-    url.searchParams.set("limit", String(limit));
-    return url.origin === window.location.origin ? `${url.pathname}${url.search}` : url.toString();
-  }, []);
-
-  // Restore session state from the server-side session cookie on mount.
-  useEffect(() => {
-    let cancelled = false;
-    const endpoint = import.meta.env.VITE_MASTODON_AUTH_SESSION_ENDPOINT ?? DEFAULT_MASTODON_SESSION_ENDPOINT;
-
-    void fetchWithBackoff(endpoint, {}, 2, 8000)
-      .then(async (r) => {
-        if (!r.ok || cancelled) return;
-        const data = await r.json() as { connected?: boolean; instanceOrigin?: string; scope?: string | null; account?: { acct: string; display_name?: string; avatar?: string; url?: string } | null };
-        if (!cancelled && data.connected && data.instanceOrigin && data.account?.acct) {
-          setConnectedAccount({
-            instanceOrigin: data.instanceOrigin,
-            acct: data.account.acct,
-            displayName: data.account.display_name || undefined,
-            avatar: data.account.avatar || undefined,
-            profileUrl: data.account.url || undefined,
-            grantedScopes: data.scope ? data.scope.split(" ").filter(Boolean) : undefined
-          });
-          setAuthInfo(`Connected as ${data.account.acct}`);
-        }
-      })
-      .catch(() => {});
-
-    return () => { cancelled = true; };
-  }, []);
-
+  // Session-derived cleanup: reset profile/interactions when disconnected.
   useEffect(() => {
     if (connectedAccount) return;
-    setActivityTimeline([]);
-    setActivityNotifications([]);
-    setActivityError(null);
-    setActivityLoadedAt(null);
-    setActivityLoading(false);
     setMastodonProfileFull(null);
     setProfilePinnedStatuses([]);
     setProfileFeaturedTags([]);
@@ -2210,72 +2223,26 @@ export function App() {
     setComposeOpen(false);
   }, [connectedAccount]);
 
+  // Activity refresh: invalidate queries to trigger refetch.
   useEffect(() => {
-    if (activeTab !== "activity" || !connectedAccount) return;
+    if (activityRefreshNonce === 0) return;
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.homeTimelineRoot() });
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.notificationsRoot() });
+  }, [activityRefreshNonce, queryClient]);
 
-    let cancelled = false;
-    const controller = new AbortController();
-    const timelineEndpoint = buildActivityEndpoint(
-      import.meta.env.VITE_MASTODON_HOME_TIMELINE_ENDPOINT ?? DEFAULT_MASTODON_HOME_TIMELINE_ENDPOINT,
-      20
-    );
-    const notificationsEndpoint = buildActivityEndpoint(
-      import.meta.env.VITE_MASTODON_NOTIFICATIONS_ENDPOINT ?? DEFAULT_MASTODON_NOTIFICATIONS_ENDPOINT,
-      20
-    );
-
-    setActivityLoading(true);
-    setActivityError(null);
-
-    void Promise.allSettled([
-      fetchWithBackoff(timelineEndpoint, { signal: controller.signal }, 3, 12_000).then(parseMastodonStatusPageResponse),
-      fetchWithBackoff(notificationsEndpoint, { signal: controller.signal }, 3, 12_000).then(parseMastodonNotificationPageResponse)
-    ]).then((results) => {
-      if (cancelled) return;
-
-      const [timelineResult, notificationsResult] = results;
-      const failures = results.filter((result) => result.status === "rejected");
-      const authFailure = failures.some((result) => {
-        return result.status === "rejected" &&
-          result.reason instanceof MastodonSessionApiError &&
-          (result.reason.status === 401 || result.reason.status === 403);
-      });
-
-      if (authFailure) {
-        setConnectedAccount(null);
-        setAuthInfo(null);
-        setAuthError("Your session expired. Sign in again to load activity.");
-        return;
-      }
-
-      if (timelineResult.status === "fulfilled") {
-        setActivityTimeline(timelineResult.value.items);
-      }
-      if (notificationsResult.status === "fulfilled") {
-        setActivityNotifications(notificationsResult.value.items);
-      }
-
-      if (failures.length === results.length) {
-        setActivityError("Activity could not be loaded right now.");
-      } else if (failures.length > 0) {
-        setActivityError("Some activity could not be loaded right now.");
-      }
-
-      setActivityLoadedAt(Date.now());
-    }).catch((error: unknown) => {
-      if (cancelled || controller.signal.aborted) return;
-      setActivityError(error instanceof Error ? error.message : String(error));
-    }).finally(() => {
-      if (!cancelled) {
-        setActivityLoading(false);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [activeTab, buildActivityEndpoint, connectedAccount, activityRefreshNonce]);
+  // Handle auth errors from the activity hooks — clear session on 401/403
+  useEffect(() => {
+    const sessionErr = getMastodonActivityErrorState(sessionQuery.error);
+    const timelineErr = getMastodonActivityErrorState(homeTimelineQuery.error);
+    const notifErr = getMastodonActivityErrorState(notificationsQuery.error);
+    const reconnectNeeded = sessionErr?.reconnectRequired || timelineErr?.reconnectRequired || notifErr?.reconnectRequired;
+    if (reconnectNeeded) {
+      // Clear the cached session so connectedAccount becomes null
+      queryClient.setQueryData(mastodonActivityQueryKeys.session(), { connected: false });
+      setAuthInfo(null);
+      setAuthError("Your session expired. Sign in again to load activity.");
+    }
+  }, [sessionQuery.error, homeTimelineQuery.error, notificationsQuery.error, queryClient]);
 
   useEffect(() => {
     if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
@@ -2436,12 +2403,7 @@ export function App() {
         if (!cancelled) {
           setAuthInfo(`Account connected${accountText}. Token exchange completed.`);
           if (payload.account && payload.instanceOrigin) {
-            setConnectedAccount({
-              instanceOrigin: payload.instanceOrigin,
-              acct: payload.account.acct,
-              displayName: (payload.account as { acct: string; display_name?: string }).display_name || undefined,
-              grantedScopes: (payload as { scope?: string }).scope ? ((payload as { scope?: string }).scope as string).split(" ").filter(Boolean) : undefined
-            });
+            void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.session() });
           }
         }
         clearPendingAuthTransaction();
@@ -2783,20 +2745,14 @@ export function App() {
     setIsAuthWorking(true);
     setAuthError(null);
     try {
-      const endpoint = import.meta.env.VITE_MASTODON_AUTH_REVOKE_ENDPOINT ?? DEFAULT_MASTODON_REVOKE_ENDPOINT;
-      await fetchWithBackoff(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}"
-      });
-      setConnectedAccount(null);
+      await disconnectMutation.mutateAsync();
       setAuthInfo(null);
     } catch (error) {
       setAuthError(error instanceof Error ? error.message : String(error));
     } finally {
       setIsAuthWorking(false);
     }
-  }, []);
+  }, [disconnectMutation]);
 
   const applyDiscoveredInstance = useCallback((domain: string) => {
     setInstanceInput(domain);
@@ -2855,7 +2811,10 @@ export function App() {
     const apiCall = currentFavourited ? apiUnfavouriteStatus : apiFavouriteStatus;
     void apiCall(statusId)
       .then((updated) => {
-        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        queryClient.setQueryData(
+          mastodonActivityQueryKeys.homeTimeline({ limit: 20 }),
+          (prev: any) => prev ? { ...prev, items: prev.items.map((s: any) => s.id === updated.id ? updated : s) } : prev
+        );
         if (!currentFavourited) shelves.addFavourite(updated);
         else shelves.removeFavourite(statusId);
         setStatusInteractions((prev) => {
@@ -2884,7 +2843,10 @@ export function App() {
     const apiCall = currentBookmarked ? apiUnbookmarkStatus : apiBookmarkStatus;
     void apiCall(statusId)
       .then((updated) => {
-        setActivityTimeline((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        queryClient.setQueryData(
+          mastodonActivityQueryKeys.homeTimeline({ limit: 20 }),
+          (prev: any) => prev ? { ...prev, items: prev.items.map((s: any) => s.id === updated.id ? updated : s) } : prev
+        );
         if (!currentBookmarked) shelves.addBookmark(updated);
         else shelves.removeBookmark(statusId);
         setStatusInteractions((prev) => {
@@ -2926,59 +2888,12 @@ export function App() {
     }));
   }, [bookTokTrends]);
 
+  // BookTok trends are now fetched via useBookTokTrends hook.
+  // Manual refresh triggers query invalidation.
   useEffect(() => {
-    if (activeTab !== "home") {
-      return;
-    }
-
-    let cancelled = false;
-    const endpoint = import.meta.env.VITE_BOOKTOK_TRENDING_ENDPOINT ?? DEFAULT_BOOKTOK_TRENDING_ENDPOINT;
-
-    setBookTokLoading(true);
-    setBookTokError(null);
-
-    void fetchWithBackoff(endpoint, {
-      headers: { Accept: "application/json" }
-    }, 3, 10_000)
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`BookTok trending request failed (${response.status})`);
-        }
-
-        return parseBookTokTrendingPayload(await response.json());
-      })
-      .then((trends) => {
-        if (cancelled) {
-          return;
-        }
-
-        if (trends.length > 0) {
-          setBookTokTrends(trends.slice(0, 9));
-        } else {
-          setBookTokTrends(CURATED_BOOKTOK_TRENDS);
-        }
-        setBookTokLoadedAt(Date.now());
-      })
-      .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
-
-        setBookTokTrends(CURATED_BOOKTOK_TRENDS);
-        setBookTokError(error instanceof Error
-          ? `Live BookTok sync unavailable. Showing curated picks. (${error.message})`
-          : "Live BookTok sync unavailable. Showing curated picks.");
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setBookTokLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, bookTokRefreshNonce]);
+    if (bookTokRefreshNonce === 0) return;
+    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.bookTokTrends() });
+  }, [bookTokRefreshNonce, queryClient]);
 
   const profileAvatarSrc = resolveCoverProxySrc(
     mastodonProfileFull?.avatar ?? mastodonProfileFull?.avatar_static ?? connectedAccount?.avatar ?? null
@@ -3192,8 +3107,7 @@ export function App() {
                 <TabPanel id="search" activeTab={activeTab}>
                   <ScreenTitle title={t("screen.search")} />
                   <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
-                    <input
-                      type="search"
+                    <AdaptiveSearchField
                       value={searchQuery}
                       onChange={(event) => {
                         setSearchQuery(event.target.value);
@@ -3235,6 +3149,7 @@ export function App() {
                           setActiveAutocompleteIndex(-1);
                         }
                       }}
+                      onClear={() => { setSearchQuery(""); setActiveAutocompleteIndex(-1); }}
                       placeholder={t("search.placeholder")}
                       aria-label={t("search.ariaLabel")}
                       role="combobox"
@@ -3246,16 +3161,6 @@ export function App() {
                           ? `search-autocomplete-option-${visibleAutocompleteResults[activeAutocompleteIndex].id}`
                           : undefined
                       }
-                      style={{
-                        width: "100%",
-                        minHeight: "var(--touch-min)",
-                        borderRadius: "var(--radius-md)",
-                        border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                        background: "var(--color-bg-secondary)",
-                        color: "var(--color-text)",
-                        padding: "0 var(--space-3)",
-                        fontSize: "var(--text-body)"
-                      }}
                     />
                     {showFacetControls ? (
                       <div
@@ -3978,9 +3883,8 @@ export function App() {
                             <button
                               type="button"
                               onClick={() => {
-                                setConnectedAccount(null);
-                                setAuthInfo(null);
-                                setInstanceInput("");
+                              void disconnectMastodon();
+                              setInstanceInput("");
                               }}
                               disabled={isAuthWorking}
                               style={{
@@ -4280,22 +4184,12 @@ export function App() {
                           </button>
                         </div>
                         <div style={{ display: "grid", gap: "var(--space-2)" }}>
-                          <input
-                            type="search"
+                          <AdaptiveSearchField
                             value={instanceSearch}
                             onChange={(event) => setInstanceSearch(event.target.value)}
+                            onClear={() => setInstanceSearch("")}
                             placeholder={t("auth.searchInstancesPlaceholder")}
                             aria-label={t("auth.searchInstancesAriaLabel")}
-                            style={{
-                              width: "100%",
-                              minHeight: "var(--touch-min)",
-                              borderRadius: "var(--radius-md)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
-                              background: "var(--color-bg)",
-                              color: "var(--color-text)",
-                              padding: "0 var(--space-3)",
-                              fontSize: "var(--text-body)"
-                            }}
                           />
                           <select
                             value={preferredSoftware}
@@ -4436,7 +4330,10 @@ export function App() {
                 onClose={() => setComposeOpen(false)}
                 onPost={(posted) => {
                   setComposeOpen(false);
-                  setActivityTimeline((prev) => [posted, ...prev]);
+                  queryClient.setQueryData(
+                    mastodonActivityQueryKeys.homeTimeline({ limit: 20 }),
+                    (prev: any) => prev ? { ...prev, items: [posted, ...prev.items] } : prev
+                  );
                 }}
               />
             ) : null}

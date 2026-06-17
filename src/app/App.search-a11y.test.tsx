@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import React from "react";
 
 vi.mock("framer-motion", () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
@@ -63,6 +65,21 @@ vi.mock("../sync/mastodon-activity-api", async () => {
 import { App } from "./App";
 import { setSearchUiPreferences } from "../search/ui-preferences";
 
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } }
+  });
+}
+
+function renderApp() {
+  const queryClient = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
+  );
+}
+
 afterEach(() => {
   cleanup();
   setSearchUiPreferences({ manualFacetControls: false });
@@ -71,7 +88,7 @@ afterEach(() => {
 describe("Search autocomplete accessibility", () => {
   async function openSearchAndType(query: string) {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await user.click(screen.getByRole("tab", { name: "Search" }));
     const input = screen.getByLabelText("Search library");
     await user.type(input, query);
@@ -119,7 +136,7 @@ describe("Search autocomplete accessibility", () => {
 
   it("separates existing-account sign in from create-account discovery", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
 
     await user.click(screen.getByRole("tab", { name: "Account" }));
 
@@ -132,7 +149,7 @@ describe("Search autocomplete accessibility", () => {
 
   it("hides manual facet chips by default", async () => {
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await user.click(screen.getByRole("tab", { name: "Search" }));
 
     expect(screen.queryByRole("group", { name: "Search facets" })).not.toBeInTheDocument();
@@ -142,7 +159,7 @@ describe("Search autocomplete accessibility", () => {
     setSearchUiPreferences({ manualFacetControls: true });
 
     const user = userEvent.setup();
-    render(<App />);
+    renderApp();
     await user.click(screen.getByRole("tab", { name: "Search" }));
 
     const booksChip = screen.getByRole("button", { name: "Books" });

@@ -1,0 +1,168 @@
+{
+  "version": 2,
+  "description": "Phase 18 — expanded search quality golden set for CI regression gating",
+  "cases": [
+    {
+      "category": "exact-title",
+      "query": "dune",
+      "expectedTopId": "work:dune",
+      "expectedIntent": "title",
+      "notes": "Exact single-word title match must win"
+    },
+    {
+      "category": "exact-title",
+      "query": "kindred",
+      "expectedIntent": "title",
+      "expectedTopType": "work",
+      "notes": "Single-word title search"
+    },
+    {
+      "category": "exact-title",
+      "query": "the left hand of darkness",
+      "expectedIntent": "title",
+      "notes": "Multi-word exact title"
+    },
+    {
+      "category": "exact-title",
+      "query": "Harry Potter and the Sorcerer's Stone",
+      "expectedTopId": "edition:hp1",
+      "expectedIntent": "title",
+      "notes": "Full title with apostrophe"
+    },
+    {
+      "category": "author",
+      "query": "octavia butler",
+      "expectedIntent": "author",
+      "expectedTop3IncludesType": "author",
+      "notes": "Author name search — lexical should include the author in top-3"
+    },
+    {
+      "category": "author",
+      "query": "frank herbert",
+      "expectedIntent": "author",
+      "notes": "Author name"
+    },
+    {
+      "category": "author",
+      "query": "ursula le guin",
+      "expectedIntent": "author",
+      "notes": "Author name with space in surname"
+    },
+    {
+      "category": "author",
+      "query": "J. K. Rowling",
+      "expectedIntent": "author",
+      "notes": "Author name with initials"
+    },
+    {
+      "category": "isbn",
+      "query": "9780439708180",
+      "expectedIntent": "isbn",
+      "expectedTopId": "edition:hp1",
+      "expectedTopType": "edition",
+      "notes": "ISBN-13 exact match"
+    },
+    {
+      "category": "isbn",
+      "query": "978-0-06-105488-4",
+      "expectedIntent": "isbn",
+      "notes": "ISBN-13 with dashes"
+    },
+    {
+      "category": "fuzzy-title",
+      "query": "sorcerers stone",
+      "expectedTopId": "edition:hp1",
+      "expectedIntent": "title",
+      "notes": "Missing apostrophe + incomplete title"
+    },
+    {
+      "category": "fuzzy-title",
+      "query": "parabel of the sower",
+      "expectedIntent": "title",
+      "notes": "Common misspelling of Parable"
+    },
+    {
+      "category": "fuzzy-title",
+      "query": "harry poter",
+      "expectedIntent": "title",
+      "notes": "Misspelled author/title"
+    },
+    {
+      "category": "semantic",
+      "query": "books about empire and ecology",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Semantic description match for Dune"
+    },
+    {
+      "category": "semantic",
+      "query": "Black women science fiction authors",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "author:butler",
+      "notes": "Semantic match for Butler"
+    },
+    {
+      "category": "semantic",
+      "query": "a young wizard discovers magic",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "edition:hp1",
+      "notes": "Semantic match for HP description"
+    },
+    {
+      "category": "semantic",
+      "query": "desert planet politics prophecy",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Multiple semantic keywords for Dune"
+    },
+    {
+      "category": "semantic",
+      "query": "cozy fantasy with libraries",
+      "expectedIntent": "semantic",
+      "notes": "Semantic concept query — may not match fixture docs"
+    },
+    {
+      "category": "semantic",
+      "query": "queer coming of age graphic novels",
+      "expectedIntent": "semantic",
+      "notes": "Semantic concept query — may not match fixture docs"
+    },
+    {
+      "category": "mixed",
+      "query": "butler parable",
+      "expectedIntent": "author",
+      "expectedTop3IncludesType": "author",
+      "notes": "Author + title fragment"
+    },
+    {
+      "category": "mixed",
+      "query": "herbert dune",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Author + title combination"
+    },
+    {
+      "category": "format",
+      "query": "harry potter audiobook",
+      "expectedIntent": "format",
+      "notes": "Format-qualified search"
+    },
+    {
+      "category": "empty-edge",
+      "query": "",
+      "expectNoResults": true,
+      "notes": "Empty query should return nothing"
+    },
+    {
+      "category": "empty-edge",
+      "query": "a",
+      "expectNoResults": true,
+      "notes": "Single-char query below minimum length"
+    },
+    {
+      "category": "privacy",
+      "query": "my secret notes",
+      "expectedIntent": "semantic",
+      "notes": "Should not return private/local-only docs on global surface"
+    }
+  ]
+}

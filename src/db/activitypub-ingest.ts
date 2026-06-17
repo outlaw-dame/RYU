@@ -134,6 +134,10 @@ export function createRxDBActivityPubStore(
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
+      // Phase 16: wire review indexing through the search queue so
+      // reviews are immediately searchable after AP import, matching
+      // the behavior of authors/works/editions.
+      searchIndexQueue.enqueue(db, entity, timestamp);
     }
   };
 }
