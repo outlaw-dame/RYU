@@ -96,17 +96,22 @@ export function createIndexingOrchestrator(
   // that never starts background work. User-visible search still works
   // because it doesn't depend on the orchestrator.
   if (!isSearchFeatureEnabled('pwa_orchestration')) {
+    const clock = options.now ?? Date.now;
+    const timestamp = new Date(clock()).toISOString();
     const noopState: OrchestratorState = {
-      lifecycle: { visibility: "visible", network: "online", readiness: "complete", phase: "active", changedAt: new Date().toISOString() },
+      lifecycle: { visibility: "visible", network: "online", readiness: "complete", phase: "active", changedAt: timestamp },
       pressure: null,
       isLeaderTab: false,
       backgroundAllowed: false,
       userVisibleAllowed: true,
-      changedAt: new Date().toISOString()
+      changedAt: timestamp
     };
     return {
       getState: () => noopState,
-      subscribe: () => () => {},
+      subscribe: (listener) => {
+        try { listener(noopState); } catch { /* subscriber errors non-fatal */ }
+        return () => {};
+      },
       stop: () => {}
     };
   }

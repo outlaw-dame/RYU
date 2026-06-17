@@ -16,6 +16,8 @@
  * safety checks that run alongside RxDB migrations.
  */
 
+import { CURRENT_SCHEMA_VERSION } from '../../db/runtime-schema';
+
 export type MigrationCheckResult = {
   /** Whether the current schema version matches the persisted one. */
   schemaVersionMatch: boolean;
@@ -30,8 +32,6 @@ export type MigrationCheckResult = {
   /** Human-readable reason if not safe. */
   reason?: string;
 };
-
-import { CURRENT_SCHEMA_VERSION } from '../../db/runtime-schema';
 
 const VERSION_KEY = "ryu.search.schema-version.v1";
 
