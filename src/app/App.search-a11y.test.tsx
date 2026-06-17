@@ -20,6 +20,12 @@ vi.mock("framer-motion", () => ({
   }
 }));
 
+vi.mock("framework7-react", () => ({
+  Toolbar: ({ children }: { children: React.ReactNode }) => <div data-testid="f7-toolbar">{children}</div>,
+  Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PageContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+}));
+
 vi.mock("../hooks/useDatabase", () => ({
   useDatabase: () => ({ state: "ready" })
 }));

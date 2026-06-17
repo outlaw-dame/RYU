@@ -82,32 +82,49 @@ export function createRxDbOramaHybridSearchEngine(): LocalHybridSearchEngine {
 
       // Use searchAllWithDiagnostics to avoid duplicate execution.
       // Semantic failures are caught internally by searchAllWithDiagnostics.
-      const result = await searchAllWithDiagnostics(request.query, {
-        limit: request.limit,
-        db: request.db,
-        ...request.options
-      });
+      try {
+        const result = await searchAllWithDiagnostics(request.query, {
+          limit: request.limit,
+          db: request.db,
+          ...request.options
+        });
 
-      const durationMs = performance.now() - startMs;
+        const durationMs = performance.now() - startMs;
 
-      const diagnostics: HybridSearchDiagnostics = {
-        lexicalCount: result.diagnostics.lexicalCount,
-        semanticCount: result.diagnostics.semanticCount,
-        fusedCount: result.diagnostics.fusedCount,
-        finalCount: result.diagnostics.finalCount,
-        providerId: provider.id,
-        providerDimensions: provider.dimensions,
-        usedSemantic: result.diagnostics.usedSemantic,
-        repairedBeforeSearch: false,
-        durationMs
-      };
+        const diagnostics: HybridSearchDiagnostics = {
+          lexicalCount: result.diagnostics.lexicalCount,
+          semanticCount: result.diagnostics.semanticCount,
+          fusedCount: result.diagnostics.fusedCount,
+          finalCount: result.diagnostics.finalCount,
+          providerId: provider.id,
+          providerDimensions: provider.dimensions,
+          usedSemantic: result.diagnostics.usedSemantic,
+          repairedBeforeSearch: false,
+          durationMs
+        };
 
-      return {
-        query: request.query,
-        normalizedQuery,
-        results: result.grouped,
-        diagnostics
-      };
+        return {
+          query: request.query,
+          normalizedQuery,
+          results: result.grouped,
+          diagnostics
+        };
+      } catch (error) {
+        // Graceful degradation: return empty results with error diagnostics
+        // rather than crashing the caller. Callers can inspect diagnostics
+        // to determine if the failure is recoverable.
+        const durationMs = performance.now() - startMs;
+        console.error("[hybrid-search] search() failed:", error);
+        return {
+          query: request.query,
+          normalizedQuery,
+          results: null,
+          diagnostics: {
+            ...emptyDiagnostics(provider, durationMs),
+            usedSemantic: false
+          }
+        };
+      }
     },
 
     async rebuild(db?: RyuDatabase): Promise<void> {

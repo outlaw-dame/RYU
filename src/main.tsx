@@ -1,3 +1,13 @@
+/**
+ * Phase 23 — Application entry point.
+ *
+ * Initializes Framework7 with platform-adaptive theming, sets up
+ * React Query, platform detection, and the Phosphor icon context.
+ *
+ * The View component provides F7's main navigation container.
+ * The App component inside it owns tab state and page rendering.
+ */
+
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -49,7 +59,7 @@ const queryClient = new QueryClient({
   }
 });
 
-// Framework7 configuration — feed the detected frameworkTheme to match RYU's theme fallback
+// Framework7 configuration — platform-adaptive theming
 const f7Params = {
   name: "Ryu",
   theme: detectPlatform().frameworkTheme,
@@ -72,7 +82,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <PlatformProvider>
         <IconContext.Provider value={{ color: "currentColor", size: 22, weight: "regular" }}>
           <F7App {...f7Params}>
-            <View main>
+            <View main url="/">
               <React.Suspense fallback={null}>
                 <App />
               </React.Suspense>
