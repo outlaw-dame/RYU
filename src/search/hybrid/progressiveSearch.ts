@@ -44,6 +44,7 @@ import { getRerankerProvider } from "../reranker-provider";
 import { normalizeSearchQuery } from "../query-normalize";
 import { buildSearchQueryExpansionPlan } from "../query-expansion";
 import { getEmbeddingProvider } from "../embedding-provider";
+import { isSearchFeatureEnabled } from "../release";
 import type { HybridSearchDiagnostics, HybridSearchQuery, HybridSearchResponse } from "./hybridSearchTypes";
 
 /**
@@ -77,6 +78,14 @@ export async function searchProgressively(
   const startMs = performance.now();
   const provider = getEmbeddingProvider();
   const normalizedQuery = normalizeSearchQuery(request.query);
+
+  // Phase 22: when progressive_search is disabled, return an empty response
+  // immediately. Callers should fall back to the non-progressive searchAll().
+  if (!isSearchFeatureEnabled('progressive_search')) {
+    const empty = emptyResponse(request.query, normalizedQuery, provider, performance.now() - startMs);
+    safeEmit(onUpdate, { stage: "complete", response: empty });
+    return empty;
+  }
 
   if (normalizedQuery.length < 2) {
     const empty = emptyResponse(request.query, normalizedQuery, provider, performance.now() - startMs);

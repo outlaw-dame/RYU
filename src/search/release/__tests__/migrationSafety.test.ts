@@ -5,6 +5,7 @@ import {
   checkMigrationSafety,
   recordSuccessfulMigration
 } from "../migrationSafety";
+import { CURRENT_SCHEMA_VERSION } from "../../../db/runtime-schema";
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();
@@ -59,7 +60,7 @@ describe("migrationSafety", () => {
 
   it("recordSuccessfulMigration persists the current version", () => {
     recordSuccessfulMigration();
-    expect(localStorage.getItem("ryu.search.schema-version.v1")).toBe("1");
+    expect(localStorage.getItem("ryu.search.schema-version.v1")).toBe(String(CURRENT_SCHEMA_VERSION));
   });
 
   it("canDisableEnhancedSearch always returns true", () => {

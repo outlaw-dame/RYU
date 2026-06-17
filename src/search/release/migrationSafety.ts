@@ -31,10 +31,9 @@ export type MigrationCheckResult = {
   reason?: string;
 };
 
-const VERSION_KEY = "ryu.search.schema-version.v1";
+import { CURRENT_SCHEMA_VERSION } from '../../db/runtime-schema';
 
-// Must match the version in db/schema.ts.
-const CURRENT_SCHEMA_VERSION = 1;
+const VERSION_KEY = "ryu.search.schema-version.v1";
 
 function getPersistedVersion(): number | null {
   if (typeof localStorage === "undefined") return null;
