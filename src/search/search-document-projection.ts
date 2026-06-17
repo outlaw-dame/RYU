@@ -169,8 +169,12 @@ export async function reviewDocToSearchDocument(
   }
 
   const content = review?.content || "";
-  // Strip HTML tags before indexing — reviews from Mastodon/BookWyrm may contain HTML
-  const plainContent = stripHtml(content);
+  // Strip HTML tags before indexing — reviews from Mastodon/BookWyrm may contain HTML.
+  // Use regex fallback in non-browser environments (Node/Workers) where document is unavailable.
+  // Replace block/break elements with spaces to preserve word boundaries.
+  const plainContent = typeof document !== "undefined"
+    ? stripHtml(content)
+    : content.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[\s/]*>/gi, " ").replace(/<\/?[^>]+(>|$)/g, "").replace(/\s+/g, " ").trim();
   // Truncate content for embedding efficiency (first 500 chars)
   const truncatedContent = plainContent.length > 500
     ? plainContent.slice(0, 500) + "…"

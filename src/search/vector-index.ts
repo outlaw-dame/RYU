@@ -18,8 +18,11 @@ export function clearInMemoryVectorIndex(dbName?: string): void {
     vectorStore.clear();
     return;
   }
-  for (const [key, entry] of vectorStore.entries()) {
-    if (entry.dbName === dbName) vectorStore.delete(key);
+  const prefix = `${dbName}:`;
+  for (const key of vectorStore.keys()) {
+    if (key.startsWith(prefix)) {
+      vectorStore.delete(key);
+    }
   }
 }
 

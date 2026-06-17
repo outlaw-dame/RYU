@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
 import { searchAll } from '@/search/search';
+import type { SearchContext } from '../search/types';
 
-export function useSearch(query: string, context: import('../search/types').SearchContext = { surface: "global" }) {
+const DEFAULT_SEARCH_CONTEXT: SearchContext = { surface: "global" };
+
+export function useSearch(query: string, context: SearchContext = DEFAULT_SEARCH_CONTEXT) {
   const [results, setResults] = useState<any>(null);
 
   useEffect(() => {
@@ -24,7 +27,7 @@ export function useSearch(query: string, context: import('../search/types').Sear
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, context]);
 
   return results;
 }
