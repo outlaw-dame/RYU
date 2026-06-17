@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { searchAll } from '@/search/search';
 
-export function useSearch(query: string) {
+export function useSearch(query: string, context: import('../search/types').SearchContext = { surface: "global" }) {
   const [results, setResults] = useState<any>(null);
 
   useEffect(() => {
@@ -14,7 +14,7 @@ export function useSearch(query: string) {
 
     (async () => {
       try {
-        const res = await searchAll(query);
+        const res = await searchAll(query, { context });
         if (!cancelled) setResults(res);
       } catch {
         if (!cancelled) setResults(null);

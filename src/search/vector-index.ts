@@ -13,8 +13,14 @@ function inMemoryVectorKey(dbName: string, docId: string): string {
   return `${dbName}:${docId}`;
 }
 
-export function clearInMemoryVectorIndex(): void {
-  vectorStore.clear();
+export function clearInMemoryVectorIndex(dbName?: string): void {
+  if (!dbName) {
+    vectorStore.clear();
+    return;
+  }
+  for (const [key, entry] of vectorStore.entries()) {
+    if (entry.dbName === dbName) vectorStore.delete(key);
+  }
 }
 
 export function removeFromInMemoryVectorIndex(entityId: string): void {

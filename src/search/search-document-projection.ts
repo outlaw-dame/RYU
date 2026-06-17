@@ -2,6 +2,7 @@ import type { RyuDatabase } from '../db/client';
 import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import type { CanonicalApEntity } from '../sync/activitypub-client';
 import type { SearchDocument } from './types';
+import { stripHtml } from '../lib/sanitize';
 
 export type SearchProjectionSource = 'local' | 'remote';
 
@@ -168,10 +169,12 @@ export async function reviewDocToSearchDocument(
   }
 
   const content = review?.content || "";
+  // Strip HTML tags before indexing — reviews from Mastodon/BookWyrm may contain HTML
+  const plainContent = stripHtml(content);
   // Truncate content for embedding efficiency (first 500 chars)
-  const truncatedContent = content.length > 500
-    ? content.slice(0, 500) + "…"
-    : content;
+  const truncatedContent = plainContent.length > 500
+    ? plainContent.slice(0, 500) + "…"
+    : plainContent;
 
   return {
     id: review?.id || "",
