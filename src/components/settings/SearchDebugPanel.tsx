@@ -36,6 +36,10 @@ function Row({ label, value }: { label: string; value: string | number | boolean
 
 function EngineSection({ snapshot }: { snapshot: SearchDiagnosticsSnapshot }) {
   const { engine } = snapshot;
+  // PRIVACY: sanitize lastError — it can contain URLs or echoed input
+  // from third-party loaders (transformers.js, fetch). We truncate and
+  // strip anything that looks like a URL or query parameter.
+  const sanitizedError = sanitizeErrorForDisplay(engine.runtimeStatus.lastError);
   return (
     <Section title="Engine">
       <Row label="Provider" value={engine.providerId} />
@@ -44,9 +48,29 @@ function EngineSection({ snapshot }: { snapshot: SearchDiagnosticsSnapshot }) {
       <Row label="Active provider" value={engine.runtimeStatus.activeEmbeddingProvider} />
       <Row label="Device tier" value={engine.runtimeStatus.deviceTier} />
       <Row label="Last fallback" value={engine.runtimeStatus.lastFallbackReason} />
-      <Row label="Last error" value={engine.runtimeStatus.lastError} />
+      <Row label="Last error" value={sanitizedError} />
     </Section>
   );
+}
+
+/**
+ * Strip URLs, query strings, and tokens from error messages before
+ * displaying them in the diagnostics panel. Keeps only the error
+ * type/name and a short, safe excerpt.
+ */
+function sanitizeErrorForDisplay(error: string | undefined): string | undefined {
+  if (!error) return undefined;
+  // Remove anything that looks like a URL (http/https/blob/data schemes).
+  let sanitized = error.replace(/https?:\/\/[^\s"'<>]+/gi, "[url]");
+  sanitized = sanitized.replace(/blob:[^\s"'<>]+/gi, "[blob]");
+  sanitized = sanitized.replace(/data:[^\s"'<>]+/gi, "[data]");
+  // Remove query parameters that might contain tokens or user data.
+  sanitized = sanitized.replace(/\?[^\s"'<>]+/g, "?[redacted]");
+  // Truncate to a reasonable display length.
+  if (sanitized.length > 200) {
+    sanitized = sanitized.slice(0, 200) + "…";
+  }
+  return sanitized;
 }
 
 function IndexSection({ snapshot }: { snapshot: SearchDiagnosticsSnapshot }) {
