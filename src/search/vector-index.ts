@@ -13,8 +13,17 @@ function inMemoryVectorKey(dbName: string, docId: string): string {
   return `${dbName}:${docId}`;
 }
 
-export function clearInMemoryVectorIndex(): void {
-  vectorStore.clear();
+export function clearInMemoryVectorIndex(dbName?: string): void {
+  if (!dbName) {
+    vectorStore.clear();
+    return;
+  }
+  const prefix = `${dbName}:`;
+  for (const key of vectorStore.keys()) {
+    if (key.startsWith(prefix)) {
+      vectorStore.delete(key);
+    }
+  }
 }
 
 export function removeFromInMemoryVectorIndex(entityId: string): void {
@@ -46,6 +55,29 @@ export async function clearPersistedVectorsForCurrentProvider(): Promise<void> {
       vectorStore.delete(id);
     }
   }
+}
+
+/**
+ * Drop every persisted search vector regardless of provider id or dimensions.
+ *
+ * Used by the "Delete local AI/search artifacts" reset action so vectors
+ * from previously-active providers we may no longer know about (e.g. a
+ * registry version bump removed an entry) are also evicted. The current
+ * provider's in-memory entries are removed too — pair with
+ * `clearInMemoryVectorIndex()` for a full-store wipe across databases.
+ */
+export async function clearAllPersistedVectors(): Promise<void> {
+  const db = await initializeDatabase();
+  const docs = await db.searchvectors.find().exec();
+
+  await Promise.all(docs.map((doc: any) => doc.remove().catch((error: unknown) => {
+    console.error('Failed to remove persisted search vector', {
+      id: doc.id,
+      model: doc.model,
+      dimensions: doc.dimensions,
+      error
+    });
+  })));
 }
 
 export async function indexDocument(doc: SearchDocument, db?: RyuDatabase): Promise<void> {

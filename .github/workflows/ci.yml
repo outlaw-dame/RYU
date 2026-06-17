@@ -78,6 +78,9 @@ jobs:
       - name: ActivityPub import search guardrails
         run: npm run search:import-eval
 
+      - name: Search quality eval v2
+        run: npm run search:quality-eval
+
       - name: Service worker policy guardrails
         run: npm run pwa:sw-policy-eval
 

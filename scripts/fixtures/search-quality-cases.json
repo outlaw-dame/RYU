@@ -1,185 +1,168 @@
 {
-  "description": "Expanded search quality evaluation cases for RYU local-first hybrid search. Covers exact title, author, ISBN, fuzzy, semantic, federated, and mixed queries.",
-  "version": 1,
+  "version": 2,
+  "description": "Phase 18 — expanded search quality golden set for CI regression gating",
   "cases": [
     {
-      "id": "exact-title-dune",
       "category": "exact-title",
       "query": "dune",
-      "expectedTopResultTitle": "Dune",
-      "expectedTop3Includes": ["Dune"],
-      "expectedResultType": "work",
-      "notes": "Classic exact title match — must not be displaced by semantic drift."
+      "expectedTopId": "work:dune",
+      "expectedIntent": "title",
+      "notes": "Exact single-word title match must win"
     },
     {
-      "id": "exact-title-kindred",
       "category": "exact-title",
       "query": "kindred",
-      "expectedTopResultTitle": "Kindred",
-      "expectedResultType": "work"
+      "expectedIntent": "title",
+      "expectedTopType": "work",
+      "notes": "Single-word title search"
     },
     {
-      "id": "exact-title-left-hand",
       "category": "exact-title",
       "query": "the left hand of darkness",
-      "expectedTopResultTitle": "The Left Hand of Darkness",
-      "expectedResultType": "work"
+      "expectedIntent": "title",
+      "notes": "Multi-word exact title"
     },
     {
-      "id": "exact-title-piranesi",
       "category": "exact-title",
-      "query": "piranesi",
-      "expectedTopResultTitle": "Piranesi",
-      "expectedResultType": "work"
+      "query": "Harry Potter and the Sorcerer's Stone",
+      "expectedTopId": "edition:hp1",
+      "expectedIntent": "title",
+      "notes": "Full title with apostrophe"
     },
     {
-      "id": "author-octavia-butler",
       "category": "author",
       "query": "octavia butler",
-      "expectedTop3IncludesAuthor": "Octavia Butler",
-      "expectedResultType": "author",
-      "notes": "Author query should surface the author entity and their works."
+      "expectedIntent": "author",
+      "expectedTop3IncludesType": "author",
+      "notes": "Author name search — lexical should include the author in top-3"
     },
     {
-      "id": "author-ursula-le-guin",
+      "category": "author",
+      "query": "frank herbert",
+      "expectedIntent": "author",
+      "notes": "Author name"
+    },
+    {
       "category": "author",
       "query": "ursula le guin",
-      "expectedTop3IncludesAuthor": "Ursula K. Le Guin"
+      "expectedIntent": "author",
+      "notes": "Author name with space in surname"
     },
     {
-      "id": "author-n-k-jemisin",
       "category": "author",
-      "query": "n.k. jemisin",
-      "expectedTop3IncludesAuthor": "N.K. Jemisin"
+      "query": "J. K. Rowling",
+      "expectedIntent": "author",
+      "notes": "Author name with initials"
     },
     {
-      "id": "isbn-harry-potter",
       "category": "isbn",
       "query": "9780439708180",
-      "expectedTopResultTitle": "Harry Potter and the Sorcerer's Stone",
-      "expectedResultType": "edition",
-      "notes": "ISBN must exact-match and not be displaced by semantic results."
+      "expectedIntent": "isbn",
+      "expectedTopId": "edition:hp1",
+      "expectedTopType": "edition",
+      "notes": "ISBN-13 exact match"
     },
     {
-      "id": "isbn-dune",
       "category": "isbn",
-      "query": "9780441013593",
-      "expectedTopResultTitle": "Dune"
+      "query": "978-0-06-105488-4",
+      "expectedIntent": "isbn",
+      "notes": "ISBN-13 with dashes"
     },
     {
-      "id": "fuzzy-sorcerers-stone",
-      "category": "fuzzy",
+      "category": "fuzzy-title",
       "query": "sorcerers stone",
-      "expectedTop3Includes": ["Harry Potter and the Sorcerer's Stone"],
-      "notes": "Missing apostrophe and 'Harry Potter' prefix — fuzzy should still match."
+      "expectedTopId": "edition:hp1",
+      "expectedIntent": "title",
+      "notes": "Missing apostrophe + incomplete title"
     },
     {
-      "id": "fuzzy-parable-sower",
-      "category": "fuzzy",
+      "category": "fuzzy-title",
       "query": "parabel of the sower",
-      "expectedTop3Includes": ["Parable of the Sower"],
-      "notes": "Common misspelling — should still rank the correct result highly."
+      "expectedIntent": "title",
+      "notes": "Common misspelling of Parable"
     },
     {
-      "id": "fuzzy-murderbot",
-      "category": "fuzzy",
-      "query": "murderbot",
-      "expectedTop3Includes": ["All Systems Red"],
-      "notes": "Series nickname — should find the first book."
+      "category": "fuzzy-title",
+      "query": "harry poter",
+      "expectedIntent": "title",
+      "notes": "Misspelled author/title"
     },
     {
-      "id": "semantic-empire-ecology",
       "category": "semantic",
       "query": "books about empire and ecology",
-      "semanticMustImproveOverLexical": true,
-      "expectedTop3IncludesAny": ["Dune", "The Dispossessed", "The Word for World Is Forest"],
-      "notes": "Pure semantic concept query. Lexical alone should score poorly."
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Semantic description match for Dune"
     },
     {
-      "id": "semantic-black-women-sf",
       "category": "semantic",
       "query": "Black women science fiction authors",
-      "semanticMustImproveOverLexical": true,
-      "expectedTop3IncludesAuthor": "Octavia Butler",
-      "notes": "Demographic + genre intersection — needs semantic understanding."
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "author:butler",
+      "notes": "Semantic match for Butler"
     },
     {
-      "id": "semantic-cozy-fantasy-libraries",
+      "category": "semantic",
+      "query": "a young wizard discovers magic",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "edition:hp1",
+      "notes": "Semantic match for HP description"
+    },
+    {
+      "category": "semantic",
+      "query": "desert planet politics prophecy",
+      "expectedIntent": "semantic",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Multiple semantic keywords for Dune"
+    },
+    {
       "category": "semantic",
       "query": "cozy fantasy with libraries",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Thematic concept query."
+      "expectedIntent": "semantic",
+      "notes": "Semantic concept query — may not match fixture docs"
     },
     {
-      "id": "semantic-queer-ya-graphic",
       "category": "semantic",
       "query": "queer coming of age graphic novels",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Intersectional concept query."
+      "expectedIntent": "semantic",
+      "notes": "Semantic concept query — may not match fixture docs"
     },
     {
-      "id": "semantic-grief-memory",
-      "category": "semantic",
-      "query": "books about grief and memory",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Emotional/thematic query."
-    },
-    {
-      "id": "semantic-solarpunk",
-      "category": "semantic",
-      "query": "solarpunk optimistic futures",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Subgenre concept."
-    },
-    {
-      "id": "mixed-butler-parable",
       "category": "mixed",
       "query": "butler parable",
-      "expectedTop3Includes": ["Parable of the Sower"],
-      "notes": "Partial author + partial title — fusion should outperform either alone."
+      "expectedIntent": "author",
+      "expectedTop3IncludesType": "author",
+      "notes": "Author + title fragment"
     },
     {
-      "id": "mixed-murderbot-review",
       "category": "mixed",
-      "query": "murderbot review",
-      "expectedResultTypeAny": ["review", "work"],
-      "notes": "Series nickname + entity type hint."
+      "query": "herbert dune",
+      "expectedTop3Includes": "work:dune",
+      "notes": "Author + title combination"
     },
     {
-      "id": "mixed-le-guin-dispossessed",
-      "category": "mixed",
-      "query": "le guin dispossessed",
-      "expectedTop3Includes": ["The Dispossessed"],
-      "notes": "Partial author + partial title."
+      "category": "format",
+      "query": "harry potter audiobook",
+      "expectedIntent": "format",
+      "notes": "Format-qualified search"
     },
     {
-      "id": "exact-title-long",
-      "category": "exact-title",
-      "query": "the house in the cerulean sea",
-      "expectedTopResultTitle": "The House in the Cerulean Sea",
-      "expectedResultType": "work"
+      "category": "empty-edge",
+      "query": "",
+      "expectNoResults": true,
+      "notes": "Empty query should return nothing"
     },
     {
-      "id": "exact-title-short",
-      "category": "exact-title",
-      "query": "1984",
-      "expectedTopResultTitle": "1984",
-      "expectedResultType": "work",
-      "notes": "Short numeric title — must not be confused with ISBNs."
+      "category": "empty-edge",
+      "query": "a",
+      "expectNoResults": true,
+      "notes": "Single-char query below minimum length"
     },
     {
-      "id": "semantic-unreliable-narrator",
-      "category": "semantic",
-      "query": "unreliable narrator literary fiction",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Narrative technique query — needs deep semantic matching."
-    },
-    {
-      "id": "semantic-found-family",
-      "category": "semantic",
-      "query": "found family space opera",
-      "semanticMustImproveOverLexical": true,
-      "notes": "Trope + subgenre combination."
+      "category": "privacy",
+      "query": "my secret notes",
+      "expectedIntent": "semantic",
+      "notes": "Should not return private/local-only docs on global surface"
     }
   ]
 }

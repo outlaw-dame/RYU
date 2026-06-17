@@ -2,6 +2,7 @@ import type { RyuDatabase } from '../db/client';
 import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import type { CanonicalApEntity } from '../sync/activitypub-client';
 import type { SearchDocument } from './types';
+import { stripHtml } from '../lib/sanitize';
 
 export type SearchProjectionSource = 'local' | 'remote';
 
@@ -101,6 +102,33 @@ export async function canonicalEntityToSearchDocument(
         source: 'local',
         updatedAt: timestamp
       };
+    case 'review': {
+      // Resolve the edition title for contextual enrichment.
+      let editionTitle = '';
+      if (entity.editionId) {
+        try {
+          const edition = await db.editions.findOne(entity.editionId).exec();
+          if (edition) editionTitle = edition.title;
+        } catch {
+          // best effort
+        }
+      }
+      const content = entity.content || '';
+      const truncatedContent = content.length > 500 ? content.slice(0, 500) + '…' : content;
+      return {
+        id: entity.id,
+        type: 'review',
+        title: entity.title || (editionTitle ? `Review of ${editionTitle}` : 'Review'),
+        description: truncatedContent,
+        authorText: entity.accountId || '',
+        isbnText: '',
+        enrichmentText: editionTitle ? `Review of: ${editionTitle}` : '',
+        source: 'local',
+        scope: 'public',
+        ownerId: entity.accountId || '',
+        updatedAt: timestamp
+      };
+    }
     default:
       return null;
   }
@@ -141,10 +169,16 @@ export async function reviewDocToSearchDocument(
   }
 
   const content = review?.content || "";
+  // Strip HTML tags before indexing — reviews from Mastodon/BookWyrm may contain HTML.
+  // Use regex fallback in non-browser environments (Node/Workers) where document is unavailable.
+  // Replace block/break elements with spaces to preserve word boundaries.
+  const plainContent = typeof document !== "undefined"
+    ? stripHtml(content)
+    : content.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[\s/]*>/gi, " ").replace(/<\/?[^>]+(>|$)/g, "").replace(/\s+/g, " ").trim();
   // Truncate content for embedding efficiency (first 500 chars)
-  const truncatedContent = content.length > 500
-    ? content.slice(0, 500) + "…"
-    : content;
+  const truncatedContent = plainContent.length > 500
+    ? plainContent.slice(0, 500) + "…"
+    : plainContent;
 
   return {
     id: review?.id || "",

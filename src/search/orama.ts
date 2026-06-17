@@ -213,7 +213,7 @@ async function buildIndex(state: OramaState, db: RyuDatabase): Promise<void> {
   for (const work of works) await addDoc(state, db, await workToSearchDocument(db, work, cache));
   for (const author of authors) await addDoc(state, db, authorDocToSearchDocument(author));
 
-  // Index reviews (collection may not exist in all database configurations)
+  // Index reviews — defensive: schema may omit `reviews` collection in some databases.
   if (db.reviews) {
     const reviews = await db.reviews.find().exec() as ReviewDoc[];
     const editionTitleCache = new Map<string, string>(editions.map((e) => [e.id, e.title]));
@@ -331,6 +331,7 @@ function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
     });
   });
 
+  // Defensive: only subscribe if the schema includes the `reviews` collection.
   if (db.reviews) {
     db.reviews.$.subscribe((change: any) => {
       const run = async () => {
@@ -345,6 +346,43 @@ function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
       };
       run().catch((error) => {
         console.error('Error in reviews subscription handler', { change, error });
+      });
+    });
+  }
+
+  // Phase 16: Entity resolution changes (merges, deduplication, re-resolution)
+  // trigger a re-index of the resolved entity so search stays consistent.
+  // Uses updateDoc (which calls chainPending) to serialize with concurrent
+  // deletes and avoid race conditions where a deleted entity's embedding is
+  // re-written by a resolution handler that started before the delete.
+  if (db.entityresolutions && db.entityresolutions.$) {
+    db.entityresolutions.$.subscribe((change: any) => {
+      const run = async () => {
+        if (change.operation === 'DELETE') return;
+        const docData = change.documentData ?? change.previousDocumentData;
+        if (!docData) return;
+
+        const { entityType, entityId } = docData;
+        const cache: AuthorNameCache = new Map();
+
+        if (entityType === 'author') {
+          const author = await db.authors.findOne(entityId).exec();
+          if (author) await updateDoc(state, db, authorDocToSearchDocument(author));
+        } else if (entityType === 'work') {
+          const work = await db.works.findOne(entityId).exec();
+          if (work) await updateDoc(state, db, await workToSearchDocument(db, work, cache));
+        } else if (entityType === 'edition') {
+          const edition = await db.editions.findOne(entityId).exec();
+          if (edition) await updateDoc(state, db, await editionToSearchDocument(db, edition, cache));
+        } else if (entityType === 'review') {
+          if (db.reviews) {
+            const review = await db.reviews.findOne(entityId).exec();
+            if (review) await updateDoc(state, db, await reviewDocToSearchDocument(db, review));
+          }
+        }
+      };
+      run().catch((error) => {
+        console.error('Error in entity resolution indexing subscription', { change, error });
       });
     });
   }

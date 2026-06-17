@@ -27,6 +27,7 @@ const healthCollections = {
   authors: collections.authors,
   works: collections.works,
   editions: collections.editions,
+  reviews: collections.reviews,
   searchvectors: collections.searchvectors
 } as unknown as RuntimeCollections;
 

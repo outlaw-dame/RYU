@@ -59,7 +59,7 @@ type EvalResult = {
 };
 
 function loadCases(): EvalCase[] {
-  const raw = readFileSync(join(__dirname, "fixtures", "search-quality-cases.json"), "utf-8");
+  const raw = readFileSync(join(__dirname, "fixtures", "search-quality-cases-v1.json"), "utf-8");
   const parsed = JSON.parse(raw);
   return parsed.cases;
 }
