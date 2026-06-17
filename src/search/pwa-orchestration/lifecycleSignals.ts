@@ -190,11 +190,24 @@ export function startLifecycleSignals(): () => void {
     // Page Lifecycle API events. These fire on supported browsers
     // (Chrome/Edge) and are no-ops elsewhere.
     safeOn(window, "freeze", () => update({ phase: "frozen", visibility: "hidden" }));
-    safeOn(window, "resume", () => update({ phase: "active" }));
+    safeOn(window, "resume", () => update({
+      phase: "active",
+      // Restore visibility from the live document state so the orchestrator
+      // resumes indexing immediately instead of waiting for a separate
+      // visibilitychange event (which may not fire after bfcache restore).
+      visibility: typeof document !== "undefined" && document.visibilityState === "hidden"
+        ? "hidden"
+        : "visible"
+    }));
     // pagehide / pageshow are universally supported and cover Safari
     // bfcache transitions where freeze/resume are not fired.
     safeOn(window, "pagehide", () => update({ phase: "frozen", visibility: "hidden" }));
-    safeOn(window, "pageshow", () => update({ phase: "active" }));
+    safeOn(window, "pageshow", () => update({
+      phase: "active",
+      visibility: typeof document !== "undefined" && document.visibilityState === "hidden"
+        ? "hidden"
+        : "visible"
+    }));
   }
 
   return stopLifecycleSignals;

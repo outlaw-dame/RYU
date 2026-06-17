@@ -113,6 +113,8 @@ export function createIndexingOrchestrator(
   let stopped = false;
 
   function recompute(): void {
+    if (stopped) return;
+
     // User-visible work is always allowed unless the document is fully
     // frozen (Page Lifecycle API). Frozen tabs cannot run JS reliably,
     // and the OS will kill timers; nothing we do will succeed there.
@@ -203,6 +205,11 @@ export function createIndexingOrchestrator(
     // queue so a tab kill or bfcache eviction does not lose backfill.
     if (snapshot.visibility === "hidden" || snapshot.phase === "frozen") {
       checkpointEmbeddingQueue(options.queue);
+      // If this tab is the leader and it's being backgrounded, step down
+      // so a visible peer can take over immediately rather than waiting
+      // for the heartbeat timeout. A hidden tab cannot show results or
+      // usefully make progress (mobile OSes throttle it aggressively).
+      coordinator.stepDown();
     }
 
     recompute();

@@ -48,6 +48,8 @@ type BroadcastChannelLike = {
 type Coordinator = {
   isLeader(): boolean;
   subscribe(listener: LeaderListener): () => void;
+  /** Voluntarily release leadership (e.g. when the tab is backgrounded). */
+  stepDown(): void;
   stop(): void;
 };
 
@@ -206,10 +208,17 @@ export function createMultiTabCoordinator(
         // election so a fresh leader can be elected after a crash.
         electionResponders.add(message.tabId);
         if (electionTimeout === null) {
-          // Another tab triggered the election; we still need to
-          // announce ourselves so the lowest-id rule converges.
-          electionResponders.add(tabId);
-          send({ kind: "leader-pong", tabId, lastSeenAt: now() });
+          // Another tab triggered the election. If our tabId is lower
+          // than the claimant's we should run our own election so
+          // convergence is immediate, rather than waiting 45s for the
+          // heartbeat watchdog.
+          if (!isLeader && tabId < message.tabId) {
+            startElection();
+          } else {
+            // Announce ourselves so the lowest-id rule converges.
+            electionResponders.add(tabId);
+            send({ kind: "leader-pong", tabId, lastSeenAt: now() });
+          }
         }
         return;
       }
@@ -282,6 +291,16 @@ export function createMultiTabCoordinator(
           listeners.delete(listener);
         };
       },
+      stepDown() {
+        if (stopped || !isLeader) return;
+        stopHeartbeat();
+        try {
+          channel.postMessage({ kind: "leader-step-down", tabId });
+        } catch {
+          // ignore
+        }
+        setLeader(false, null);
+      },
       stop() {
         if (stopped) return;
         // Broadcast step-down before tearing down so peers can run a
@@ -327,6 +346,9 @@ export function createMultiTabCoordinator(
       return () => {
         listeners.delete(listener);
       };
+    },
+    stepDown() {
+      // No-op in single-tab mode — there are no peers to take over.
     },
     stop() {
       stopped = true;

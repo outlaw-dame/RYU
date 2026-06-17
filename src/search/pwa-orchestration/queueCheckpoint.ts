@@ -143,6 +143,7 @@ export function restoreEmbeddingQueue(queue: EmbeddingJobQueue): {
       !job ||
       typeof job.id !== "string" ||
       typeof job.entityId !== "string" ||
+      typeof job.entityType !== "string" ||
       typeof job.providerId !== "string" ||
       typeof job.textHash !== "string" ||
       typeof job.dimensions !== "number" ||
