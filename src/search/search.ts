@@ -69,7 +69,7 @@ export async function searchAllWithDiagnostics(query: string, options: SearchOpt
 
   const withContext = applyContextBoosts(scopeFiltered, options.context);
 
-  const withFeedback = applyFeedbackBoosts(primaryQuery, withContext);
+  const withFeedback = applyFeedbackBoosts(primaryQuery, withContext, options.context?.surface);
 
   const prefs = getSearchPreferences();
 

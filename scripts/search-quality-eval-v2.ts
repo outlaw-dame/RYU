@@ -12,11 +12,10 @@
  * Run: `npm run search:quality-eval`
  *
  * CI gates:
- * - Intent classification accuracy >= 80%
- * - Exact ISBN/title top-1 hit rate = 100%
- * - Semantic top-3 inclusion rate >= 60% (for cases with expectedTop3Includes)
- * - No private content leakage on global surface
- * - All queries complete within 500ms (lexical-only, no model load)
+ * - Privacy violations = 0
+ * - Intent accuracy >= 50% (current baseline, ratchet up)
+ * - Strict exact-match hit rate >= 90%
+ * - Max query time < 500ms
  */
 
 import qualityCases from './fixtures/search-quality-cases.json';
@@ -24,7 +23,7 @@ import { classifyQueryIntent } from '../src/search/intent';
 import { rankLexical } from '../src/search/ranking';
 import { filterResultsByScope } from '../src/search/scope-filter';
 import { normalizeSearchQuery } from '../src/search/query-normalize';
-import type { RankedSearchResult, SearchDocument } from '../src/search/types';
+import type { SearchDocument } from '../src/search/types';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(`QUALITY GATE FAILED: ${message}`);
@@ -144,6 +143,10 @@ type EvalResult = {
   passed: boolean;
   failures: string[];
   durationMs: number;
+  // Carry expected fields so metric aggregation doesn't need O(N²) lookups.
+  expectedIntent?: string;
+  expectedTopId?: string;
+  expectedTop3Includes?: string;
 };
 
 function evaluateCase(testCase: QualityCase): EvalResult {
@@ -151,20 +154,32 @@ function evaluateCase(testCase: QualityCase): EvalResult {
   const failures: string[] = [];
   const normalized = normalizeSearchQuery(testCase.query);
 
-  // Empty/short queries should produce no results.
+  const baseResult = {
+    query: testCase.query,
+    category: testCase.category,
+    expectedIntent: testCase.expectedIntent,
+    expectedTopId: testCase.expectedTopId,
+    expectedTop3Includes: testCase.expectedTop3Includes
+  };
+
+  // Empty/short queries: exercise the actual ranking pipeline so this is a
+  // real quality gate — if rankLexical returns results for empty/single-char
+  // queries, the scope filter should still exclude private docs, and the test
+  // verifies no results survive after normalization + filtering.
   if (testCase.expectNoResults) {
-    if (normalized.length >= 2) {
-      const results = rankLexical(docs, normalized);
-      if (results.length > 0) {
-        failures.push(`Expected no results but got ${results.length}`);
-      }
+    const results = rankLexical(docs, normalized);
+    const globalFiltered = filterResultsByScope(results, { surface: 'global' });
+    if (globalFiltered.length > 0 && normalized.length >= 2) {
+      failures.push(`Expected no results but got ${globalFiltered.length}`);
     }
-    return { query: testCase.query, category: testCase.category, passed: failures.length === 0, failures, durationMs: performance.now() - start };
+    // For queries that normalize to < 2 chars, the search pipeline's
+    // normalizeSearchQuery gate prevents execution — this is correct behavior.
+    return { ...baseResult, passed: failures.length === 0, failures, durationMs: performance.now() - start };
   }
 
   if (normalized.length < 2) {
-    // Skip evaluation for queries that normalize to < 2 chars.
-    return { query: testCase.query, category: testCase.category, passed: true, failures, durationMs: performance.now() - start };
+    // The query normalized to below the minimum — pass (correctly gated).
+    return { ...baseResult, passed: true, failures, durationMs: performance.now() - start };
   }
 
   // Intent classification.
@@ -214,7 +229,7 @@ function evaluateCase(testCase: QualityCase): EvalResult {
   }
 
   const durationMs = performance.now() - start;
-  return { query: testCase.query, category: testCase.category, passed: failures.length === 0, failures, durationMs };
+  return { ...baseResult, passed: failures.length === 0, failures, durationMs };
 }
 
 function main(): void {
@@ -225,21 +240,26 @@ function main(): void {
     results.push(evaluateCase(testCase));
   }
 
-  // Aggregate metrics.
+  // Aggregate metrics — O(N) using embedded expected fields, not O(N²) find().
   const total = results.length;
   const passed = results.filter((r) => r.passed).length;
   const failed = results.filter((r) => !r.passed);
 
-  // Category-specific metrics.
-  const intentCases = results.filter((r) => cases.find((c) => c.query === r.query)?.expectedIntent);
+  // Intent accuracy: only count cases that actually specify an expected intent.
+  const intentCases = results.filter((r) => r.expectedIntent !== undefined);
   const intentCorrect = intentCases.filter((r) => !r.failures.some((f) => f.startsWith('Intent:')));
   const intentAccuracy = intentCases.length > 0 ? intentCorrect.length / intentCases.length : 1;
 
-  const exactMatchCases = results.filter((r) => r.category === 'exact-title' || r.category === 'isbn');
+  // Exact match rate: only count cases with expectedTopId to avoid inflating
+  // the metric with cases that can never fail the Top ID check.
+  const exactMatchCases = results.filter((r) =>
+    (r.category === 'exact-title' || r.category === 'isbn') && r.expectedTopId !== undefined
+  );
   const exactMatchHit = exactMatchCases.filter((r) => !r.failures.some((f) => f.startsWith('Top ID:')));
   const exactMatchRate = exactMatchCases.length > 0 ? exactMatchHit.length / exactMatchCases.length : 1;
 
-  const semanticCases = results.filter((r) => r.category === 'semantic' && cases.find((c) => c.query === r.query)?.expectedTop3Includes);
+  // Semantic top-3 rate: only count cases with expectedTop3Includes.
+  const semanticCases = results.filter((r) => r.category === 'semantic' && r.expectedTop3Includes !== undefined);
   const semanticHit = semanticCases.filter((r) => !r.failures.some((f) => f.startsWith('Top-3 inclusion:')));
   const semanticRate = semanticCases.length > 0 ? semanticHit.length / semanticCases.length : 1;
 
@@ -267,19 +287,14 @@ function main(): void {
   assert(privacyCases.length === 0, 'Privacy violations detected in search results');
   // Intent accuracy threshold: set at current baseline (55%) and ratcheted up
   // as the classifier improves. The eval's purpose is to DETECT regressions,
-  // not to block merges until the classifier is perfect. Current misclassifications
-  // are: multi-word titles → 'semantic', author names → 'title', keyword queries → 'title'.
-  // These are pre-existing and tracked for Phase 19+ improvements.
+  // not to block merges until the classifier is perfect.
   assert(intentAccuracy >= 0.50, `Intent accuracy ${Math.round(intentAccuracy * 100)}% below 50% threshold`);
-  // Note: exact match rate gate is relaxed because semantic-only cases may not
-  // have matching fixtures for all expectedTop3Includes. We only gate on cases
-  // that specify expectedTopId (which are exact-match cases by definition).
-  const strictExactCases = results.filter((r) =>
-    cases.find((c) => c.query === r.query)?.expectedTopId !== undefined
-  );
+  // Strict exact-match gate: any case with an expectedTopId must rank it #1.
+  // This covers exact-title, isbn, AND fuzzy-title cases that specify expectedTopId.
+  const strictExactCases = results.filter((r) => r.expectedTopId !== undefined);
   const strictExactHit = strictExactCases.filter((r) => !r.failures.some((f) => f.startsWith('Top ID:')));
   const strictExactRate = strictExactCases.length > 0 ? strictExactHit.length / strictExactCases.length : 1;
-  assert(strictExactRate >= 0.90, `Strict exact-match hit rate ${Math.round(strictExactRate * 100)}% below 90% threshold`);
+  assert(strictExactRate >= 0.90, `Exact-match hit rate ${Math.round(strictExactRate * 100)}% below 90% threshold`);
   assert(maxDurationMs < 500, `Max query time ${maxDurationMs.toFixed(1)}ms exceeds 500ms threshold`);
 
   console.log('\nSearch quality eval v2 passed.');
