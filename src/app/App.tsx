@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { AnimatePresence, motion, MotionConfig } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { AppTabBar, type TabId } from "../components/layout/AppTabBar";
+import { type TabId } from "../components/layout/AppTabBar";
+import { AppShell } from "../components/layout/AppShell";
 import { AdaptiveSearchField } from "../design/adaptive";
-import { ErrorBoundary } from "../components/common/ErrorBoundary";
-import { OfflineIndicator } from "../components/common/OfflineIndicator";
 import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { BookDetailSheet } from "../components/common/BookDetailSheet";
@@ -2968,19 +2967,7 @@ export function App() {
   }, [profilePinnedStatuses]);
 
   return (
-    <MotionConfig reducedMotion="user">
-      <ErrorBoundary>
-        <div style={{
-          width: "100%",
-          height: "100dvh",
-          display: "flex",
-          flexDirection: "column",
-          background: "var(--color-bg)",
-          color: "var(--color-text)",
-          overflow: "hidden"
-        }}>
-          <OfflineIndicator />
-          <main style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+    <AppShell activeTab={activeTab} onTabChange={changeTab}>
             <AnimatePresence mode="wait">
               {activeTab === "home" && (
                 <TabPanel id="home" activeTab={activeTab}>
@@ -4337,10 +4324,6 @@ export function App() {
                 }}
               />
             ) : null}
-          </main>
-          <AppTabBar activeTab={activeTab} onChange={changeTab} />
-        </div>
-      </ErrorBoundary>
-    </MotionConfig>
+    </AppShell>
   );
 }
