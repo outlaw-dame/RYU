@@ -4,7 +4,6 @@ import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import { rankLexical, dedupe } from './ranking';
 import { authorDocToSearchDocument, reviewDocToSearchDocument } from './search-document-projection';
 import { indexDocument, removeFromInMemoryVectorIndex } from './vector-index';
-import { setupEntityResolutionIndexing } from './entity-resolution-indexing';
 import type { SearchDocument } from './types';
 
 type OramaState = {
@@ -350,6 +349,43 @@ function setupReactiveIndex(state: OramaState, db: RyuDatabase): void {
       });
     });
   }
+
+  // Phase 16: Entity resolution changes (merges, deduplication, re-resolution)
+  // trigger a re-index of the resolved entity so search stays consistent.
+  // Uses updateDoc (which calls chainPending) to serialize with concurrent
+  // deletes and avoid race conditions where a deleted entity's embedding is
+  // re-written by a resolution handler that started before the delete.
+  if (db.entityresolutions && db.entityresolutions.$) {
+    db.entityresolutions.$.subscribe((change: any) => {
+      const run = async () => {
+        if (change.operation === 'DELETE') return;
+        const docData = change.documentData ?? change.previousDocumentData;
+        if (!docData) return;
+
+        const { entityType, entityId } = docData;
+        const cache: AuthorNameCache = new Map();
+
+        if (entityType === 'author') {
+          const author = await db.authors.findOne(entityId).exec();
+          if (author) await updateDoc(state, db, authorDocToSearchDocument(author));
+        } else if (entityType === 'work') {
+          const work = await db.works.findOne(entityId).exec();
+          if (work) await updateDoc(state, db, await workToSearchDocument(db, work, cache));
+        } else if (entityType === 'edition') {
+          const edition = await db.editions.findOne(entityId).exec();
+          if (edition) await updateDoc(state, db, await editionToSearchDocument(db, edition, cache));
+        } else if (entityType === 'review') {
+          if (db.reviews) {
+            const review = await db.reviews.findOne(entityId).exec();
+            if (review) await updateDoc(state, db, await reviewDocToSearchDocument(db, review));
+          }
+        }
+      };
+      run().catch((error) => {
+        console.error('Error in entity resolution indexing subscription', { change, error });
+      });
+    });
+  }
 }
 
 async function createState(db: RyuDatabase): Promise<OramaState> {
@@ -361,7 +397,6 @@ async function createState(db: RyuDatabase): Promise<OramaState> {
     database: db
   };
   setupReactiveIndex(state, db);
-  setupEntityResolutionIndexing(db);
   await buildIndex(state, db);
   return state;
 }
