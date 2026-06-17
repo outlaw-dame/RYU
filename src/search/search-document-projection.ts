@@ -2,6 +2,7 @@ import type { RyuDatabase } from '../db/client';
 import type { AuthorDoc, EditionDoc, ReviewDoc, WorkDoc } from '../db/schema';
 import type { CanonicalApEntity } from '../sync/activitypub-client';
 import type { SearchDocument } from './types';
+import { stripHtml } from '../lib/sanitize';
 
 export type SearchProjectionSource = 'local' | 'remote';
 
@@ -168,10 +169,16 @@ export async function reviewDocToSearchDocument(
   }
 
   const content = review?.content || "";
+  // Strip HTML tags before indexing — reviews from Mastodon/BookWyrm may contain HTML.
+  // Use regex fallback in non-browser environments (Node/Workers) where document is unavailable.
+  // Replace block/break elements with spaces to preserve word boundaries.
+  const plainContent = typeof document !== "undefined"
+    ? stripHtml(content)
+    : content.replace(/<(br|\/p|\/div|\/li|\/h[1-6])[\s/]*>/gi, " ").replace(/<\/?[^>]+(>|$)/g, "").replace(/\s+/g, " ").trim();
   // Truncate content for embedding efficiency (first 500 chars)
-  const truncatedContent = content.length > 500
-    ? content.slice(0, 500) + "…"
-    : content;
+  const truncatedContent = plainContent.length > 500
+    ? plainContent.slice(0, 500) + "…"
+    : plainContent;
 
   return {
     id: review?.id || "",
