@@ -55,6 +55,11 @@ export const SURFACE_CONFIGS: Record<SearchSurface, SurfaceSearchConfig> = {
     surface: "entity",
     preferOwnedLibrary: false,
     description: "Entity page related search — related works/authors/editions"
+  },
+  activity: {
+    surface: "activity",
+    preferOwnedLibrary: false,
+    description: "Activity/fediverse search — remote cache + public local content"
   }
 };
 
