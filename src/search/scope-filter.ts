@@ -46,10 +46,19 @@ export function isScopeVisibleOnSurface(
       if (effectiveSurface !== "library" && effectiveSurface !== "shelf") {
         return false;
       }
-      // If ownerId is set, it MUST match the current user
+      // Defense-in-depth: if there is no authenticated user, NEVER expose
+      // private/local-only documents — even ownerless legacy ones — because
+      // there is no identity to scope visibility to.
+      if (!currentUserId) {
+        return false;
+      }
+      // If ownerId is set, it MUST match the current user.
       if (ownerId && ownerId !== currentUserId) {
         return false;
       }
+      // ownerId is undefined (legacy/unowned data): allow only when the user
+      // is authenticated (currentUserId is set). This preserves migration of
+      // legacy library data while preventing exposure to anonymous callers.
       return true;
 
     case "cache-only":

@@ -33,11 +33,12 @@ describe("isScopeVisibleOnSurface", () => {
   });
 
   it("private documents are only visible in library and shelf surfaces", () => {
-    expect(isScopeVisibleOnSurface("private", "library")).toBe(true);
-    expect(isScopeVisibleOnSurface("private", "shelf")).toBe(true);
-    expect(isScopeVisibleOnSurface("private", "global")).toBe(false);
-    expect(isScopeVisibleOnSurface("private", "onboarding")).toBe(false);
-    expect(isScopeVisibleOnSurface("private", "entity")).toBe(false);
+    // Use authenticated caller to isolate surface gating from owner/auth gating.
+    expect(isScopeVisibleOnSurface("private", "library", undefined, "user-1")).toBe(true);
+    expect(isScopeVisibleOnSurface("private", "shelf", undefined, "user-1")).toBe(true);
+    expect(isScopeVisibleOnSurface("private", "global", undefined, "user-1")).toBe(false);
+    expect(isScopeVisibleOnSurface("private", "onboarding", undefined, "user-1")).toBe(false);
+    expect(isScopeVisibleOnSurface("private", "entity", undefined, "user-1")).toBe(false);
   });
 
   it("private documents are only visible if the owner matches the current user", () => {
@@ -46,9 +47,12 @@ describe("isScopeVisibleOnSurface", () => {
     expect(isScopeVisibleOnSurface("private", "library", "user-1", undefined)).toBe(false);
   });
 
-  it("private documents without ownerId are visible (legacy/unowned data)", () => {
+  it("private documents without ownerId are visible only to authenticated users (legacy/unowned data)", () => {
+    // Authenticated user can see ownerless private docs (legacy migration support).
     expect(isScopeVisibleOnSurface("private", "library", undefined, "user-1")).toBe(true);
-    expect(isScopeVisibleOnSurface("private", "library", undefined, undefined)).toBe(true);
+    // Unauthenticated callers can NEVER see private docs, even ownerless ones —
+    // there is no identity to scope visibility to. (Defense-in-depth, Phase 13 audit.)
+    expect(isScopeVisibleOnSurface("private", "library", undefined, undefined)).toBe(false);
   });
 
   it("local-only documents follow the same ownership rules as private", () => {
