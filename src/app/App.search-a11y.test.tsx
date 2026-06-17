@@ -23,7 +23,15 @@ vi.mock("framer-motion", () => ({
 vi.mock("framework7-react", () => ({
   Toolbar: ({ children }: { children: React.ReactNode }) => <div data-testid="f7-toolbar">{children}</div>,
   Sheet: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  PageContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
+  PageContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Page: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Navbar: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  NavLeft: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  NavTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  NavRight: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
+  List: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ListItem: ({ children }: { children: React.ReactNode }) => <div>{children}</div>
 }));
 
 vi.mock("../hooks/useDatabase", () => ({
