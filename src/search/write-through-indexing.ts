@@ -82,8 +82,6 @@ export function createSearchIndexQueue(options: SearchIndexQueueOptions = {}): S
   }
 
   function enqueue(db: RyuDatabase, entity: CanonicalApEntity, timestamp: string): void {
-    if (entity.kind === 'review') return;
-
     const job: SearchIndexJob = { db, entity, timestamp };
     const key = jobKey(job);
     const existingIndex = queue.findIndex((candidate) => jobKey(candidate) === key);

@@ -176,7 +176,7 @@ async function testAuthorDependencyLookupFindsOnlyAffectedRecords(): Promise<voi
   assert((db.selectors[0] as { authorId?: string }).authorId === author.id, 'Author dependency selector should filter by authorId');
 }
 
-async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
+async function testQueueLimitsConcurrencyAndIndexesAllEntityTypes(): Promise<void> {
   const db = createFakeDb({ [author.id]: author.name });
   let active = 0;
   let maxActive = 0;
@@ -195,7 +195,7 @@ async function testQueueLimitsConcurrencyAndSkipsReviews(): Promise<void> {
   queue.enqueue(db, review, timestamp);
   await delay(80);
 
-  assert(indexed.length === 3, 'Queue should index authors, works, and editions only');
+  assert(indexed.length === 4, 'Queue should index authors, works, editions, and reviews');
   assert(maxActive <= 2, 'Queue should respect configured concurrency');
   assert(indexed.every((doc) => doc.type !== undefined), 'Indexed documents should be valid search documents');
 }
@@ -237,7 +237,7 @@ async function main(): Promise<void> {
   await testLocalDocProjectionMatchesCanonicalProjection();
   await testMissingAuthorsFallbackSafely();
   await testAuthorDependencyLookupFindsOnlyAffectedRecords();
-  await testQueueLimitsConcurrencyAndSkipsReviews();
+  await testQueueLimitsConcurrencyAndIndexesAllEntityTypes();
   await testQueueDedupesPendingJobs();
   await testQueueAppliesCapacityLimit();
   console.log('Write-through indexing, projection, and dependency guardrails passed.');
