@@ -75,7 +75,14 @@ export type SearchDiagnosticsSnapshot = {
 export async function captureSearchDiagnosticsSnapshot(
   db?: RyuDatabase
 ): Promise<SearchDiagnosticsSnapshot> {
-  const database = db ?? await initializeDatabase().catch(() => null);
+  let database: RyuDatabase | null = null;
+  let dbInitError: string | undefined;
+
+  try {
+    database = db ?? await initializeDatabase();
+  } catch (error) {
+    dbInitError = error instanceof Error ? error.message : "Database initialization failed";
+  }
 
   // Engine diagnostics (synchronous — never fails).
   const provider = getEmbeddingProvider();
@@ -88,14 +95,21 @@ export async function captureSearchDiagnosticsSnapshot(
 
   // Index health (async, can fail).
   let index: SearchIndexDiagnostics;
-  try {
-    const health = database ? await inspectSearchIndexHealth(database) : null;
-    index = { health };
-  } catch (error) {
+  if (!database) {
     index = {
       health: null,
-      healthError: error instanceof Error ? error.message : "Health check failed"
+      healthError: dbInitError ?? "Database not available"
     };
+  } else {
+    try {
+      const health = await inspectSearchIndexHealth(database);
+      index = { health };
+    } catch (error) {
+      index = {
+        health: null,
+        healthError: error instanceof Error ? error.message : "Health check failed"
+      };
+    }
   }
 
   // Write-through queue (synchronous import to avoid circular deps).

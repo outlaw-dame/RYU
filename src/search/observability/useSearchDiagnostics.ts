@@ -8,7 +8,7 @@
  *   const { snapshot, refresh, loading } = useSearchDiagnostics();
  */
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   captureSearchDiagnosticsSnapshot,
   type SearchDiagnosticsSnapshot
@@ -30,6 +30,14 @@ export function useSearchDiagnostics(): UseSearchDiagnosticsResult {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inflightRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const refresh = useCallback(() => {
     if (inflightRef.current) return;
@@ -39,14 +47,20 @@ export function useSearchDiagnostics(): UseSearchDiagnosticsResult {
 
     captureSearchDiagnosticsSnapshot()
       .then((next) => {
-        setSnapshot(next);
+        if (isMountedRef.current) {
+          setSnapshot(next);
+        }
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "Capture failed");
+        if (isMountedRef.current) {
+          setError(err instanceof Error ? err.message : "Capture failed");
+        }
       })
       .finally(() => {
-        setLoading(false);
         inflightRef.current = false;
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
       });
   }, []);
 
