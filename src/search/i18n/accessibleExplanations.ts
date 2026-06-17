@@ -66,6 +66,15 @@ export function buildAccessibleExplanation(
     "Result";
 
   if (!reasons || reasons.length === 0) {
+    // When semantic search contributed but no explicit reasons were tagged,
+    // still communicate the AI contribution to screen readers.
+    if (usedSemantic) {
+      return {
+        summary: `${typeLabel}. Found by meaning-based match. Enhanced by AI.`.slice(0, 120),
+        usedSemantic: true,
+        primaryReason: "meaning-based match"
+      };
+    }
     return {
       summary: `${typeLabel}. Found by search.`,
       usedSemantic,

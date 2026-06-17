@@ -29,6 +29,14 @@ describe("buildAccessibleExplanation", () => {
     expect(result.primaryReason).toBe("search match");
   });
 
+  it("handles empty reasons with usedSemantic=true (P2: preserve semantic context)", () => {
+    const result = buildAccessibleExplanation([], true, "work");
+    expect(result.summary).toContain("meaning-based match");
+    expect(result.summary).toContain("Enhanced by AI");
+    expect(result.primaryReason).toBe("meaning-based match");
+    expect(result.usedSemantic).toBe(true);
+  });
+
   it("handles undefined reasons", () => {
     const result = buildAccessibleExplanation(undefined, false, "review");
     expect(result.summary).toBe("Review. Found by search.");

@@ -19,7 +19,9 @@
 export function foldDiacritics(text: string): string {
   // NFD decomposes characters: "é" → "e" + combining-accent
   // Then we strip the combining-characters range (U+0300..U+036F).
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  // Finally recompose to NFC so Hangul syllables and other composed
+  // characters are restored to their canonical form for matching.
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").normalize("NFC");
 }
 
 /**
@@ -33,7 +35,7 @@ export function foldDiacritics(text: string): string {
  */
 export function containsCJK(text: string): boolean {
   // eslint-disable-next-line no-control-regex
-  return /[\u3000-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af\u3040-\u309f\u30a0-\u30ff]/u.test(text);
+  return /[\u3000-\u9fff\uf900-\ufaff\u{20000}-\u{2fa1f}\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u3040-\u309f\u30a0-\u30ff]/u.test(text);
 }
 
 /**
@@ -42,12 +44,14 @@ export function containsCJK(text: string): boolean {
  * set `dir="auto"` or `dir="rtl"` for correct cursor/caret behavior.
  */
 export function isRTLText(text: string): boolean {
-  // Check for the first strong directional character.
-  // RTL ranges: Arabic (0600-06FF), Hebrew (0590-05FF), etc.
-  const firstStrong = text.match(/[\u0590-\u05ff\u0600-\u06ff\u0700-\u074f\u0780-\u07bf\ufb50-\ufdff\ufe70-\ufeff]/);
-  if (firstStrong) return true;
-  // Check for RTL marks.
+  // Check for RTL marks at the start first.
   if (text.startsWith("\u200F") || text.startsWith("\u202B")) return true;
+  // Find the first letter (strong directional character) using Unicode
+  // property escape. Only return true if THAT character is RTL.
+  const firstLetter = text.match(/\p{L}/u);
+  if (firstLetter) {
+    return /[\u0590-\u05ff\u0600-\u06ff\u0700-\u074f\u0780-\u07bf\ufb50-\ufdff\ufe70-\ufeff]/.test(firstLetter[0]);
+  }
   return false;
 }
 
@@ -74,7 +78,8 @@ export type QueryScript = "latin" | "cjk" | "rtl" | "mixed";
 
 export function detectQueryScript(query: string): QueryScript {
   const hasCJK = containsCJK(query);
-  const hasRTL = isRTLText(query);
+  // For script detection (not direction), check if ANY RTL character is present.
+  const hasRTL = /[\u0590-\u05ff\u0600-\u06ff\u0700-\u074f\u0780-\u07bf\ufb50-\ufdff\ufe70-\ufeff]/.test(query);
   if (hasCJK && hasRTL) return "mixed";
   if (hasCJK) return "cjk";
   if (hasRTL) return "rtl";

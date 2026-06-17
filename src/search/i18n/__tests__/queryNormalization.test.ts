@@ -70,8 +70,9 @@ describe("isRTLText", () => {
     expect(isRTLText("Dune")).toBe(false);
   });
 
-  it("returns false for CJK text", () => {
-    expect(isRTLText("三体")).toBe(false);
+  it("returns false for mixed text starting with LTR", () => {
+    // "Dune" starts with LTR, so even though Arabic follows, first strong is LTR.
+    expect(isRTLText("Dune كتاب")).toBe(false);
   });
 
   it("returns false for empty string", () => {
@@ -115,7 +116,10 @@ describe("detectQueryScript", () => {
     expect(detectQueryScript("ספר")).toBe("rtl");
   });
 
-  it("returns 'mixed' for combined CJK + RTL", () => {
+  it("returns 'mixed' for text containing both CJK and RTL characters", () => {
+    // Arabic first, then CJK — first strong char is RTL but CJK is also present.
+    expect(detectQueryScript("كتاب 三体")).toBe("mixed");
+    // CJK first, then Arabic — first strong char is CJK but RTL is also present.
     expect(detectQueryScript("三体 كتاب")).toBe("mixed");
   });
 });
