@@ -26,6 +26,7 @@ import {
   unbookmarkStatus as apiUnbookmarkStatus
 } from "../sync/mastodon-activity-api";
 import type { MastodonStatus, MastodonNotification } from "../sync/mastodon-client";
+import { useMastodonShelves } from "../hooks/useMastodonShelves";
 
 export type ConnectedAccount = {
   instanceOrigin: string;
@@ -105,6 +106,7 @@ export function useActivityTab(): ActivityTabState {
   }, [sessionQuery.data]);
 
   const isConnected = connectedAccount !== null;
+  const shelves = useMastodonShelves(isConnected);
 
   const homeTimelineQuery = useMastodonHomeTimeline({
     enabled: isConnected,
@@ -183,6 +185,8 @@ export function useActivityTab(): ActivityTabState {
           (prev: { items: MastodonStatus[]; links: Record<string, string> } | undefined) =>
             prev ? { ...prev, items: prev.items.map((s: MastodonStatus) => s.id === updated.id ? updated : s) } : prev
         );
+        if (!currentFavourited) shelves.addFavourite(updated);
+        else shelves.removeFavourite(statusId);
         setStatusInteractions((prev) => {
           const next = new Map(prev);
           next.delete(statusId);
@@ -197,7 +201,7 @@ export function useActivityTab(): ActivityTabState {
           return next;
         });
       });
-  }, [queryClient]);
+  }, [queryClient, shelves]);
 
   const handleBookmark = useCallback((statusId: string, currentBookmarked: boolean) => {
     setStatusInteractions((prev) => {
@@ -214,6 +218,8 @@ export function useActivityTab(): ActivityTabState {
           (prev: { items: MastodonStatus[]; links: Record<string, string> } | undefined) =>
             prev ? { ...prev, items: prev.items.map((s: MastodonStatus) => s.id === updated.id ? updated : s) } : prev
         );
+        if (!currentBookmarked) shelves.addBookmark(updated);
+        else shelves.removeBookmark(statusId);
         setStatusInteractions((prev) => {
           const next = new Map(prev);
           next.delete(statusId);
@@ -228,7 +234,7 @@ export function useActivityTab(): ActivityTabState {
           return next;
         });
       });
-  }, [queryClient]);
+  }, [queryClient, shelves]);
 
   const disconnect = useCallback(() => {
     void disconnectMutation.mutateAsync();

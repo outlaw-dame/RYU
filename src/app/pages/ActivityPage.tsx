@@ -300,7 +300,7 @@ export function ActivityPage({
             ) : notifications.length > 0 ? (
               notifications.map((notification) => (
                 renderNotificationRow
-                  ? <span key={notification.id}>{renderNotificationRow({ notification })}</span>
+                  ? renderNotificationRow({ notification })
                   : <DefaultNotificationRow key={notification.id} notification={notification} />
               ))
             ) : (
@@ -325,12 +325,12 @@ export function ActivityPage({
               timeline.map((status) => {
                 const interaction = statusInteractions.get(status.id);
                 return renderStatusRow
-                  ? <span key={status.id}>{renderStatusRow({
+                  ? renderStatusRow({
                       status,
                       interaction,
                       onFavourite: canFavourite ? handleFavourite : undefined,
                       onBookmark: canBookmark ? handleBookmark : undefined
-                    })}</span>
+                    })
                   : <DefaultStatusRow
                       key={status.id}
                       status={status}
