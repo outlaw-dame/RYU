@@ -6,7 +6,10 @@ This document captures the release hardening decisions and operational checklist
 
 ## Feature Flags
 
-All search capabilities are gated behind runtime feature flags persisted in localStorage. Flags can be toggled without code changes or schema migrations.
+All search capabilities are gated behind runtime feature flags persisted in localStorage. Flags can be toggled without code changes or schema migrations. Flags are consulted at runtime by the search pipeline:
+- `enhanced_search` gates `runtime-configure.ts` (forces deterministic when disabled)
+- `personalization` gates `feedback-ranking.ts` (skips boost application when disabled)
+- Other flags are ready for wiring as their subsystems are integrated into the shell
 
 | Flag | Default | Description |
 |------|---------|-------------|

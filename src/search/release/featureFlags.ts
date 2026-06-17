@@ -41,7 +41,19 @@ function loadFlags(): SearchFeatureFlags {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
-    return { ...DEFAULTS, ...(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ...DEFAULTS };
+    }
+    // Sanitize each known flag to an actual boolean — localStorage is
+    // user/corruption-controlled so strings like "false" or numbers
+    // must not pollute the production-safety gates.
+    const sanitized: Partial<SearchFeatureFlags> = {};
+    for (const key of Object.keys(DEFAULTS) as SearchFeatureFlag[]) {
+      if (key in parsed && typeof parsed[key] === "boolean") {
+        sanitized[key] = parsed[key];
+      }
+    }
+    return { ...DEFAULTS, ...sanitized };
   } catch {
     return { ...DEFAULTS };
   }

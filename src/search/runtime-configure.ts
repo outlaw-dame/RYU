@@ -10,6 +10,7 @@ import {
 } from './model-lifecycle/storageQuota';
 import { getEmbeddingArtifactRecord } from './model-lifecycle/modelRegistry';
 import { markDisabled, resetModelStatus } from './model-lifecycle/modelStatus';
+import { isSearchFeatureEnabled } from './release';
 
 let applyGeneration = 0;
 
@@ -60,7 +61,12 @@ export function applySearchRuntimeSettings(settings: SearchRuntimeSettings = get
   let fallbackReason: string | undefined;
   let requestedEmbeddingRuntime: SearchRuntimeSettings['embeddingRuntime'] = settings.embeddingRuntime;
 
-  if (settings.embeddingRuntime === 'auto') {
+  // Phase 22: feature flag gate. If enhanced_search is disabled at runtime,
+  // force deterministic regardless of what the settings say.
+  if (!isSearchFeatureEnabled('enhanced_search')) {
+    requestedEmbeddingRuntime = 'deterministic';
+    fallbackReason = 'Enhanced search disabled via feature flag.';
+  } else if (settings.embeddingRuntime === 'auto') {
     if (canAttemptEmbeddingGemma()) {
       requestedEmbeddingRuntime = 'embeddinggemma';
     } else if (canAttemptMiniLM()) {
