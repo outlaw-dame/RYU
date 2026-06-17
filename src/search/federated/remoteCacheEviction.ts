@@ -17,6 +17,7 @@ import {
   getSearchBoundaryConfig,
   isRemoteCacheExpired
 } from "./searchBoundary";
+import { isSearchFeatureEnabled } from "../release";
 
 export type EvictionReport = {
   /** Number of expired documents removed. */
@@ -49,6 +50,11 @@ export async function evictStaleRemoteCache(db: RyuDatabase): Promise<EvictionRe
     remaining: 0,
     errors: []
   };
+
+  // Phase 22: when remote_cache_eviction is disabled, skip eviction entirely.
+  if (!isSearchFeatureEnabled('remote_cache_eviction')) {
+    return report;
+  }
 
   const config = getSearchBoundaryConfig();
 

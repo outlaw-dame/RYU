@@ -43,6 +43,7 @@ import {
   checkpointEmbeddingQueue,
   restoreEmbeddingQueue
 } from "./queueCheckpoint";
+import { isSearchFeatureEnabled } from "../release";
 
 const PRESSURE_PROBE_INTERVAL_MS = 30_000;
 
@@ -91,6 +92,25 @@ function defaultPressureSnapshot(): PressureSnapshot {
 export function createIndexingOrchestrator(
   options: IndexingOrchestratorOptions
 ): IndexingOrchestrator {
+  // Phase 22: when pwa_orchestration is disabled, return a no-op orchestrator
+  // that never starts background work. User-visible search still works
+  // because it doesn't depend on the orchestrator.
+  if (!isSearchFeatureEnabled('pwa_orchestration')) {
+    const noopState: OrchestratorState = {
+      lifecycle: { visibility: "visible", network: "online", readiness: "complete", phase: "active", changedAt: new Date().toISOString() },
+      pressure: null,
+      isLeaderTab: false,
+      backgroundAllowed: false,
+      userVisibleAllowed: true,
+      changedAt: new Date().toISOString()
+    };
+    return {
+      getState: () => noopState,
+      subscribe: () => () => {},
+      stop: () => {}
+    };
+  }
+
   const now = options.now ?? Date.now;
   const probeInterval = options.pressureProbeIntervalMs ?? PRESSURE_PROBE_INTERVAL_MS;
   const listeners = new Set<(state: OrchestratorState) => void>();
