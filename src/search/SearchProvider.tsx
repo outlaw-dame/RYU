@@ -32,9 +32,12 @@ interface SearchProviderProps {
  * Place this near the root of the app (inside QueryClientProvider).
  */
 export function SearchProvider({ children, engine }: SearchProviderProps): React.ReactElement {
+  const [defaultEngine] = React.useState(() => createRxDbOramaHybridSearchEngine());
+  const activeEngine = engine ?? defaultEngine;
+
   const value = useMemo<SearchContextType>(() => ({
-    engine: engine ?? createRxDbOramaHybridSearchEngine()
-  }), [engine]);
+    engine: activeEngine
+  }), [activeEngine]);
 
   return (
     <SearchContext.Provider value={value}>
