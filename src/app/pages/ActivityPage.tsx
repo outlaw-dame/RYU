@@ -6,7 +6,7 @@
  * App.tsx no longer owns low-level activity fetch mechanics.
  */
 
-import { useMemo } from "react";
+import React, { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { SectionHeader } from "../../components/common/SectionHeader";
 import { EmptyState } from "../../components/common/EmptyState";
@@ -300,7 +300,7 @@ export function ActivityPage({
             ) : notifications.length > 0 ? (
               notifications.map((notification) => (
                 renderNotificationRow
-                  ? renderNotificationRow({ notification })
+                  ? <React.Fragment key={notification.id}>{renderNotificationRow({ notification })}</React.Fragment>
                   : <DefaultNotificationRow key={notification.id} notification={notification} />
               ))
             ) : (
@@ -325,12 +325,12 @@ export function ActivityPage({
               timeline.map((status) => {
                 const interaction = statusInteractions.get(status.id);
                 return renderStatusRow
-                  ? renderStatusRow({
+                  ? <React.Fragment key={status.id}>{renderStatusRow({
                       status,
                       interaction,
                       onFavourite: canFavourite ? handleFavourite : undefined,
                       onBookmark: canBookmark ? handleBookmark : undefined
-                    })
+                    })}</React.Fragment>
                   : <DefaultStatusRow
                       key={status.id}
                       status={status}
