@@ -41,7 +41,7 @@ function loadFlags(): SearchFeatureFlags {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULTS };
     const parsed = JSON.parse(raw);
-    return { ...DEFAULTS, ...(typeof parsed === "object" ? parsed : {}) };
+    return { ...DEFAULTS, ...(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}) };
   } catch {
     return { ...DEFAULTS };
   }
