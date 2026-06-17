@@ -1,21 +1,46 @@
 import type { EmbeddingProvider } from './embedding-provider';
 import { embedText } from './embeddings';
 import { updateSearchRuntimeStatus } from './runtime-status';
+import {
+  markDownloading,
+  markFailed,
+  markReady,
+  registerExtractorResetHook
+} from './model-lifecycle';
+import { getEmbeddingArtifactRecord } from './model-lifecycle/modelRegistry';
 
 let extractorPromise: Promise<any> | null = null;
 
+// Register a reset hook so clearAllLocalAIArtifacts can drop the cached
+// pipeline. Idempotent.
+registerExtractorResetHook(() => {
+  extractorPromise = null;
+});
+
+const ARTIFACT = getEmbeddingArtifactRecord('embeddinggemma');
+
 async function getExtractor(): Promise<any> {
   extractorPromise ??= (async () => {
-    const transformers = (await import('@huggingface/transformers')) as any;
-    const pipeline = transformers.pipeline;
+    markDownloading(ARTIFACT.id, 0, 0);
 
-    if (typeof pipeline !== 'function') {
-      throw new Error('Transformers.js pipeline API unavailable');
+    try {
+      const transformers = (await import('@huggingface/transformers')) as any;
+      const pipeline = transformers.pipeline;
+
+      if (typeof pipeline !== 'function') {
+        throw new Error('Transformers.js pipeline API unavailable');
+      }
+
+      const extractor = await pipeline('feature-extraction', ARTIFACT.modelName, {
+        dtype: 'q8'
+      });
+
+      markReady(ARTIFACT.id, ARTIFACT.pinnedRevision);
+      return extractor;
+    } catch (error) {
+      markFailed(ARTIFACT.id, error);
+      throw error;
     }
-
-    return pipeline('feature-extraction', 'google/embeddinggemma-300m', {
-      dtype: 'q8'
-    });
   })().catch((error) => {
     extractorPromise = null;
     throw error;
@@ -43,14 +68,14 @@ function fallback(text: string, reason: string, error?: unknown): number[] {
     lastError: error instanceof Error ? error.message : undefined
   });
 
-  const vector = embedText(text, 768);
-  return vector.length === 768 ? vector : new Array(768).fill(0);
+  const vector = embedText(text, ARTIFACT.dimensions);
+  return vector.length === ARTIFACT.dimensions ? vector : new Array(ARTIFACT.dimensions).fill(0);
 }
 
 export function createEmbeddingGemmaProvider(): EmbeddingProvider {
   return {
     id: 'embeddinggemma-300m-q8-with-deterministic-fallback',
-    dimensions: 768,
+    dimensions: ARTIFACT.dimensions,
     embed: async (text: string) => {
       try {
         const extractor = await getExtractor();
@@ -60,7 +85,7 @@ export function createEmbeddingGemmaProvider(): EmbeddingProvider {
         });
         const vector = coerceVector(output);
 
-        if (vector.length === 768) {
+        if (vector.length === ARTIFACT.dimensions) {
           updateSearchRuntimeStatus({
             activeEmbeddingProvider: 'embeddinggemma',
             lastFallbackReason: undefined,

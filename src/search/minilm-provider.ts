@@ -1,21 +1,50 @@
 import type { EmbeddingProvider } from './embedding-provider';
 import { embedText } from './embeddings';
 import { updateSearchRuntimeStatus } from './runtime-status';
+import {
+  markDownloading,
+  markFailed,
+  markReady,
+  registerExtractorResetHook
+} from './model-lifecycle';
+import { getEmbeddingArtifactRecord } from './model-lifecycle/modelRegistry';
 
 let extractorPromise: Promise<any> | null = null;
 
+// Register a reset hook so clearAllLocalAIArtifacts can drop the cached
+// pipeline. Idempotent — registering the same callback identity twice is
+// a no-op because the registry is a Set.
+registerExtractorResetHook(() => {
+  extractorPromise = null;
+});
+
+const ARTIFACT = getEmbeddingArtifactRecord('minilm');
+
 async function getExtractor(): Promise<any> {
   extractorPromise ??= (async () => {
-    const transformers = (await import('@huggingface/transformers')) as any;
-    const pipeline = transformers.pipeline;
+    // State transition: idle -> downloading. We do not yet have a
+    // progress callback because transformers.js v3 surfaces it
+    // inconsistently; we report progress=0 to mean "in flight".
+    markDownloading(ARTIFACT.id, 0, 0);
 
-    if (typeof pipeline !== 'function') {
-      throw new Error('Transformers.js pipeline API unavailable');
+    try {
+      const transformers = (await import('@huggingface/transformers')) as any;
+      const pipeline = transformers.pipeline;
+
+      if (typeof pipeline !== 'function') {
+        throw new Error('Transformers.js pipeline API unavailable');
+      }
+
+      const extractor = await pipeline('feature-extraction', ARTIFACT.modelName, {
+        quantized: true
+      });
+
+      markReady(ARTIFACT.id, ARTIFACT.pinnedRevision);
+      return extractor;
+    } catch (error) {
+      markFailed(ARTIFACT.id, error);
+      throw error;
     }
-
-    return pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-      quantized: true
-    });
   })().catch((error) => {
     extractorPromise = null;
     throw error;
@@ -37,21 +66,21 @@ function fallback(text: string, reason: string, error?: unknown): number[] {
     lastError: error instanceof Error ? error.message : undefined
   });
 
-  const vector = embedText(text, 384);
-  return vector.length === 384 ? vector : new Array(384).fill(0);
+  const vector = embedText(text, ARTIFACT.dimensions);
+  return vector.length === ARTIFACT.dimensions ? vector : new Array(ARTIFACT.dimensions).fill(0);
 }
 
 export function createMiniLMEmbeddingProvider(): EmbeddingProvider {
   return {
     id: 'minilm-l6-v2-q8-with-deterministic-fallback',
-    dimensions: 384,
+    dimensions: ARTIFACT.dimensions,
     embed: async (text: string) => {
       try {
         const extractor = await getExtractor();
         const output = await extractor(text, { pooling: 'mean', normalize: true });
         const vector = coerceVector(output);
 
-        if (vector.length === 384) {
+        if (vector.length === ARTIFACT.dimensions) {
           updateSearchRuntimeStatus({
             activeEmbeddingProvider: 'minilm',
             lastFallbackReason: undefined,
