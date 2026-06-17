@@ -46,17 +46,14 @@ import {
   getMastodonAccountById,
   getMastodonFeaturedTags,
   getMastodonPinnedStatuses,
-  favouriteStatus as apiFavouriteStatus,
   unfavouriteStatus as apiUnfavouriteStatus,
-  bookmarkStatus as apiBookmarkStatus,
   unbookmarkStatus as apiUnbookmarkStatus
 } from "../sync/mastodon-activity-api";
 import { ComposeSheet } from "../components/activity/ComposeSheet";
+import { ActivityPage } from "./pages/ActivityPage";
 import { getSearchUiPreferences, subscribeSearchUiPreferences } from "../search/ui-preferences";
 import {
   useMastodonSession,
-  useMastodonHomeTimeline,
-  useMastodonNotifications,
   useBookTokTrends,
   useDisconnectMastodon,
   getMastodonActivityErrorState,
@@ -2108,26 +2105,8 @@ export function App() {
     };
   }, [sessionQuery.data]);
 
-  const homeTimelineQuery = useMastodonHomeTimeline({
-    enabled: activeTab === "activity" && connectedAccount !== null,
-    limit: 20
-  });
-  const notificationsQuery = useMastodonNotifications({
-    enabled: activeTab === "activity" && connectedAccount !== null,
-    limit: 20
-  });
   const bookTokQuery = useBookTokTrends({ enabled: activeTab === "home" });
   const disconnectMutation = useDisconnectMastodon();
-
-  const activityTimeline = homeTimelineQuery.data?.items ?? [];
-  const activityNotifications = notificationsQuery.data?.items ?? [];
-  const activityLoading = (activeTab === "activity" && connectedAccount !== null) &&
-    (homeTimelineQuery.isFetching || notificationsQuery.isFetching);
-  const activityError = useMemo(() => {
-    const err = getMastodonActivityErrorState(homeTimelineQuery.error) ??
-      getMastodonActivityErrorState(notificationsQuery.error);
-    return err?.message ?? null;
-  }, [homeTimelineQuery.error, notificationsQuery.error]);
 
   const bookTokTrends = bookTokQuery.data?.length ? bookTokQuery.data : CURATED_BOOKTOK_TRENDS;
   const bookTokLoading = bookTokQuery.isPending;
@@ -2136,10 +2115,8 @@ export function App() {
     return err ? `Live BookTok sync unavailable. Showing curated picks. (${err.message})` : null;
   }, [bookTokQuery.error]);
   const bookTokLoadedAt = bookTokQuery.dataUpdatedAt || null;
-  const activityLoadedAt = homeTimelineQuery.dataUpdatedAt || null;
   // --- End activity hook layer ---
 
-  const [activityRefreshNonce, setActivityRefreshNonce] = useState(0);
   const [nowReadingStatuses, setNowReadingStatuses] = useState<MastodonStatus[]>([]);
   const [nowReadingLoading, setNowReadingLoading] = useState(false);
   const [nowReadingError, setNowReadingError] = useState<string | null>(null);
@@ -2154,7 +2131,6 @@ export function App() {
   const [profilePinnedIndex, setProfilePinnedIndex] = useState(0);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileFetched, setProfileFetched] = useState(false);
-  const [statusInteractions, setStatusInteractions] = useState<Map<string, { favourited: boolean; bookmarked: boolean }>>(() => new Map());
   const [composeOpen, setComposeOpen] = useState(false);
   const [activeBookDetail, setActiveBookDetail] = useState<{
     id: string;
@@ -2211,37 +2187,15 @@ export function App() {
     }
   }, [manualFacetControls, searchFacet]);
 
-  // Session-derived cleanup: reset profile/interactions when disconnected.
+  // Session-derived cleanup: reset profile when disconnected.
   useEffect(() => {
     if (connectedAccount) return;
     setMastodonProfileFull(null);
     setProfilePinnedStatuses([]);
     setProfileFeaturedTags([]);
     setProfileFetched(false);
-    setStatusInteractions(new Map());
     setComposeOpen(false);
   }, [connectedAccount]);
-
-  // Activity refresh: invalidate queries to trigger refetch.
-  useEffect(() => {
-    if (activityRefreshNonce === 0) return;
-    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.homeTimelineRoot() });
-    void queryClient.invalidateQueries({ queryKey: mastodonActivityQueryKeys.notificationsRoot() });
-  }, [activityRefreshNonce, queryClient]);
-
-  // Handle auth errors from the activity hooks — clear session on 401/403
-  useEffect(() => {
-    const sessionErr = getMastodonActivityErrorState(sessionQuery.error);
-    const timelineErr = getMastodonActivityErrorState(homeTimelineQuery.error);
-    const notifErr = getMastodonActivityErrorState(notificationsQuery.error);
-    const reconnectNeeded = sessionErr?.reconnectRequired || timelineErr?.reconnectRequired || notifErr?.reconnectRequired;
-    if (reconnectNeeded) {
-      // Clear the cached session so connectedAccount becomes null
-      queryClient.setQueryData(mastodonActivityQueryKeys.session(), { connected: false });
-      setAuthInfo(null);
-      setAuthError("Your session expired. Sign in again to load activity.");
-    }
-  }, [sessionQuery.error, homeTimelineQuery.error, notificationsQuery.error, queryClient]);
 
   useEffect(() => {
     if (activeTab !== "profile" || !connectedAccount || profileFetched || profileLoading) return;
@@ -2800,70 +2754,6 @@ export function App() {
     setActiveNowReadingStatus(status);
   }, []);
 
-  const handleFavourite = useCallback((statusId: string, currentFavourited: boolean) => {
-    setStatusInteractions((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(statusId);
-      next.set(statusId, { favourited: !currentFavourited, bookmarked: existing?.bookmarked ?? false });
-      return next;
-    });
-    const apiCall = currentFavourited ? apiUnfavouriteStatus : apiFavouriteStatus;
-    void apiCall(statusId)
-      .then((updated) => {
-        queryClient.setQueryData(
-          mastodonActivityQueryKeys.homeTimeline({ limit: 20 }),
-          (prev: any) => prev ? { ...prev, items: prev.items.map((s: any) => s.id === updated.id ? updated : s) } : prev
-        );
-        if (!currentFavourited) shelves.addFavourite(updated);
-        else shelves.removeFavourite(statusId);
-        setStatusInteractions((prev) => {
-          const next = new Map(prev);
-          next.delete(statusId);
-          return next;
-        });
-      })
-      .catch(() => {
-        setStatusInteractions((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(statusId);
-          if (existing) next.set(statusId, { ...existing, favourited: currentFavourited });
-          return next;
-        });
-      });
-  }, [shelves]);
-
-  const handleBookmark = useCallback((statusId: string, currentBookmarked: boolean) => {
-    setStatusInteractions((prev) => {
-      const next = new Map(prev);
-      const existing = next.get(statusId);
-      next.set(statusId, { favourited: existing?.favourited ?? false, bookmarked: !currentBookmarked });
-      return next;
-    });
-    const apiCall = currentBookmarked ? apiUnbookmarkStatus : apiBookmarkStatus;
-    void apiCall(statusId)
-      .then((updated) => {
-        queryClient.setQueryData(
-          mastodonActivityQueryKeys.homeTimeline({ limit: 20 }),
-          (prev: any) => prev ? { ...prev, items: prev.items.map((s: any) => s.id === updated.id ? updated : s) } : prev
-        );
-        if (!currentBookmarked) shelves.addBookmark(updated);
-        else shelves.removeBookmark(statusId);
-        setStatusInteractions((prev) => {
-          const next = new Map(prev);
-          next.delete(statusId);
-          return next;
-        });
-      })
-      .catch(() => {
-        setStatusInteractions((prev) => {
-          const next = new Map(prev);
-          const existing = next.get(statusId);
-          if (existing) next.set(statusId, { ...existing, bookmarked: currentBookmarked });
-          return next;
-        });
-      });
-  }, [shelves]);
-
   const availableCountries = useMemo(() => {
     const set = new Set<string>();
     for (const instance of signupInstances) {
@@ -3418,108 +3308,21 @@ export function App() {
               {activeTab === "activity" && (
                 <TabPanel id="activity" activeTab={activeTab}>
                   <ScreenTitle title={t("screen.activity")} />
-                  {!connectedAccount ? (
-                    <EmptyState title={t("activity.signInTitle")} description={t("activity.signInDescription")} />
-                  ) : (
-                    <div style={{ display: "grid", gap: "var(--space-6)" }}>
-                      {hasWriteScope(connectedAccount.grantedScopes, "write:statuses") ? (
-                        <div style={{ padding: "0 var(--space-4)" }}>
-                          <button
-                            type="button"
-                            onClick={() => setComposeOpen(true)}
-                            style={{
-                              width: "100%",
-                              minHeight: "var(--touch-min)",
-                              border: "1px solid color-mix(in srgb, var(--color-text) 16%, transparent)",
-                              borderRadius: "var(--radius-lg)",
-                              background: "var(--color-bg-secondary)",
-                              color: "var(--color-text-secondary)",
-                              fontSize: "var(--text-footnote)",
-                              textAlign: "left",
-                              padding: "0 var(--space-4)",
-                              cursor: "pointer"
-                            }}
-                          >
-                            {t("activity.composePrompt")}
-                          </button>
-                        </div>
-                      ) : (
-                        <div style={{
-                          margin: "0 var(--space-4)",
-                          padding: "var(--space-3) var(--space-4)",
-                          borderRadius: "var(--radius-md)",
-                          background: "color-mix(in srgb, var(--color-accent) 8%, var(--color-bg))",
-                          border: "1px solid color-mix(in srgb, var(--color-accent) 18%, transparent)",
-                          display: "grid",
-                          gap: "var(--space-2)"
-                        }}>
-                          <strong style={{ fontSize: "var(--text-subhead)" }}>{t("activity.enablePostingTitle")}</strong>
-                          <p style={{ margin: 0, fontSize: "var(--text-footnote)", color: "var(--color-text-secondary)" }}>
-                            {t("activity.enablePostingDescription")}
-                          </p>
-                        </div>
-                      )}
-                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                        <SectionHeader
-                          title={t("activity.notifications")}
-                          actionLabel={activityLoading ? undefined : t("action.refresh")}
-                          onAction={activityLoading ? undefined : () => setActivityRefreshNonce((value) => value + 1)}
-                        />
-                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
-                          {activityLoading && activityNotifications.length === 0 ? (
-                            <>
-                              <Skeleton style={{ height: 92 }} />
-                              <Skeleton style={{ height: 92 }} />
-                            </>
-                          ) : activityNotifications.length > 0 ? (
-                            activityNotifications.map((notification) => (
-                              <ActivityNotificationRow key={notification.id} notification={notification} />
-                            ))
-                          ) : (
-                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              {t("activity.noNotifications")}
-                            </p>
-                          )}
-                        </div>
-                      </section>
-                      <section style={{ display: "grid", gap: "var(--space-3)" }}>
-                        <SectionHeader title={t("activity.homeTimeline")} />
-                        <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
-                          {activityLoading && activityTimeline.length === 0 ? (
-                            <>
-                              <Skeleton style={{ height: 120 }} />
-                              <Skeleton style={{ height: 120 }} />
-                              <Skeleton style={{ height: 120 }} />
-                            </>
-                          ) : activityTimeline.length > 0 ? (
-                            activityTimeline.map((status) => (
-                              <ActivityStatusRow
-                                key={status.id}
-                                status={status}
-                                importedBooks={importedBooks}
-                                interaction={statusInteractions.get(status.id)}
-                                onFavourite={hasWriteScope(connectedAccount.grantedScopes, "write:favourites") ? handleFavourite : undefined}
-                                onBookmark={hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks") ? handleBookmark : undefined}
-                              />
-                            ))
-                          ) : (
-                            <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-                              {t("activity.noTimelinePosts")}
-                            </p>
-                          )}
-                        </div>
-                      </section>
-                      {activityError ? (
-                        <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-                          {activityError}
-                        </p>
-                      ) : activityLoadedAt ? (
-                        <p style={{ margin: "0 var(--space-4)", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                          {t("activity.lastUpdatedAt", { date: new Date(activityLoadedAt).toLocaleString(i18n.language) })}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
+                  <ActivityPage
+                    renderStatusRow={(props) => (
+                      <ActivityStatusRow
+                        key={props.status.id}
+                        status={props.status}
+                        importedBooks={importedBooks}
+                        interaction={props.interaction}
+                        onFavourite={props.onFavourite}
+                        onBookmark={props.onBookmark}
+                      />
+                    )}
+                    renderNotificationRow={(props) => (
+                      <ActivityNotificationRow key={props.notification.id} notification={props.notification} />
+                    )}
+                  />
                 </TabPanel>
               )}
               {activeTab === "profile" && (
