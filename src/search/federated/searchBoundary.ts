@@ -31,7 +31,7 @@
  *     unless explicit sync is configured.
  */
 
-import type { SearchDocumentScope } from "../types";
+import type { SearchDocumentScope, SearchSurface } from "../types";
 
 export type SearchTier = "local-private" | "local-public" | "remote-cache" | "federated-discovery";
 
@@ -128,7 +128,7 @@ export function isRemoteCacheExpired(updatedAt: string): boolean {
  * Enforced by scope-filter.ts at query time; this function is for
  * documentation and test assertions.
  */
-export function isTierVisibleOnSurface(tier: SearchTier, surface: string): boolean {
+export function isTierVisibleOnSurface(tier: SearchTier, surface: SearchSurface): boolean {
   switch (tier) {
     case "local-private":
       // Only visible on user's own library/shelf.

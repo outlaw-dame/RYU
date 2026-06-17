@@ -31,7 +31,7 @@ export type SearchDocumentScope =
   | 'local-only'
   | 'cache-only';
 
-export type SearchSurface = 'global' | 'library' | 'shelf' | 'onboarding' | 'entity';
+export type SearchSurface = 'global' | 'library' | 'shelf' | 'onboarding' | 'entity' | 'activity';
 
 export type SearchContext = {
   surface?: SearchSurface;
