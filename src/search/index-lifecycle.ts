@@ -129,11 +129,13 @@ async function visitDocumentBatches(db: RyuDatabase, visitor: (docs: SearchDocum
     await visitor(docs);
     total += docs.length;
   }
-  for await (const batch of iterate<ReviewDoc>(db.reviews as never)) {
-    const docs: SearchDocument[] = [];
-    for (const review of batch) docs.push(await reviewDocToSearchDocument(db, review));
-    await visitor(docs);
-    total += docs.length;
+  if (db.reviews) {
+    for await (const batch of iterate<ReviewDoc>(db.reviews as never)) {
+      const docs: SearchDocument[] = [];
+      for (const review of batch) docs.push(await reviewDocToSearchDocument(db, review));
+      await visitor(docs);
+      total += docs.length;
+    }
   }
 
   return total;
@@ -144,7 +146,9 @@ async function entityRefs(db: RyuDatabase): Promise<Set<string>> {
   for await (const batch of iterate<EditionDoc>(db.editions as never)) for (const row of batch) refs.add(`edition:${row.id}`);
   for await (const batch of iterate<WorkDoc>(db.works as never)) for (const row of batch) refs.add(`work:${row.id}`);
   for await (const batch of iterate<AuthorDoc>(db.authors as never)) for (const row of batch) refs.add(`author:${row.id}`);
-  for await (const batch of iterate<ReviewDoc>(db.reviews as never)) for (const row of batch) refs.add(`review:${row.id}`);
+  if (db.reviews) {
+    for await (const batch of iterate<ReviewDoc>(db.reviews as never)) for (const row of batch) refs.add(`review:${row.id}`);
+  }
   return refs;
 }
 
