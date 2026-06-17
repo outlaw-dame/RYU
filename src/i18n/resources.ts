@@ -224,6 +224,33 @@ export const resources = {
       nowReading: {
         viewReaderProfile: "View reader profile",
         openOriginalPost: "Open original post"
+      },
+      onboarding: {
+        welcomeTitle: "Welcome to RYU",
+        welcomeDescription: "RYU is a privacy-first reading companion that keeps your data on your device. Connecting an account is optional but unlocks social features.",
+        welcomePoint1: "Your library stays on this device. Nothing is uploaded without your action.",
+        welcomePoint2: "Connect a BookWyrm or Mastodon account to see timelines, shelves, and reading activity.",
+        welcomePoint3: "You can disconnect or switch accounts at any time.",
+        connectTitle: "Connect your account",
+        connectDescription: "Enter the address of your BookWyrm or Mastodon server. You will be redirected there to approve access, then sent back here.",
+        permissionsTitle: "What access is requested",
+        permissionRead: "Read your profile, statuses, and notifications so RYU can display them.",
+        permissionNotifications: "Read notifications to show follow and favourite alerts.",
+        permissionOptionalWrite: "Optionally: post reading updates and manage favourites/bookmarks (only if you grant write access).",
+        permissionsFootnote: "RYU never stores your password. Authentication uses secure OAuth with PKCE, the same standard used by banking apps.",
+        connectedTo: "Connected to {{instance}}",
+        scopesGranted: "Permissions: {{scopes}}",
+        tryAgain: "Try again",
+        dismiss: "Dismiss",
+        privacyTitle: "Search and privacy",
+        privacyDescription: "RYU searches your library on-device. You can optionally enable smarter search that downloads a small model to improve results. All processing stays on your device.",
+        enhancedSearchLabel: "Smart search",
+        enhancedSearchDescription: "Downloads a small model (about 25 MB) to better understand book titles, authors, and themes. Runs entirely on your device.",
+        personalizationLabel: "Personalized results",
+        personalizationDescription: "Uses your reading history to surface books you are more likely looking for. Never shared externally.",
+        federatedDiscoveryLabel: "Community discovery",
+        federatedDiscoveryDescription: "Shows reading discussions from the wider fediverse in search results. Fetches public posts from relay servers.",
+        privacyFootnote: "All search features run locally on your device. No search queries or reading history leave this app. You can change these settings later in Settings."
       }
     }
   },
@@ -452,6 +479,33 @@ export const resources = {
       nowReading: {
         viewReaderProfile: "Ver perfil del lector",
         openOriginalPost: "Abrir publicación original"
+      },
+      onboarding: {
+        welcomeTitle: "Bienvenido a RYU",
+        welcomeDescription: "RYU es un companero de lectura que prioriza la privacidad y mantiene tus datos en tu dispositivo. Conectar una cuenta es opcional pero desbloquea funciones sociales.",
+        welcomePoint1: "Tu biblioteca permanece en este dispositivo. Nada se sube sin tu accion.",
+        welcomePoint2: "Conecta una cuenta de BookWyrm o Mastodon para ver cronologias, estanterias y actividad de lectura.",
+        welcomePoint3: "Puedes desconectar o cambiar de cuenta en cualquier momento.",
+        connectTitle: "Conecta tu cuenta",
+        connectDescription: "Ingresa la direccion de tu servidor BookWyrm o Mastodon. Seras redirigido alli para aprobar el acceso y luego volveras aqui.",
+        permissionsTitle: "Que acceso se solicita",
+        permissionRead: "Leer tu perfil, publicaciones y notificaciones para que RYU pueda mostrarlos.",
+        permissionNotifications: "Leer notificaciones para mostrar alertas de seguimiento y favoritos.",
+        permissionOptionalWrite: "Opcionalmente: publicar actualizaciones de lectura y gestionar favoritos/marcadores (solo si concedes acceso de escritura).",
+        permissionsFootnote: "RYU nunca almacena tu contrasena. La autenticacion usa OAuth seguro con PKCE, el mismo estandar que usan las aplicaciones bancarias.",
+        connectedTo: "Conectado a {{instance}}",
+        scopesGranted: "Permisos: {{scopes}}",
+        tryAgain: "Intentar de nuevo",
+        dismiss: "Descartar",
+        privacyTitle: "Busqueda y privacidad",
+        privacyDescription: "RYU busca en tu biblioteca en el dispositivo. Puedes habilitar opcionalmente una busqueda mas inteligente que descarga un modelo pequeno para mejorar los resultados. Todo el procesamiento permanece en tu dispositivo.",
+        enhancedSearchLabel: "Busqueda inteligente",
+        enhancedSearchDescription: "Descarga un modelo pequeno (aproximadamente 25 MB) para entender mejor titulos, autores y temas. Se ejecuta completamente en tu dispositivo.",
+        personalizationLabel: "Resultados personalizados",
+        personalizationDescription: "Usa tu historial de lectura para mostrar libros que probablemente buscas. Nunca se comparte externamente.",
+        federatedDiscoveryLabel: "Descubrimiento comunitario",
+        federatedDiscoveryDescription: "Muestra discusiones de lectura del fediverso en los resultados de busqueda. Obtiene publicaciones publicas de servidores relay.",
+        privacyFootnote: "Todas las funciones de busqueda se ejecutan localmente en tu dispositivo. Ninguna consulta de busqueda ni historial de lectura sale de esta aplicacion. Puedes cambiar estos ajustes mas tarde en Configuracion."
       }
     }
   }

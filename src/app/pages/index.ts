@@ -16,3 +16,8 @@ export type { ActivityPageProps } from "./ActivityPage";
 
 export { ProfilePage } from "./ProfilePage";
 export type { ProfilePageProps, ConnectedAccountInfo } from "./ProfilePage";
+
+// Phase 25 — onboarding components re-exported for convenience
+export { OnboardingFlow } from "../../components/onboarding";
+export type { OnboardingFlowProps } from "../../components/onboarding";
+export { PrivacySearchSetup } from "../../components/onboarding";

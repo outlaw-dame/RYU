@@ -1,14 +1,18 @@
 /**
- * Phase 23 — Profile Page component.
+ * Phase 25 - Profile Page component.
  *
- * The Profile tab showing the user's connected account details,
- * authentication controls, and account management.
+ * The Profile tab showing either the onboarding flow (for new users)
+ * or the connected account profile with management options.
+ * Integrates the OnboardingFlow, PrivacySearchSetup, and handles
+ * the instance picker dialog.
  */
 
 import { useTranslation } from "react-i18next";
 import { PageShell } from "../../components/layout/PageShell";
-import { EmptyState } from "../../components/common/EmptyState";
+import { OnboardingFlow } from "../../components/onboarding/OnboardingFlow";
+import { PrivacySearchSetup } from "../../components/onboarding/PrivacySearchSetup";
 import type { MastodonAccountFull } from "../../sync/mastodon-client";
+import type { FediverseInstance } from "../../sync/instance-discovery";
 
 
 export interface ConnectedAccountInfo {
@@ -35,6 +39,12 @@ export interface ProfilePageProps {
   onSignup: () => void;
   onDisconnect: () => void;
   onSwitchAccount: () => void;
+  onClearError: () => void;
+  onRetry: () => void;
+  // Instance picker
+  onOpenPicker: () => void;
+  // Instance suggestions
+  autocompleteSuggestions: FediverseInstance[];
   // Render delegates
   renderAuthForm: () => React.ReactNode;
   renderConnectedProfile: () => React.ReactNode;
@@ -54,6 +64,10 @@ export function ProfilePage({
   onSignup,
   onDisconnect,
   onSwitchAccount,
+  onClearError,
+  onRetry,
+  onOpenPicker,
+  autocompleteSuggestions,
   renderAuthForm,
   renderConnectedProfile
 }: ProfilePageProps) {
@@ -66,25 +80,24 @@ export function ProfilePage({
       role="tabpanel"
       aria-labelledby="tab-profile"
     >
-      <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-4)" }}>
-        {connectedAccount ? renderConnectedProfile() : renderAuthForm()}
-        {authInfo ? (
-          <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
-            {authInfo}
-          </p>
-        ) : null}
-        {authError ? (
-          <p style={{ margin: 0, color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
-            {authError}
-          </p>
-        ) : null}
-      </section>
-      {!connectedAccount ? (
-        <EmptyState
-          title={t("auth.backendExchangeTitle")}
-          description={t("auth.backendExchangeDescription")}
+      <section style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-5)" }}>
+        <OnboardingFlow
+          instanceInput={instanceInput}
+          onInstanceInputChange={onInstanceInputChange}
+          isWorking={isAuthWorking}
+          error={authError}
+          info={authInfo}
+          onStartLogin={onSignIn}
+          onOpenPicker={onOpenPicker}
+          onClearError={onClearError ?? (() => {})}
+          onRetry={onRetry ?? (() => {})}
+          autocompleteSuggestions={autocompleteSuggestions ?? []}
+          connectedAccount={connectedAccount}
+          onDisconnect={onDisconnect}
+          isDisconnecting={isAuthWorking}
         />
-      ) : null}
+        <PrivacySearchSetup />
+      </section>
     </PageShell>
   );
 }
