@@ -40,7 +40,20 @@ type StatusMap = Map<EmbeddingArtifactId, ModelStatus>;
 const statuses: StatusMap = new Map();
 const listeners = new Set<() => void>();
 
+/**
+ * Cached snapshot returned by getAllModelStatuses(). Recreated only when
+ * a status actually changes — getSnapshot must return a stable reference
+ * between unchanged emissions or React's useSyncExternalStore will treat
+ * every render as a state change and loop.
+ */
+let cachedStatuses: readonly ModelStatus[] = [];
+
+function refreshSnapshot(): void {
+  cachedStatuses = Array.from(statuses.values());
+}
+
 function emit(): void {
+  refreshSnapshot();
   for (const listener of listeners) {
     try {
       listener();
@@ -65,7 +78,7 @@ export function getModelStatus(id: EmbeddingArtifactId): ModelStatus {
 }
 
 export function getAllModelStatuses(): readonly ModelStatus[] {
-  return Array.from(statuses.values());
+  return cachedStatuses;
 }
 
 export function subscribeModelStatus(listener: () => void): () => void {

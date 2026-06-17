@@ -108,6 +108,20 @@ describe("modelStatus", () => {
     expect(ids).toEqual(["embeddinggemma", "minilm"]);
   });
 
+  it("getAllModelStatuses returns the SAME reference between unchanged calls (useSyncExternalStore stability)", () => {
+    markDownloading("minilm", 0.5);
+    const snapshotA = getAllModelStatuses();
+    const snapshotB = getAllModelStatuses();
+    // Critical: identical reference so React's Object.is snapshot check
+    // does not treat every render as a state change.
+    expect(snapshotA).toBe(snapshotB);
+
+    // After a real transition the reference must change so consumers re-render.
+    markReady("minilm", "main");
+    const snapshotC = getAllModelStatuses();
+    expect(snapshotC).not.toBe(snapshotA);
+  });
+
   it("a thrown listener does not stop other listeners from firing", () => {
     const goodListener = vi.fn();
     const unsubBad = subscribeModelStatus(() => {

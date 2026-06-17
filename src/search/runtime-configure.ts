@@ -74,12 +74,13 @@ export function applySearchRuntimeSettings(settings: SearchRuntimeSettings = get
 
   // Phase 14: low-memory adaptive fallback. Even if the device tier permits
   // an enhanced model, we downgrade if the JS heap is currently pressured.
-  // EmbeddingGemma -> MiniLM, MiniLM -> deterministic.
+  // Use a chained `else if` so a single apply only ever advances one level —
+  // EmbeddingGemma demoted to MiniLM must NOT then be re-demoted to
+  // deterministic in the same pass (that would skip the MiniLM tier entirely).
   if (requestedEmbeddingRuntime === 'embeddinggemma' && isLowMemoryEnvironment()) {
     requestedEmbeddingRuntime = canAttemptMiniLM() ? 'minilm' : 'deterministic';
     fallbackReason = 'Low memory headroom — falling back from EmbeddingGemma.';
-  }
-  if (requestedEmbeddingRuntime === 'minilm' && isLowMemoryEnvironment()) {
+  } else if (requestedEmbeddingRuntime === 'minilm' && isLowMemoryEnvironment()) {
     // MiniLM is small, but if even MiniLM cannot run we drop to deterministic.
     requestedEmbeddingRuntime = 'deterministic';
     fallbackReason = 'Low memory headroom — falling back from MiniLM.';

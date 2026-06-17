@@ -114,12 +114,21 @@ async function clearTransformersIndexedDb(report: ClearArtifactsReport): Promise
     try {
       await new Promise<void>((resolve) => {
         let settled = false;
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
         const finish = () => {
-          if (!settled) {
-            settled = true;
-            resolve();
+          if (settled) return;
+          settled = true;
+          if (timeoutId !== undefined) {
+            clearTimeout(timeoutId);
+            timeoutId = undefined;
           }
+          resolve();
         };
+        // Defensive fallback: if no event fires within 5s assume failure
+        // and continue, rather than blocking the UI indefinitely. The
+        // timer is cleared in finish() once a real callback settles the
+        // promise so we never leak a pending timeout.
+        timeoutId = setTimeout(finish, 5000);
         const request = indexedDB.deleteDatabase(name);
         request.onsuccess = () => {
           report.evictedIndexedDbDatabases.push(name);
@@ -135,9 +144,6 @@ async function clearTransformersIndexedDb(report: ClearArtifactsReport): Promise
           report.errors.push(`indexedDB.deleteDatabase ${name} blocked`);
           finish();
         };
-        // Defensive fallback: if no event fires within 5s assume failure
-        // and continue, rather than blocking the UI indefinitely.
-        setTimeout(finish, 5000);
       });
     } catch (error) {
       report.errors.push(`indexedDB.deleteDatabase ${name} threw`);
