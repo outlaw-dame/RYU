@@ -71,6 +71,9 @@ export function buildSearchContext(
   }
 ): SearchContext {
   const config = SURFACE_CONFIGS[surface];
+  if (!config) {
+    throw new Error(`Unsupported search surface: ${surface}`);
+  }
 
   return {
     surface: config.surface,
@@ -83,14 +86,12 @@ export function buildSearchContext(
 
 /**
  * Build a SearchContext for the activity/social surface.
- * Activity search may include cached remote content with visibility rules.
+ * Activity search uses the global surface configuration (public content)
+ * with the current user's ID for visibility-aware filtering.
+ * It is not a distinct SearchSurface — it uses global rules.
  */
 export function buildActivitySearchContext(
   currentUserId?: string
 ): SearchContext {
-  return {
-    surface: "global",
-    preferOwnedLibrary: false,
-    currentUserId
-  };
+  return buildSearchContext("global", { currentUserId });
 }

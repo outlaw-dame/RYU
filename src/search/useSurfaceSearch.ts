@@ -12,14 +12,14 @@
  */
 
 import { useMemo } from "react";
-import type { SearchSurface } from "./types";
+import type { SearchEntityType, SearchSurface } from "./types";
 import { useProgressiveSearch, type ProgressiveSearchState } from "./useProgressiveSearch";
 import { buildSearchContext } from "./surfaceConfig";
 
 export type SurfaceSearchOptions = {
   currentUserId?: string;
   activeShelfId?: string;
-  entityTypeHint?: "edition" | "work" | "author" | "review";
+  entityTypeHint?: SearchEntityType;
 };
 
 /**
@@ -36,14 +36,11 @@ export function useSurfaceSearch(
   surface: SearchSurface,
   options?: SurfaceSearchOptions
 ): ProgressiveSearchState {
+  const { currentUserId, activeShelfId, entityTypeHint } = options || {};
+
   const context = useMemo(
-    () => buildSearchContext(surface, options),
-    [
-      surface,
-      options?.currentUserId,
-      options?.activeShelfId,
-      options?.entityTypeHint
-    ]
+    () => buildSearchContext(surface, { currentUserId, activeShelfId, entityTypeHint }),
+    [surface, currentUserId, activeShelfId, entityTypeHint]
   );
 
   return useProgressiveSearch(query, context);
