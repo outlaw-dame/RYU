@@ -153,26 +153,31 @@ export function useLibrary() {
     }
 
     let cancelled = false;
-    const search = async () => {
-      try {
-        const grouped = await searchAll(searchQuery, {
-          context: { surface: "library" }
-        });
-        if (cancelled) return;
-        if (!grouped) {
-          setSearchResults([]);
-          return;
+    const timer = setTimeout(() => {
+      const search = async () => {
+        try {
+          const grouped = await searchAll(searchQuery, {
+            context: { surface: "library" }
+          });
+          if (cancelled) return;
+          if (!grouped) {
+            setSearchResults([]);
+            return;
+          }
+          const matchedIds = new Set(grouped.all.map((r) => r.id));
+          const filtered = books.filter((b) => matchedIds.has(b.id));
+          setSearchResults(filtered);
+        } catch {
+          if (!cancelled) setSearchResults([]);
         }
-        const matchedIds = new Set(grouped.all.map((r) => r.id));
-        const filtered = books.filter((b) => matchedIds.has(b.id));
-        setSearchResults(filtered);
-      } catch {
-        if (!cancelled) setSearchResults([]);
-      }
-    };
+      };
+      void search();
+    }, 200);
 
-    void search();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [searchQuery, books]);
 
   return {
