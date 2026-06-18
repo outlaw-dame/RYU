@@ -65,7 +65,7 @@ export function ContentWarningInput({ value, onChange, disabled }: ContentWarnin
           placeholder={t('composer.cw.placeholder')}
           disabled={disabled}
           aria-label={t('composer.cw.label')}
-          maxLength={COMPOSER_LIMITS.CW_MAX_LENGTH + 10}
+          maxLength={COMPOSER_LIMITS.CW_MAX_LENGTH}
           style={{
             width: '100%',
             boxSizing: 'border-box',

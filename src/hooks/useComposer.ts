@@ -43,12 +43,13 @@ function nowISO(): string {
   return new Date().toISOString();
 }
 
-function saveDraftToStorage(draft: DraftContent): void {
+function saveDraftToStorage(draft: DraftContent): boolean {
   try {
     window.localStorage.setItem(draftStorageKey(draft.id), JSON.stringify(draft));
     addDraftToIndex(draft.id);
+    return true;
   } catch {
-    // Storage full or unavailable
+    return false;
   }
 }
 
@@ -220,6 +221,14 @@ export function useComposer(options: UseComposerOptions): UseComposerReturn {
   contentWarningRef.current = contentWarning;
   const draftIdRef = useRef(draftId);
   draftIdRef.current = draftId;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const userIdRef = useRef(userId);
+  userIdRef.current = userId;
+  const inReplyToIdRef = useRef(inReplyToId);
+  inReplyToIdRef.current = inReplyToId;
+  const editionIdRef = useRef(editionId);
+  editionIdRef.current = editionId;
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxLength = getMaxLength(mode);
@@ -264,10 +273,12 @@ export function useComposer(options: UseComposerOptions): UseComposerReturn {
         savedAt: nowISO(),
         userId
       };
-      saveDraftToStorage(draft);
-      setDraftId(id);
-      setLastSavedAt(draft.savedAt);
-      setIsDirty(false);
+      const saved = saveDraftToStorage(draft);
+      if (saved) {
+        setDraftId(id);
+        setLastSavedAt(draft.savedAt);
+        setIsDirty(false);
+      }
     }, AUTOSAVE_INTERVAL_MS);
 
     return () => {
@@ -284,23 +295,23 @@ export function useComposer(options: UseComposerOptions): UseComposerReturn {
         const id = draftIdRef.current ?? generateDraftId();
         const draft: DraftContent = {
           id,
-          mode,
+          mode: modeRef.current,
           text: textRef.current,
           title: titleRef.current,
           visibility: visibilityRef.current,
           contentWarning: contentWarningRef.current,
           attachments: [],
-          inReplyToId: inReplyToId ?? null,
-          editionId: editionId ?? null,
+          inReplyToId: inReplyToIdRef.current ?? null,
+          editionId: editionIdRef.current ?? null,
           rating: ratingRef.current,
           savedAt: nowISO(),
-          userId
+          userId: userIdRef.current
         };
         saveDraftToStorage(draft);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, userId, inReplyToId, editionId]);
+  }, []);
 
   // Content setters that mark dirty
   const setText = useCallback((value: string) => {
