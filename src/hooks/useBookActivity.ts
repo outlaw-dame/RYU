@@ -63,28 +63,19 @@ function applyFilter(activities: BookActivity[], filter: ActivityFilter): BookAc
  */
 export function useBookActivity(
   statuses: MastodonStatus[],
-  options: { initialFilter?: ActivityFilter; respectVisibility?: boolean } = {}
+  options: { initialFilter?: ActivityFilter } = {}
 ): UseBookActivityResult {
-  const { initialFilter = "all", respectVisibility = true } = options;
+  const { initialFilter = "all" } = options;
   const [filter, setFilterState] = useState<ActivityFilter>(initialFilter);
 
   const setFilter = useCallback((newFilter: ActivityFilter) => {
     setFilterState(newFilter);
   }, []);
 
-  // Filter out content that should not be cached (private/direct)
-  const visibleStatuses = useMemo(() => {
-    if (!respectVisibility) return statuses;
-    // For display in the activity feed, we show all home timeline items
-    // (they were delivered by the server to this user). The visibility guard
-    // applies to caching/search, not to the live activity feed display.
-    return statuses;
-  }, [statuses, respectVisibility]);
-
   // Classify all statuses
   const allActivities = useMemo(
-    () => classifyActivities(visibleStatuses),
-    [visibleStatuses]
+    () => classifyActivities(statuses),
+    [statuses]
   );
 
   // Apply current filter
