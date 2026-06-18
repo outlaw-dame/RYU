@@ -90,16 +90,24 @@ export function loadDraftsByUser(userId: string): ReviewDraft[] {
 
 /**
  * Load all drafts currently stored.
+ * Cleans up dead IDs from the index where the draft data no longer exists.
  */
 export function loadAllDrafts(): ReviewDraft[] {
   const ids = getDraftIndex();
   const drafts: ReviewDraft[] = [];
+  const validIds: string[] = [];
 
   for (const id of ids) {
     const draft = loadDraft(id);
     if (draft) {
       drafts.push(draft);
+      validIds.push(id);
     }
+  }
+
+  // Clean up dead IDs from index
+  if (validIds.length !== ids.length) {
+    setDraftIndex(validIds);
   }
 
   return drafts;

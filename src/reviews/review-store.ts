@@ -52,6 +52,8 @@ export async function createReview(input: CreateReviewInput): Promise<LocalRevie
     editionId: input.editionId,
     accountId: input.userId,
     rating: input.rating ?? undefined,
+    contentType: input.contentType,
+    visibility: input.visibility,
     published: now,
     importedAt: now,
     updatedAt: now
@@ -92,6 +94,7 @@ export async function updateReview(reviewId: string, input: UpdateReviewInput): 
   if (input.title !== undefined) updates.title = input.title;
   if (input.content !== undefined) updates.content = input.content;
   if (input.rating !== undefined) updates.rating = input.rating ?? undefined;
+  if (input.visibility !== undefined) updates.visibility = input.visibility;
 
   await existingDoc.incrementalPatch(updates);
 
@@ -101,11 +104,11 @@ export async function updateReview(reviewId: string, input: UpdateReviewInput): 
     id: updated.id,
     editionId: updated.editionId,
     userId: updated.accountId,
-    contentType: 'review',
+    contentType: (updated.contentType as ReviewContentType) ?? 'review',
     title: updated.title ?? '',
     content: updated.content,
     rating: updated.rating ?? null,
-    visibility: input.visibility ?? 'public',
+    visibility: (updated.visibility as ReviewVisibility) ?? 'public',
     status: 'published',
     createdAt: updated.importedAt,
     updatedAt: updated.updatedAt,
@@ -157,11 +160,11 @@ export async function listReviewsByEdition(editionId: string): Promise<LocalRevi
         id: plain.id,
         editionId: plain.editionId,
         userId: plain.accountId,
-        contentType: 'review' as ReviewContentType,
+        contentType: (plain.contentType as ReviewContentType) ?? 'review',
         title: plain.title ?? '',
         content: plain.content,
         rating: plain.rating ?? null,
-        visibility: 'public' as ReviewVisibility,
+        visibility: (plain.visibility as ReviewVisibility) ?? 'public',
         status: 'published' as const,
         createdAt: plain.importedAt,
         updatedAt: plain.updatedAt,
@@ -187,11 +190,11 @@ export async function getReviewById(reviewId: string): Promise<LocalReview | nul
     id: plain.id,
     editionId: plain.editionId,
     userId: plain.accountId,
-    contentType: 'review',
+    contentType: (plain.contentType as ReviewContentType) ?? 'review',
     title: plain.title ?? '',
     content: plain.content,
     rating: plain.rating ?? null,
-    visibility: 'public',
+    visibility: (plain.visibility as ReviewVisibility) ?? 'public',
     status: 'published',
     createdAt: plain.importedAt,
     updatedAt: plain.updatedAt,

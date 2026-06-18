@@ -63,7 +63,7 @@ export function useReviewComposer(options: UseReviewComposerOptions): [ReviewCom
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [rating, setRating] = useState<number | null>(null);
-  const [visibility, setVisibility] = useState<ReviewVisibility>('public');
+  const [visibility, setVisibility] = useState<ReviewVisibility>(contentType === 'note' ? 'private' : 'public');
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
@@ -71,6 +71,20 @@ export function useReviewComposer(options: UseReviewComposerOptions): [ReviewCom
   const [error, setError] = useState<string | null>(null);
 
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+
+  // Refs for unmount save to avoid stale closures
+  const draftIdRef = useRef(draftId);
+  draftIdRef.current = draftId;
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const ratingRef = useRef(rating);
+  ratingRef.current = rating;
+  const visibilityRef = useRef(visibility);
+  visibilityRef.current = visibility;
 
   // Load existing draft on mount
   useEffect(() => {
@@ -117,6 +131,26 @@ export function useReviewComposer(options: UseReviewComposerOptions): [ReviewCom
       }
     };
   }, [isDirty, draftId, editionId, userId, contentType, title, content, rating, visibility]);
+
+  // Save synchronously on unmount if dirty to prevent losing last edits
+  useEffect(() => {
+    return () => {
+      if (isDirtyRef.current) {
+        saveDraft({
+          id: draftIdRef.current ?? undefined,
+          editionId,
+          userId,
+          contentType,
+          title: titleRef.current,
+          content: contentRef.current,
+          rating: ratingRef.current,
+          visibility: visibilityRef.current
+        });
+      }
+    };
+    // Only run cleanup on unmount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editionId, userId, contentType]);
 
   const handleSetTitle = useCallback((value: string) => {
     setTitle(value);
