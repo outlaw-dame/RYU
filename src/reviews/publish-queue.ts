@@ -51,7 +51,7 @@ export async function enqueuePublish(input: EnqueuePublishInput): Promise<Publis
     operation: `review:${input.action}`,
     entityType: 'review',
     entityId: input.reviewId,
-    payload: JSON.stringify(input.payload),
+    payload: JSON.stringify({ ...input.payload, userId: input.userId }),
     status: 'pending' as const,
     attempts: 0,
     enqueuedAt: now,
@@ -100,7 +100,7 @@ export async function getPendingPublishEntries(userId: string): Promise<PublishQ
       id: plain.id,
       reviewId: plain.entityId,
       editionId: (parsed.editionId as string) ?? '',
-      userId,
+      userId: (parsed.userId as string) ?? userId,
       action: plain.operation.replace('review:', '') as 'create' | 'update' | 'delete',
       payload: plain.payload,
       status: plain.status,
@@ -109,7 +109,7 @@ export async function getPendingPublishEntries(userId: string): Promise<PublishQ
       updatedAt: plain.updatedAt,
       error: plain.error ?? null
     };
-  });
+  }).filter((entry) => entry.userId === userId);
 }
 
 /**

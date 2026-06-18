@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { listReviewsByEdition, deleteReview } from '../reviews/review-store';
+import { enqueuePublish } from '../reviews/publish-queue';
 import type { LocalReview } from '../reviews/types';
 
 export type UseEditionReviewsResult = {
@@ -45,12 +46,25 @@ export function useEditionReviews(editionId: string | null): UseEditionReviewsRe
   }, [reload]);
 
   const remove = useCallback(async (reviewId: string): Promise<boolean> => {
+    // Find the review before deleting to check visibility
+    const review = reviews.find((r) => r.id === reviewId);
     const success = await deleteReview(reviewId);
     if (success) {
+      // Enqueue remote delete for public reviews
+      if (review && review.visibility === 'public') {
+        await enqueuePublish({
+          reviewId,
+          editionId: review.editionId,
+          userId: review.userId,
+          action: 'delete',
+          visibility: review.visibility,
+          payload: { reviewId, editionId: review.editionId }
+        });
+      }
       setReviews((prev) => prev.filter((r) => r.id !== reviewId));
     }
     return success;
-  }, []);
+  }, [reviews]);
 
   return { reviews, loading, error, reload, remove };
 }

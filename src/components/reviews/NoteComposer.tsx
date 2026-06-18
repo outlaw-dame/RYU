@@ -35,9 +35,8 @@ export function NoteComposer({
     onDiscarded: onClose
   });
 
-  // Notes default to private
+  // Notes default to private via useReviewComposer; just publish directly
   const handleSave = async () => {
-    actions.setVisibility('private');
     await actions.publish();
   };
 

@@ -57,8 +57,8 @@ export type AccountConnectionState = {
   openPicker: () => void;
   /** Close the instance picker. */
   closePicker: () => void;
-  /** Start OAuth login flow for the current instanceInput. */
-  startLogin: () => Promise<void>;
+  /** Start OAuth login flow for the current instanceInput, or an optional override instance. */
+  startLogin: (overrideInstance?: string) => Promise<void>;
   /** Apply a discovered instance domain to the input and close the picker. */
   applyInstance: (domain: string) => void;
   /** Connected account info, or null if not connected. */
@@ -146,7 +146,9 @@ export function useAccountConnection(): AccountConnectionState {
       if (!cancelled) {
         setError("Authentication callback was received, but no active login transaction was found.");
       }
-      callbackUrl.search = "";
+      callbackUrl.searchParams.delete("code");
+      callbackUrl.searchParams.delete("state");
+      callbackUrl.searchParams.delete("error");
       window.history.replaceState({}, "", callbackUrl.toString());
       return () => { cancelled = true; };
     }
@@ -156,7 +158,9 @@ export function useAccountConnection(): AccountConnectionState {
         setError(`Authorization failed: ${oauthError}`);
       }
       clearPendingAuthTransaction();
-      callbackUrl.search = "";
+      callbackUrl.searchParams.delete("code");
+      callbackUrl.searchParams.delete("state");
+      callbackUrl.searchParams.delete("error");
       window.history.replaceState({}, "", callbackUrl.toString());
       return () => { cancelled = true; };
     }
@@ -166,7 +170,9 @@ export function useAccountConnection(): AccountConnectionState {
         setError("State validation failed. Please retry login.");
       }
       clearPendingAuthTransaction();
-      callbackUrl.search = "";
+      callbackUrl.searchParams.delete("code");
+      callbackUrl.searchParams.delete("state");
+      callbackUrl.searchParams.delete("error");
       window.history.replaceState({}, "", callbackUrl.toString());
       return () => { cancelled = true; };
     }
