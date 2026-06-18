@@ -85,9 +85,9 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 3, timeoutMs = 12_000): Promise<Response> {
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const response = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timer);
       if (response.ok || !RETRYABLE_STATUS_CODES.has(response.status) || attempt === attempts) {
@@ -97,6 +97,8 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3, time
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt === attempts) break;
+    } finally {
+      clearTimeout(timer);
     }
     const backoff = Math.min(1800, 200 * 2 ** (attempt - 1) + Math.floor(Math.random() * 120));
     await new Promise((resolve) => setTimeout(resolve, backoff));
@@ -212,9 +214,9 @@ export function useAccountConnection(): AccountConnectionState {
       } finally {
         if (!cancelled) {
           setIsWorking(false);
+          callbackUrl.search = "";
+          window.history.replaceState({}, "", callbackUrl.toString());
         }
-        callbackUrl.search = "";
-        window.history.replaceState({}, "", callbackUrl.toString());
       }
     })();
 
@@ -325,7 +327,11 @@ export function useAccountConnection(): AccountConnectionState {
   const retry = useCallback(() => {
     setError(null);
     setInfo(null);
-  }, []);
+    // Re-invoke login if there's a plausible instance to retry with.
+    if (instanceInput.trim() && instanceInput.includes(".")) {
+      void startLogin();
+    }
+  }, [instanceInput, startLogin]);
 
   return {
     instanceInput,

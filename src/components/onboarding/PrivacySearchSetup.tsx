@@ -33,6 +33,11 @@ export function PrivacySearchSetup() {
       embeddingRuntime: enabled ? "auto" : "deterministic"
     });
     setSettingsLocal(next);
+    // Apply immediately so the active provider changes this session.
+    // Dynamic import avoids circular dependency with runtime-configure.
+    void import("../../search/runtime-configure").then(({ applySearchRuntimeSettings }) => {
+      applySearchRuntimeSettings(next);
+    });
   }, []);
 
   const updatePersonalization = useCallback((enabled: boolean) => {
