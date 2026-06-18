@@ -31,6 +31,14 @@ function proxyUrl(url: string): string {
   }
 }
 
+function getHostname(urlStr: string): string {
+  try {
+    return new URL(urlStr).hostname;
+  } catch {
+    return "";
+  }
+}
+
 function SkeletonLine({ width = "60%" }: { width?: string }) {
   return (
     <div
@@ -216,8 +224,8 @@ export function BookDetailScreen({ editionId, onClose, onAuthorPress }: BookDeta
             {edition.isbn10 ? (
               <MetaRow label={t("bookDetail.isbn10")} value={edition.isbn10} />
             ) : null}
-            {edition.sourceUrl ? (
-              <MetaRow label={t("bookDetail.source")} value={new URL(edition.sourceUrl).hostname} />
+            {edition.sourceUrl && getHostname(edition.sourceUrl) ? (
+              <MetaRow label={t("bookDetail.source")} value={getHostname(edition.sourceUrl)} />
             ) : null}
           </div>
         </div>

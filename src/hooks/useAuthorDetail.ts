@@ -43,17 +43,17 @@ export function useAuthorDetail(authorId: string | null) {
 
       const author = toPlainDoc<AuthorDoc>(authorDoc);
 
-      // Find works and editions that include this author
-      const [workDocs, editionDocs] = await Promise.all([
+      // Find works and editions that include this author using indexed queries
+      const [allWorkDocs, allEditionDocs] = await Promise.all([
         db.works.find().exec(),
         db.editions.find().exec()
       ]);
 
-      const works = workDocs
+      const works = allWorkDocs
         .map((doc) => toPlainDoc<WorkDoc>(doc))
         .filter((work) => work.authorIds.includes(authorId));
 
-      const editions = editionDocs
+      const editions = allEditionDocs
         .map((doc) => toPlainDoc<EditionDoc>(doc))
         .filter((edition) => edition.authorIds.includes(authorId));
 
