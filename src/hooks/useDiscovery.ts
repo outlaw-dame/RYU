@@ -82,8 +82,9 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       // Log any failed discovery engines for debuggability.
       const engineNames = ["Related Books", "Similar Authors", "Because You Read"];
       for (let i = 0; i < settled.length; i++) {
-        if (settled[i].status === "rejected") {
-          console.warn(`[discovery] ${engineNames[i]} engine failed:`, (settled[i] as PromiseRejectedResult).reason);
+        const result = settled[i];
+        if (result.status === "rejected") {
+          console.warn(`[discovery] ${engineNames[i]} engine failed:`, result.reason);
         }
       }
 
