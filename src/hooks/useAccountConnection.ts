@@ -218,9 +218,14 @@ export function useAccountConnection(): AccountConnectionState {
         // Always clear OAuth params if we're still on the callback URL,
         // even if the hook was unmounted (prevents stale code/state in
         // history that could be reprocessed on remount or leak via referrers).
+        // Only delete specific OAuth params to preserve any other query params
+        // that may have been added during the async exchange.
         if (window.location.pathname === callbackUrl.pathname) {
-          callbackUrl.search = "";
-          window.history.replaceState({}, "", callbackUrl.toString());
+          const currentUrl = new URL(window.location.href);
+          currentUrl.searchParams.delete("code");
+          currentUrl.searchParams.delete("state");
+          currentUrl.searchParams.delete("error");
+          window.history.replaceState({}, "", currentUrl.toString());
         }
       }
     })();
@@ -228,13 +233,13 @@ export function useAccountConnection(): AccountConnectionState {
     return () => { cancelled = true; };
   }, [queryClient]);
 
-  const startLogin = useCallback(async () => {
+  const startLogin = useCallback(async (overrideInstance?: string) => {
     setError(null);
     setInfo(null);
 
     let normalizedInstance = "";
     try {
-      normalizedInstance = normalizeInstanceOrigin(instanceInput);
+      normalizedInstance = normalizeInstanceOrigin(overrideInstance ?? instanceInput);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       return;
@@ -344,7 +349,9 @@ export function useAccountConnection(): AccountConnectionState {
       }
     }
     if (target && target.includes(".")) {
-      void startLogin();
+      // Pass target explicitly to avoid stale closure — setInstanceInput
+      // is async so instanceInput captured by startLogin may still be empty.
+      void startLogin(target);
     }
   }, [instanceInput, startLogin]);
 
