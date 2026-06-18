@@ -67,7 +67,9 @@ export async function findBecauseYouRead(
       entry.count++;
       if (entry.titles.length < 3) entry.titles.push(edition.title);
       authorFrequency.set(authorId, entry);
-      if (!authorToEdition.has(authorId)) authorToEdition.set(authorId, edition);
+      if (!authorToEdition.has(authorId) || edition.updatedAt > (authorToEdition.get(authorId)!.updatedAt || "")) {
+        authorToEdition.set(authorId, edition);
+      }
     }
   }
 

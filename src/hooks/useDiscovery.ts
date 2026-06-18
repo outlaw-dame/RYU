@@ -80,9 +80,10 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       const becauseYouRead = settled[2].status === "fulfilled" ? settled[2].value : [];
 
       // Log any failed discovery engines for debuggability.
-      for (const result of settled) {
-        if (result.status === "rejected") {
-          console.warn("[discovery] Recommendation engine failed:", result.reason);
+      const engineNames = ["Related Books", "Similar Authors", "Because You Read"];
+      for (let i = 0; i < settled.length; i++) {
+        if (settled[i].status === "rejected") {
+          console.warn(`[discovery] ${engineNames[i]} engine failed:`, (settled[i] as PromiseRejectedResult).reason);
         }
       }
 
