@@ -76,3 +76,33 @@ export {
   shouldHideContent,
   shouldWarnContent
 } from "./moderation-engine";
+
+// Server API
+export type { ServerAccount, ModerationServerApiOptions, ModerationServerApiError } from "./server-api";
+export {
+  fetchServerMutes,
+  fetchServerBlocks,
+  fetchServerDomainBlocks,
+  serverMuteAccount,
+  serverUnmuteAccount,
+  serverBlockAccount,
+  serverUnblockAccount,
+  serverBlockDomain,
+  serverUnblockDomain
+} from "./server-api";
+
+// Moderation sync
+export type { SyncState, QueuedAction, SyncResult } from "./moderation-sync";
+export {
+  loadQueue,
+  saveQueue,
+  enqueueAction,
+  clearQueue,
+  loadSyncState,
+  saveSyncState,
+  mergeMutes,
+  mergeBlocks,
+  mergeDomainBlocks,
+  performSync,
+  flushQueue
+} from "./moderation-sync";
