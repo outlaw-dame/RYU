@@ -219,7 +219,64 @@ export const resources = {
         editionCount_one: "{{count}} edition",
         editionCount_other: "{{count}} editions",
         about: "About",
-        openOnOpenLibrary: "Open on OpenLibrary"
+        openOnOpenLibrary: "Open on OpenLibrary",
+        description: "Description",
+        isbn10: "ISBN-10",
+        isbn13: "ISBN-13",
+        source: "Source",
+        viewSource: "View source",
+        reviews: "Reviews",
+        noReviews: "No reviews yet.",
+        readingStatus: "Reading status",
+        authors: "Authors",
+        viewAuthor: "View author"
+      },
+      library: {
+        title: "Library",
+        searchPlaceholder: "Search your library...",
+        searchAriaLabel: "Search within library",
+        allBooks: "All Books",
+        wantToRead: "Want to Read",
+        reading: "Reading",
+        read: "Read",
+        didNotFinish: "Did Not Finish",
+        emptyTitle: "Your library is empty",
+        emptyDescription: "Import books from BookWyrm or add them from search.",
+        emptyFilterTitle: "No books in this shelf",
+        emptyFilterDescription: "Move books here by changing their reading status.",
+        bookCount_one: "{{count}} book",
+        bookCount_other: "{{count}} books"
+      },
+      readingStatus: {
+        label: "Reading status",
+        none: "Not shelved",
+        wantToRead: "Want to Read",
+        reading: "Currently Reading",
+        read: "Read",
+        didNotFinish: "Did Not Finish",
+        changed: "Status updated"
+      },
+      authorDetail: {
+        works: "Works",
+        editions: "Editions",
+        bio: "About",
+        noBio: "No biography available.",
+        noWorks: "No works found for this author."
+      },
+      editionDetail: {
+        subtitle: "Subtitle",
+        isbn10: "ISBN-10",
+        isbn13: "ISBN-13",
+        source: "Source",
+        viewSource: "View source",
+        authors: "Authors",
+        work: "Work"
+      },
+      review: {
+        rating: "{{count}} star",
+        rating_other: "{{count}} stars",
+        visibility: "Visibility",
+        publishedOn: "Published {{date}}"
       },
       nowReading: {
         viewReaderProfile: "View reader profile",
@@ -474,7 +531,64 @@ export const resources = {
         editionCount_one: "{{count}} edición",
         editionCount_other: "{{count}} ediciones",
         about: "Acerca de",
-        openOnOpenLibrary: "Abrir en OpenLibrary"
+        openOnOpenLibrary: "Abrir en OpenLibrary",
+        description: "Descripción",
+        isbn10: "ISBN-10",
+        isbn13: "ISBN-13",
+        source: "Fuente",
+        viewSource: "Ver fuente",
+        reviews: "Reseñas",
+        noReviews: "Aún no hay reseñas.",
+        readingStatus: "Estado de lectura",
+        authors: "Autores",
+        viewAuthor: "Ver autor"
+      },
+      library: {
+        title: "Biblioteca",
+        searchPlaceholder: "Buscar en tu biblioteca...",
+        searchAriaLabel: "Buscar dentro de la biblioteca",
+        allBooks: "Todos los libros",
+        wantToRead: "Quiero leer",
+        reading: "Leyendo",
+        read: "Leído",
+        didNotFinish: "No terminado",
+        emptyTitle: "Tu biblioteca está vacía",
+        emptyDescription: "Importa libros desde BookWyrm o agrégalos desde la búsqueda.",
+        emptyFilterTitle: "No hay libros en este estante",
+        emptyFilterDescription: "Mueve libros aquí cambiando su estado de lectura.",
+        bookCount_one: "{{count}} libro",
+        bookCount_other: "{{count}} libros"
+      },
+      readingStatus: {
+        label: "Estado de lectura",
+        none: "Sin clasificar",
+        wantToRead: "Quiero leer",
+        reading: "Leyendo actualmente",
+        read: "Leído",
+        didNotFinish: "No terminado",
+        changed: "Estado actualizado"
+      },
+      authorDetail: {
+        works: "Obras",
+        editions: "Ediciones",
+        bio: "Acerca de",
+        noBio: "No hay biografía disponible.",
+        noWorks: "No se encontraron obras de este autor."
+      },
+      editionDetail: {
+        subtitle: "Subtítulo",
+        isbn10: "ISBN-10",
+        isbn13: "ISBN-13",
+        source: "Fuente",
+        viewSource: "Ver fuente",
+        authors: "Autores",
+        work: "Obra"
+      },
+      review: {
+        rating: "{{count}} estrella",
+        rating_other: "{{count}} estrellas",
+        visibility: "Visibilidad",
+        publishedOn: "Publicado {{date}}"
       },
       nowReading: {
         viewReaderProfile: "Ver perfil del lector",
