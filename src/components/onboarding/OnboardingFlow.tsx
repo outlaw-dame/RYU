@@ -167,7 +167,7 @@ function SignInSection({
 
   return (
     <form
-      onSubmit={(event) => { event.preventDefault(); onStartLogin(); }}
+      onSubmit={(event) => { event.preventDefault(); if (!isWorking && instanceInput.trim()) onStartLogin(); }}
       style={{
         display: "grid",
         gap: "var(--space-3)",

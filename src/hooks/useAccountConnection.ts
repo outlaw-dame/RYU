@@ -214,6 +214,11 @@ export function useAccountConnection(): AccountConnectionState {
       } finally {
         if (!cancelled) {
           setIsWorking(false);
+        }
+        // Always clear OAuth params if we're still on the callback URL,
+        // even if the hook was unmounted (prevents stale code/state in
+        // history that could be reprocessed on remount or leak via referrers).
+        if (window.location.pathname === callbackUrl.pathname) {
           callbackUrl.search = "";
           window.history.replaceState({}, "", callbackUrl.toString());
         }
@@ -327,8 +332,18 @@ export function useAccountConnection(): AccountConnectionState {
   const retry = useCallback(() => {
     setError(null);
     setInfo(null);
-    // Re-invoke login if there's a plausible instance to retry with.
-    if (instanceInput.trim() && instanceInput.includes(".")) {
+    // Re-invoke login with a plausible instance. If instanceInput is empty
+    // (e.g. after a failed OAuth callback exchange), try to recover the
+    // instance from the pending transaction that was used for authorization.
+    let target = instanceInput.trim();
+    if (!target || !target.includes(".")) {
+      const pending = loadPendingAuthTransaction();
+      if (pending?.instanceOrigin) {
+        target = pending.instanceOrigin.replace(/^https?:\/\//, "");
+        setInstanceInput(target);
+      }
+    }
+    if (target && target.includes(".")) {
       void startLogin();
     }
   }, [instanceInput, startLogin]);
