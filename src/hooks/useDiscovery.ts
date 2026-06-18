@@ -79,6 +79,13 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       const similarAuthors = settled[1].status === "fulfilled" ? settled[1].value : [];
       const becauseYouRead = settled[2].status === "fulfilled" ? settled[2].value : [];
 
+      // Log any failed discovery engines for debuggability.
+      for (const result of settled) {
+        if (result.status === "rejected") {
+          console.warn("[discovery] Recommendation engine failed:", result.reason);
+        }
+      }
+
       results.push(...relatedBooks, ...similarAuthors, ...becauseYouRead);
 
       // Deduplicate by ID

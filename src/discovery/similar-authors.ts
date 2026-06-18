@@ -57,10 +57,11 @@ export async function findSimilarAuthors(
   // Find all co-authors (authors who appear on editions with the user's authors)
   const coAuthorScores = new Map<string, number>();
   for (const edition of editions) {
-    const hasUserAuthor = (edition.authorIds || []).some((aid) => userAuthorIds.has(aid));
+    const authorIds = edition.authorIds || [];
+    const hasUserAuthor = authorIds.some((aid) => userAuthorIds.has(aid));
     if (!hasUserAuthor) continue;
 
-    for (const authorId of edition.authorIds || []) {
+    for (const authorId of authorIds) {
       if (excludeSet.has(authorId)) continue;
       coAuthorScores.set(authorId, (coAuthorScores.get(authorId) || 0) + 1);
     }
