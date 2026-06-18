@@ -360,6 +360,55 @@ export const resources = {
         typeReadingUpdate: "Reading",
         typeRecommendation: "Rec",
         typeDiscussion: "Discussion"
+      },
+      composer: {
+        title: {
+          status: "Reading Update",
+          review: "Write Review",
+          reply: "Reply"
+        },
+        placeholder: {
+          status: "What are you reading? Share a book update with your community...",
+          review: "Share your thoughts about this book...",
+          reply: "Write your reply..."
+        },
+        textLabel: "Compose text",
+        titlePlaceholder: "Review title (optional)",
+        titleLabel: "Review title",
+        cancel: "Cancel",
+        saveDraft: "Save Draft",
+        discard: "Discard",
+        publish: "Publish",
+        publishing: "Publishing...",
+        visibility: {
+          label: "Visibility",
+          public: "Public",
+          publicDesc: "Visible to everyone",
+          unlisted: "Unlisted",
+          unlistedDesc: "Not shown in public timelines",
+          followersOnly: "Followers",
+          followersOnlyDesc: "Only your followers can see",
+          direct: "Direct",
+          directDesc: "Only mentioned people can see"
+        },
+        cw: {
+          toggle: "Content warning",
+          placeholder: "Write a content warning...",
+          label: "Content warning text"
+        },
+        draft: {
+          unsaved: "Unsaved changes",
+          restored: "Draft restored"
+        },
+        errors: {
+          textRequired: "Content cannot be empty",
+          textTooLong: "Content exceeds character limit",
+          titleTooLong: "Title exceeds character limit",
+          cwRequired: "Content warning text is required when enabled",
+          cwTooLong: "Content warning exceeds character limit",
+          tooManyAttachments: "Too many attachments",
+          unknown: "Something went wrong"
+        }
       }
     }
   },
@@ -724,6 +773,55 @@ export const resources = {
         typeReadingUpdate: "Lectura",
         typeRecommendation: "Rec",
         typeDiscussion: "Discusion"
+      },
+      composer: {
+        title: {
+          status: "Actualizacion de lectura",
+          review: "Escribir resena",
+          reply: "Responder"
+        },
+        placeholder: {
+          status: "Que estas leyendo? Comparte una actualizacion con tu comunidad...",
+          review: "Comparte tus pensamientos sobre este libro...",
+          reply: "Escribe tu respuesta..."
+        },
+        textLabel: "Texto del mensaje",
+        titlePlaceholder: "Titulo de la resena (opcional)",
+        titleLabel: "Titulo de la resena",
+        cancel: "Cancelar",
+        saveDraft: "Guardar borrador",
+        discard: "Descartar",
+        publish: "Publicar",
+        publishing: "Publicando...",
+        visibility: {
+          label: "Visibilidad",
+          public: "Publica",
+          publicDesc: "Visible para todos",
+          unlisted: "No listada",
+          unlistedDesc: "No se muestra en timelines publicos",
+          followersOnly: "Seguidores",
+          followersOnlyDesc: "Solo tus seguidores pueden ver",
+          direct: "Directa",
+          directDesc: "Solo las personas mencionadas pueden ver"
+        },
+        cw: {
+          toggle: "Advertencia de contenido",
+          placeholder: "Escribe una advertencia de contenido...",
+          label: "Texto de advertencia de contenido"
+        },
+        draft: {
+          unsaved: "Cambios sin guardar",
+          restored: "Borrador restaurado"
+        },
+        errors: {
+          textRequired: "El contenido no puede estar vacio",
+          textTooLong: "El contenido excede el limite de caracteres",
+          titleTooLong: "El titulo excede el limite de caracteres",
+          cwRequired: "El texto de advertencia es obligatorio cuando esta habilitado",
+          cwTooLong: "La advertencia excede el limite de caracteres",
+          tooManyAttachments: "Demasiados archivos adjuntos",
+          unknown: "Algo salio mal"
+        }
       }
     }
   }
