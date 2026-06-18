@@ -166,7 +166,8 @@ function SignInSection({
   const { t } = useTranslation();
 
   return (
-    <section
+    <form
+      onSubmit={(event) => { event.preventDefault(); onStartLogin(); }}
       style={{
         display: "grid",
         gap: "var(--space-3)",
@@ -229,8 +230,7 @@ function SignInSection({
       </datalist>
       <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)" }}>
         <button
-          type="button"
-          onClick={onStartLogin}
+          type="submit"
           disabled={isWorking || !instanceInput.trim()}
           style={{
             minHeight: "var(--touch-min)",
@@ -261,7 +261,7 @@ function SignInSection({
           {t("auth.findServer")}
         </button>
       </div>
-    </section>
+    </form>
   );
 }
 
