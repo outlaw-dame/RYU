@@ -7,7 +7,7 @@
  * - Search vector rebuild for surviving entity
  * - Search vector removal for merged-away entity
  * - Resolution record creation (merged ID -> canonical ID)
- * - Undo snapshot creation
+ * - Undo snapshot creation with full child-relation metadata
  */
 
 import type { RyuDatabase } from '../db/client';
@@ -36,20 +36,33 @@ function getCollection(db: RyuDatabase, entityType: EntityType) {
   }
 }
 
+/** Metadata returned from transferUserData for undo support. */
+type TransferResult = {
+  transferredReviewIds: string[];
+  transferredEditionIds: string[];
+  modifiedWorks: Array<{ id: string; originalAuthorIds: string[] }>;
+  modifiedEditions: Array<{ id: string; originalAuthorIds: string[] }>;
+};
+
 /**
- * Transfer reviews from source entity to target entity.
- * For editions: reviews are linked by editionId.
- * For works: editions linked to the work have their reviews transferred.
- * For authors: updates authorIds on works/editions.
+ * Transfer user-owned data from source entity to target entity.
+ *
+ * - Edition merge: reviews linked by editionId are transferred.
+ * - Work merge: editions linked by workId are transferred.
+ * - Author merge: works/editions with source in authorIds are updated.
+ *
+ * Returns full metadata needed for undo.
  */
 async function transferUserData(
   db: RyuDatabase,
   operation: MergeOperation
-): Promise<string[]> {
+): Promise<TransferResult> {
   const transferredReviewIds: string[] = [];
+  const transferredEditionIds: string[] = [];
+  const modifiedWorks: Array<{ id: string; originalAuthorIds: string[] }> = [];
+  const modifiedEditions: Array<{ id: string; originalAuthorIds: string[] }> = [];
 
   if (operation.entityType === 'edition') {
-    // Transfer reviews from source edition to target edition
     const reviews = await db.reviews.find({
       selector: { editionId: operation.sourceId }
     }).exec();
@@ -59,41 +72,56 @@ async function transferUserData(
       transferredReviewIds.push(reviewDoc.toJSON().id);
     }
   } else if (operation.entityType === 'work') {
-    // Transfer editions from source work to target work
     const editions = await db.editions.find({
       selector: { workId: operation.sourceId }
     }).exec();
 
     for (const editionDoc of editions) {
       await editionDoc.incrementalPatch({ workId: operation.targetId, updatedAt: nowIso() });
+      transferredEditionIds.push(editionDoc.toJSON().id);
     }
   } else if (operation.entityType === 'author') {
-    // Update authorIds on works referencing the source author
-    const works = await db.works.find().exec();
+    // Use $in selector to only fetch works referencing the source author
+    const works = await db.works.find({
+      selector: { authorIds: { $elemMatch: { $eq: operation.sourceId } } }
+    }).exec().catch(async () => {
+      // Fallback if $elemMatch not supported: load all and filter
+      const all = await db.works.find().exec();
+      return all.filter((doc) => doc.toJSON().authorIds.includes(operation.sourceId));
+    });
+
     for (const workDoc of works) {
       const work = workDoc.toJSON();
-      if (work.authorIds.includes(operation.sourceId)) {
-        const newAuthorIds = work.authorIds
-          .filter((id: string) => id !== operation.sourceId)
-          .concat(work.authorIds.includes(operation.targetId) ? [] : [operation.targetId]);
-        await workDoc.incrementalPatch({ authorIds: newAuthorIds, updatedAt: nowIso() });
-      }
+      const originalAuthorIds = [...work.authorIds];
+      modifiedWorks.push({ id: work.id, originalAuthorIds });
+
+      const newAuthorIds = work.authorIds
+        .filter((id: string) => id !== operation.sourceId)
+        .concat(work.authorIds.includes(operation.targetId) ? [] : [operation.targetId]);
+      await workDoc.incrementalPatch({ authorIds: newAuthorIds, updatedAt: nowIso() });
     }
 
-    // Update authorIds on editions referencing the source author
-    const editions = await db.editions.find().exec();
+    // Use $in selector for editions too
+    const editions = await db.editions.find({
+      selector: { authorIds: { $elemMatch: { $eq: operation.sourceId } } }
+    }).exec().catch(async () => {
+      const all = await db.editions.find().exec();
+      return all.filter((doc) => doc.toJSON().authorIds.includes(operation.sourceId));
+    });
+
     for (const editionDoc of editions) {
       const edition = editionDoc.toJSON();
-      if (edition.authorIds.includes(operation.sourceId)) {
-        const newAuthorIds = edition.authorIds
-          .filter((id: string) => id !== operation.sourceId)
-          .concat(edition.authorIds.includes(operation.targetId) ? [] : [operation.targetId]);
-        await editionDoc.incrementalPatch({ authorIds: newAuthorIds, updatedAt: nowIso() });
-      }
+      const originalAuthorIds = [...edition.authorIds];
+      modifiedEditions.push({ id: edition.id, originalAuthorIds });
+
+      const newAuthorIds = edition.authorIds
+        .filter((id: string) => id !== operation.sourceId)
+        .concat(edition.authorIds.includes(operation.targetId) ? [] : [operation.targetId]);
+      await editionDoc.incrementalPatch({ authorIds: newAuthorIds, updatedAt: nowIso() });
     }
   }
 
-  return transferredReviewIds;
+  return { transferredReviewIds, transferredEditionIds, modifiedWorks, modifiedEditions };
 }
 
 /**
@@ -110,15 +138,13 @@ async function removeSearchVectors(db: RyuDatabase, entityId: string): Promise<v
 }
 
 /**
- * Mark search vectors for the surviving entity as needing rebuild
- * by removing them (they will be re-indexed on next access).
+ * Invalidate search vectors for the surviving entity (triggers rebuild).
  */
 async function invalidateSearchVectors(db: RyuDatabase, entityId: string): Promise<number> {
   const vectors = await db.searchvectors.find({
     selector: { entityId }
   }).exec();
 
-  // Remove existing vectors so they get rebuilt with merged data
   for (const vectorDoc of vectors) {
     await vectorDoc.remove();
   }
@@ -130,12 +156,12 @@ async function invalidateSearchVectors(db: RyuDatabase, entityId: string): Promi
  * Execute a merge operation atomically.
  *
  * The source entity is merged into the target entity:
- * 1. Transfer user-owned data (reviews, notes) to target
+ * 1. Transfer user-owned data (reviews, editions, authorIds) to target
  * 2. Create resolution record (source URI -> target entity)
  * 3. Remove search vectors for source entity
  * 4. Invalidate search vectors for target (triggers rebuild)
  * 5. Remove the source entity document
- * 6. Save undo snapshot
+ * 6. Save undo snapshot with full relation metadata
  *
  * On failure at any step, all changes are rolled back.
  */
@@ -143,6 +169,11 @@ export async function executeMerge(
   db: RyuDatabase,
   operation: MergeOperation
 ): Promise<MergeResult> {
+  // Guard: reject same-id merges
+  if (operation.sourceId === operation.targetId) {
+    throw new Error('Cannot merge an entity into itself.');
+  }
+
   const collection = getCollection(db, operation.entityType);
 
   // Validate both entities exist
@@ -162,10 +193,24 @@ export async function executeMerge(
   const resolutionRecordIds: string[] = [];
 
   try {
-    // Step 1: Transfer user data
-    const transferredReviewIds = await transferUserData(db, operation);
+    // Step 1: Transfer user data (full metadata for undo)
+    const {
+      transferredReviewIds,
+      transferredEditionIds,
+      modifiedWorks,
+      modifiedEditions
+    } = await transferUserData(db, operation);
 
     // Step 2: Create resolution record (source URI -> target)
+    // Also remove any existing self-mapping for the source URI
+    // (ActivityPub ingest may have created one)
+    const existingSelfMapping = await db.entityresolutions.findOne({
+      selector: { canonicalUri: operation.sourceId }
+    }).exec();
+    if (existingSelfMapping) {
+      await existingSelfMapping.remove();
+    }
+
     const resolutionRecord = await writeResolution(
       db,
       operation.sourceId,
@@ -183,12 +228,15 @@ export async function executeMerge(
     // Step 5: Remove the source entity
     await sourceDoc.remove();
 
-    // Step 6: Save undo snapshot
+    // Step 6: Save undo snapshot with full relation metadata
     const undoSnapshot: UndoSnapshot = {
       id: undoSnapshotId,
       operation,
       sourceEntitySnapshot: sourceSnapshot,
       transferredReviewIds,
+      transferredEditionIds,
+      modifiedWorks,
+      modifiedEditions,
       resolutionRecordIds,
       createdAt: nowIso()
     };
@@ -219,10 +267,13 @@ export async function executeMerge(
 /**
  * Undo a previously executed merge.
  *
+ * Fully restores all child references for work and author merges:
  * 1. Restore the source entity from snapshot
- * 2. Transfer reviews back to source entity
- * 3. Remove resolution records
- * 4. Remove the undo snapshot
+ * 2. Transfer reviews back (edition merges)
+ * 3. Transfer editions back (work merges)
+ * 4. Restore original authorIds on works/editions (author merges)
+ * 5. Remove resolution records
+ * 6. Remove the undo snapshot
  */
 export async function undoMerge(
   db: RyuDatabase,
@@ -239,7 +290,7 @@ export async function undoMerge(
   // Step 1: Restore the source entity
   await collection.upsert(sourceEntity);
 
-  // Step 2: Transfer reviews back to source entity
+  // Step 2: Restore edition merge child references (reviews)
   if (snapshot.operation.entityType === 'edition' && snapshot.transferredReviewIds.length > 0) {
     for (const reviewId of snapshot.transferredReviewIds) {
       const reviewDoc = await db.reviews.findOne({ selector: { id: reviewId } }).exec();
@@ -252,11 +303,50 @@ export async function undoMerge(
     }
   }
 
-  // Step 3: Remove resolution records
+  // Step 3: Restore work merge child references (editions)
+  if (snapshot.operation.entityType === 'work' && snapshot.transferredEditionIds && snapshot.transferredEditionIds.length > 0) {
+    for (const editionId of snapshot.transferredEditionIds) {
+      const editionDoc = await db.editions.findOne({ selector: { id: editionId } }).exec();
+      if (editionDoc) {
+        await editionDoc.incrementalPatch({
+          workId: snapshot.operation.sourceId,
+          updatedAt: nowIso()
+        });
+      }
+    }
+  }
+
+  // Step 4: Restore author merge child references (works + editions authorIds)
+  if (snapshot.operation.entityType === 'author') {
+    if (snapshot.modifiedWorks && snapshot.modifiedWorks.length > 0) {
+      for (const { id, originalAuthorIds } of snapshot.modifiedWorks) {
+        const workDoc = await db.works.findOne({ selector: { id } }).exec();
+        if (workDoc) {
+          await workDoc.incrementalPatch({
+            authorIds: originalAuthorIds,
+            updatedAt: nowIso()
+          });
+        }
+      }
+    }
+    if (snapshot.modifiedEditions && snapshot.modifiedEditions.length > 0) {
+      for (const { id, originalAuthorIds } of snapshot.modifiedEditions) {
+        const editionDoc = await db.editions.findOne({ selector: { id } }).exec();
+        if (editionDoc) {
+          await editionDoc.incrementalPatch({
+            authorIds: originalAuthorIds,
+            updatedAt: nowIso()
+          });
+        }
+      }
+    }
+  }
+
+  // Step 5: Remove resolution records
   for (const recordId of snapshot.resolutionRecordIds) {
     await removeResolution(db, recordId);
   }
 
-  // Step 4: Remove the undo snapshot
+  // Step 6: Remove the undo snapshot
   removeUndoSnapshot(undoSnapshotId);
 }

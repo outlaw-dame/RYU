@@ -77,6 +77,7 @@ function isInitialOf(initial: string, fullName: string): boolean {
  * - No family name match: 0.0
  */
 export function compareAuthorNames(nameA: string, nameB: string): number {
+  if (!nameA || !nameB || !nameA.trim() || !nameB.trim()) return 0.0;
   const canonA = canonicalizeAuthorName(nameA);
   const canonB = canonicalizeAuthorName(nameB);
 
@@ -126,15 +127,30 @@ export function findAuthorAliases(
 ): Array<{ idA: string; idB: string; confidence: number }> {
   const results: Array<{ idA: string; idB: string; confidence: number }> = [];
 
-  for (let i = 0; i < authors.length; i++) {
-    for (let j = i + 1; j < authors.length; j++) {
-      const confidence = compareAuthorNames(authors[i].name, authors[j].name);
-      if (confidence >= threshold) {
-        results.push({
-          idA: authors[i].id,
-          idB: authors[j].id,
-          confidence
-        });
+  // Group authors by normalized family name to reduce O(N^2) to O(N) average
+  const groups = new Map<string, Array<{ id: string; name: string }>>();
+  for (const author of authors) {
+    const parsed = parseAuthorName(author.name);
+    const normFamily = normalizeForComparison(parsed.family);
+    if (!normFamily) continue;
+
+    if (!groups.has(normFamily)) {
+      groups.set(normFamily, []);
+    }
+    groups.get(normFamily)!.push(author);
+  }
+
+  for (const groupAuthors of groups.values()) {
+    for (let i = 0; i < groupAuthors.length; i++) {
+      for (let j = i + 1; j < groupAuthors.length; j++) {
+        const confidence = compareAuthorNames(groupAuthors[i].name, groupAuthors[j].name);
+        if (confidence >= threshold) {
+          results.push({
+            idA: groupAuthors[i].id,
+            idB: groupAuthors[j].id,
+            confidence
+          });
+        }
       }
     }
   }
