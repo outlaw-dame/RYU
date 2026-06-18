@@ -37,14 +37,10 @@ export function useImportQueue(): UseImportQueueResult {
     queue.subscribe,
     () => {
       const next = getSnapshotFromQueue(queue);
-      // Only create a new reference if the data actually changed
-      if (
-        next.pending !== cachedSnapshot.pending ||
-        next.processing !== cachedSnapshot.processing ||
-        next.completed !== cachedSnapshot.completed ||
-        next.failed !== cachedSnapshot.failed ||
-        next.jobs.length !== cachedSnapshot.jobs.length
-      ) {
+      // Detect changes by comparing job references (not just counts)
+      const jobsChanged = next.jobs.length !== cachedSnapshot.jobs.length ||
+        next.jobs.some((job, i) => job !== cachedSnapshot.jobs[i]);
+      if (jobsChanged) {
         cachedSnapshot = next;
       }
       return cachedSnapshot;

@@ -92,26 +92,32 @@ async function queryOpenLibraryByIsbn(isbn: string, signal?: AbortSignal): Promi
   const edition: OpenLibraryEdition = await response.json();
   if (!edition.title) return null;
 
-  // Resolve authors
+  // Resolve authors in parallel
   const authors: Array<{ name: string; url?: string }> = [];
   if (edition.authors && Array.isArray(edition.authors)) {
-    for (const authorRef of edition.authors.slice(0, 5)) {
-      if (!authorRef.key) continue;
+    const authorRefs = edition.authors.slice(0, 5).filter((ref) => ref.key);
+    const authorPromises = authorRefs.map(async (authorRef) => {
       try {
         const authorUrl = `https://openlibrary.org${authorRef.key}.json`;
         const authorResp = await fetch(authorUrl, { signal, headers: { Accept: 'application/json' } });
         if (authorResp.ok) {
           const authorData: OpenLibraryAuthor = await authorResp.json();
           if (authorData.name) {
-            authors.push({
+            return {
               name: authorData.name,
               url: `https://openlibrary.org${authorRef.key}`
-            });
+            };
           }
         }
       } catch {
         // Skip author on failure - edition import continues
       }
+      return null;
+    });
+
+    const resolvedAuthors = await Promise.all(authorPromises);
+    for (const author of resolvedAuthors) {
+      if (author) authors.push(author);
     }
   }
 
@@ -204,9 +210,12 @@ export function isbnResultToApGraph(result: IsbnLookupResult, isbn: string): Can
   const entities: CanonicalApEntity[] = [];
   const authorIds: string[] = [];
 
-  // Create author entities
+  // Create author entities (deduplicate by generated ID)
+  const seenAuthorIds = new Set<string>();
   for (const author of result.authors) {
     const authorId = generateEntityId('isbn-author', `${normalized}:${author.name.toLowerCase().replace(/\s+/g, '-')}`);
+    if (seenAuthorIds.has(authorId)) continue;
+    seenAuthorIds.add(authorId);
     authorIds.push(authorId);
     entities.push({
       kind: 'author',

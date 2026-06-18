@@ -13,7 +13,8 @@ export type DuplicateCheckResult =
   | { isDuplicate: false }
   | { isDuplicate: true; existingId: string; matchType: 'uri' | 'isbn' | 'title_author' };
 
-function normalizeForComparison(value: string): string {
+function normalizeForComparison(value: string | null | undefined): string {
+  if (!value) return '';
   return value
     .normalize('NFKC')
     .toLowerCase()
@@ -53,24 +54,17 @@ export async function checkDuplicateByIsbn(isbn: string): Promise<DuplicateCheck
 
   const db = await initializeDatabase();
 
-  const field = normalized.length === 13 ? 'isbn13' : 'isbn10';
   const editions = await db.editions.find({
-    selector: { [field]: normalized }
+    selector: {
+      $or: [
+        { isbn13: normalized },
+        { isbn10: normalized }
+      ]
+    }
   }).exec();
 
   if (editions.length > 0) {
     const doc = editions[0].toJSON();
-    return { isDuplicate: true, existingId: doc.id, matchType: 'isbn' };
-  }
-
-  // Also check the other ISBN field in case of cross-format match
-  const altField = normalized.length === 13 ? 'isbn10' : 'isbn13';
-  const altEditions = await db.editions.find({
-    selector: { [altField]: normalized }
-  }).exec();
-
-  if (altEditions.length > 0) {
-    const doc = altEditions[0].toJSON();
     return { isDuplicate: true, existingId: doc.id, matchType: 'isbn' };
   }
 
