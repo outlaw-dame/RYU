@@ -67,7 +67,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       const results: Recommendation[] = [];
 
       // Gather recommendations from all sources in parallel
-      const [relatedBooks, similarAuthors, becauseYouRead] = await Promise.all([
+      const settled = await Promise.allSettled([
         editionId
           ? findRelatedBooks(editionId, { limit: Math.ceil(limit / 3), excludeIds })
           : Promise.resolve([]),
@@ -75,12 +75,17 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         findBecauseYouRead({ limit: Math.ceil(limit / 2), excludeIds })
       ]);
 
+      const relatedBooks = settled[0].status === "fulfilled" ? settled[0].value : [];
+      const similarAuthors = settled[1].status === "fulfilled" ? settled[1].value : [];
+      const becauseYouRead = settled[2].status === "fulfilled" ? settled[2].value : [];
+
       results.push(...relatedBooks, ...similarAuthors, ...becauseYouRead);
 
       // Deduplicate by ID
       const seen = new Set<string>();
+      const excludedSet = new Set(currentControls.excludedIds);
       const unique = results.filter((rec) => {
-        if (seen.has(rec.id) || currentControls.excludedIds.includes(rec.id)) {
+        if (seen.has(rec.id) || excludedSet.has(rec.id)) {
           return false;
         }
         seen.add(rec.id);

@@ -18,6 +18,7 @@ import type { Recommendation, RecommendationReason } from "./types";
  * Strips common stop words and short tokens.
  */
 function extractTitleKeywords(title: string): string[] {
+  if (typeof title !== "string") return [];
   const stopWords = new Set([
     "the", "a", "an", "and", "or", "of", "in", "on", "at", "to", "for",
     "is", "it", "by", "with", "from", "as", "that", "this", "was", "are"
@@ -82,17 +83,19 @@ export async function findRelatedBooks(
   const recommendations: Recommendation[] = [];
   const seenIds = new Set<string>();
 
-  // 1. Same author - find other editions by the same author(s)
-  if (edition.authorIds.length > 0) {
-    const allEditions = await db.editions.find().exec();
-    const authorDocs = await db.authors.findByIds([...edition.authorIds]).exec();
+  // Fetch all editions once for reuse
+  const allEditionDocs = await db.editions.find().exec();
 
-    for (const doc of allEditions) {
+  // 1. Same author - find other editions by the same author(s)
+  if ((edition.authorIds || []).length > 0) {
+    const authorDocs = await db.authors.findByIds([...(edition.authorIds || [])]).exec();
+
+    for (const doc of allEditionDocs) {
       const other = doc.toJSON() as EditionDoc;
       if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
 
-      const sharedAuthors = other.authorIds.filter((aid) =>
-        edition.authorIds.includes(aid)
+      const sharedAuthors = (other.authorIds || []).filter((aid) =>
+        (edition.authorIds || []).includes(aid)
       );
 
       if (sharedAuthors.length > 0) {
@@ -158,8 +161,7 @@ export async function findRelatedBooks(
   }
 
   // 3. Similar title keywords
-  const allEditions = await db.editions.find().exec();
-  for (const doc of allEditions) {
+  for (const doc of allEditionDocs) {
     const other = doc.toJSON() as EditionDoc;
     if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
 
