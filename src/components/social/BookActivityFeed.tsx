@@ -48,7 +48,7 @@ function DefaultActivityItem({ activity }: { activity: BookActivity }) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
         <strong style={{ fontSize: "var(--text-subhead)", overflowWrap: "anywhere", flex: 1 }}>
-          {activity.status.account.display_name || activity.status.account.acct || "Unknown"}
+          {activity.status.account?.display_name || activity.status.account?.acct || "Unknown"}
         </strong>
         {activity.isBookRelated ? (
           <span

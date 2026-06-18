@@ -132,22 +132,23 @@ export function groupActivities(
   for (const activity of activities) {
     if (!activity.isBookRelated) continue;
 
-    let groupKey = getGroupKey(activity);
+    const originalKey = getGroupKey(activity);
+    let groupKey = originalKey;
 
-    // Check if this key should be merged with an existing one
-    const resolvedAlias = keyAliases.get(groupKey);
-    if (resolvedAlias) {
-      groupKey = resolvedAlias;
-    } else {
+    // Transitively resolve aliases to find the canonical key
+    while (keyAliases.has(groupKey)) {
+      groupKey = keyAliases.get(groupKey)!;
+    }
+
+    // If no alias was found, check if we should merge with any existing group
+    if (groupKey === originalKey) {
       for (const existingKey of groupMap.keys()) {
         if (shouldMergeGroups(groupKey, existingKey)) {
-          // Merge into the existing (longer) key
           const canonical = existingKey.length >= groupKey.length ? existingKey : groupKey;
           if (canonical !== groupKey) {
             keyAliases.set(groupKey, canonical);
             groupKey = canonical;
           } else {
-            // Re-key existing entries under the new longer key
             const existing = groupMap.get(existingKey)!;
             groupMap.delete(existingKey);
             groupMap.set(canonical, existing);
@@ -168,9 +169,7 @@ export function groupActivities(
   for (const [groupKey, groupActivities] of groupMap.entries()) {
     // Sort activities within group by recency
     const sorted = groupActivities.sort((a, b) => {
-      const dateA = new Date(a.status.created_at).getTime();
-      const dateB = new Date(b.status.created_at).getTime();
-      return dateB - dateA;
+      return b.status.created_at.localeCompare(a.status.created_at);
     });
 
     const latestAt = sorted[0]?.status.created_at ?? "";
@@ -186,11 +185,7 @@ export function groupActivities(
   }
 
   // Sort groups by most recent activity
-  groups.sort((a, b) => {
-    const dateA = new Date(a.latestAt).getTime();
-    const dateB = new Date(b.latestAt).getTime();
-    return dateB - dateA;
-  });
+  groups.sort((a, b) => b.latestAt.localeCompare(a.latestAt));
 
   return groups;
 }

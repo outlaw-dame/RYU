@@ -80,7 +80,7 @@ const READING_UPDATE_HASHTAGS = new Set([
 ]);
 
 /** Keywords in plain text that indicate book content. */
-const BOOK_KEYWORDS_RE = /\b(just finished|currently reading|started reading|book review|reading update|want to read|finished reading|dnf|did not finish|page \d+|chapter \d+|5 stars?|4 stars?|3 stars?|2 stars?|1 star|half star|out of 5|\d+\/5|rating:?\s*\d|★|⭐|📖|📚|🔖)\b/i;
+const BOOK_KEYWORDS_RE = /(?:\b(just finished|currently reading|started reading|book review|reading update|want to read|finished reading|dnf|did not finish|page \d+|chapter \d+|5 stars?|4 stars?|3 stars?|2 stars?|1 star|half star|out of 5|\d+\/5|rating:?\s*\d)\b|[★⭐📖📚🔖])/i;
 
 /** Star rating patterns (unicode stars, emoji, or text-based). */
 const RATING_PATTERN = /([★⭐]{1,5}|(\d(\.\d)?)\s*\/\s*5|\b[1-5]\s+stars?\b|rating:?\s*[1-5])/i;
@@ -92,18 +92,19 @@ const BOOKWYRM_PATTERNS = /\b(finished reading|wants to read|started reading|rat
  * Extract hashtags from HTML content of a status.
  */
 function extractHashtags(content: string): string[] {
-  const tagMatches = content.match(/class="[^"]*hashtag[^"]*"[^>]*>#?(\w+)/gi) ?? [];
   const extracted: string[] = [];
 
-  for (const match of tagMatches) {
-    const textMatch = match.match(/#?(\w+)$/);
-    if (textMatch) {
-      extracted.push(textMatch[1].toLowerCase());
-    }
+  // 1. Extract from Mastodon/BookWyrm hashtag links via href
+  const hrefMatches = content.matchAll(/href="[^"]*\/tags?\/(\w+)"/gi);
+  for (const match of hrefMatches) {
+    extracted.push(match[1].toLowerCase());
   }
 
-  // Also match plain text hashtags (e.g. from spoiler_text or stripped content)
-  const plainHashtags = content.match(/#(\w{2,})/g) ?? [];
+  // 2. Extract plain text hashtags, removing inline span tags first
+  const cleanText = content
+    .replace(/<\/?span[^>]*>/gi, "")  // remove span tags without adding spaces
+    .replace(/<[^>]*>/g, " ");         // replace other tags with spaces
+  const plainHashtags = cleanText.match(/#(\w{2,})/g) ?? [];
   for (const tag of plainHashtags) {
     extracted.push(tag.slice(1).toLowerCase());
   }
@@ -202,7 +203,7 @@ function extractBookReferences(text: string, _hashtags: string[]): string[] {
   }
 
   // Match "by Author" patterns which often follow a book title
-  const byAuthorPattern = /(?:reading|finished|reviewing|recommend)\s+(.{3,60})\s+by\s+/gi;
+  const byAuthorPattern = /(?:reading|finished|reviewing|recommend)\s+([^.!?\n]{3,60}?)\s+by\s+/gi;
   let byMatch: RegExpExecArray | null;
   while ((byMatch = byAuthorPattern.exec(text)) !== null) {
     const candidate = byMatch[1].trim().toLowerCase();
