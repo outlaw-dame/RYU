@@ -131,5 +131,15 @@ export function createTombstoneRegistry(options: TombstoneRegistryOptions = {}):
     return () => { listeners.delete(listener); };
   }
 
+  // Cross-tab synchronization: reload tombstones when another tab modifies them
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (event) => {
+      if (event.key === storageKey) {
+        tombstones = loadTombstones();
+        notify();
+      }
+    });
+  }
+
   return { add, isTombstoned, get, remove, all, prune, subscribe };
 }
