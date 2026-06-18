@@ -450,6 +450,52 @@ export const resources = {
           popularInLibrary: "Popular in your library",
           recommended: "Recommended for you"
         }
+      },
+      moderation: {
+        title: "Moderation",
+        tabsLabel: "Moderation settings tabs",
+        tabs: {
+          mutes: "Mutes",
+          blocks: "Blocks",
+          domains: "Domains",
+          filters: "Filters",
+          safety: "Safety"
+        },
+        mutesDescription: "Muted accounts are hidden from your timelines and optionally from notifications.",
+        blocksDescription: "Blocked accounts are completely hidden from all surfaces.",
+        domainsDescription: "All content from blocked domains will be hidden.",
+        filtersDescription: "Content filters hide or warn on posts containing specific words or phrases.",
+        safetyDescription: "Control how sensitive and flagged content is displayed.",
+        noMutes: "No muted accounts.",
+        noBlocks: "No blocked accounts.",
+        noDomainBlocks: "No blocked domains.",
+        noFilters: "No content filters.",
+        unmute: "Unmute",
+        unblock: "Unblock",
+        addDomain: "Block",
+        removeDomain: "Remove",
+        addFilter: "Add",
+        removeFilter: "Remove",
+        domainPlaceholder: "instance.example.com",
+        filterPhrasePlaceholder: "Keyword or phrase...",
+        filterActionLabel: "Filter action",
+        wholeWord: "Whole word",
+        actionHide: "Hide",
+        actionWarn: "Warn",
+        actionBlur: "Blur",
+        contentWarning: "Content warning",
+        sensitiveContent: "Sensitive content",
+        showAnyway: "Show anyway",
+        hideContent: "Hide content",
+        safeSearchLabel: "Safe search level",
+        safeSearch: {
+          strict: "Strict",
+          strictDesc: "Hide all sensitive and content-warned posts by default.",
+          moderate: "Moderate",
+          moderateDesc: "Hide explicitly sensitive posts but show content warnings as overlays.",
+          off: "Off",
+          offDesc: "Do not auto-filter any content. Content warnings still show as overlays."
+        }
       }
     }
   },
@@ -903,6 +949,52 @@ export const resources = {
           similarAuthor: "Similar a {{author}}",
           popularInLibrary: "Popular en tu biblioteca",
           recommended: "Recomendado para ti"
+        }
+      },
+      moderation: {
+        title: "Moderacion",
+        tabsLabel: "Pestanas de moderacion",
+        tabs: {
+          mutes: "Silenciados",
+          blocks: "Bloqueados",
+          domains: "Dominios",
+          filters: "Filtros",
+          safety: "Seguridad"
+        },
+        mutesDescription: "Las cuentas silenciadas se ocultan de tus lineas de tiempo y opcionalmente de las notificaciones.",
+        blocksDescription: "Las cuentas bloqueadas se ocultan completamente de todas las superficies.",
+        domainsDescription: "Todo el contenido de dominios bloqueados sera ocultado.",
+        filtersDescription: "Los filtros de contenido ocultan o advierten sobre publicaciones con palabras o frases especificas.",
+        safetyDescription: "Controla como se muestra el contenido sensible y marcado.",
+        noMutes: "No hay cuentas silenciadas.",
+        noBlocks: "No hay cuentas bloqueadas.",
+        noDomainBlocks: "No hay dominios bloqueados.",
+        noFilters: "No hay filtros de contenido.",
+        unmute: "Desilenciar",
+        unblock: "Desbloquear",
+        addDomain: "Bloquear",
+        removeDomain: "Eliminar",
+        addFilter: "Agregar",
+        removeFilter: "Eliminar",
+        domainPlaceholder: "instancia.ejemplo.com",
+        filterPhrasePlaceholder: "Palabra o frase...",
+        filterActionLabel: "Accion del filtro",
+        wholeWord: "Palabra completa",
+        actionHide: "Ocultar",
+        actionWarn: "Advertir",
+        actionBlur: "Difuminar",
+        contentWarning: "Advertencia de contenido",
+        sensitiveContent: "Contenido sensible",
+        showAnyway: "Mostrar de todos modos",
+        hideContent: "Ocultar contenido",
+        safeSearchLabel: "Nivel de busqueda segura",
+        safeSearch: {
+          strict: "Estricto",
+          strictDesc: "Ocultar todo el contenido sensible y con advertencias por defecto.",
+          moderate: "Moderado",
+          moderateDesc: "Ocultar publicaciones explicitamente sensibles pero mostrar advertencias como superposiciones.",
+          off: "Desactivado",
+          offDesc: "No filtrar automaticamente ningun contenido. Las advertencias de contenido aun se muestran."
         }
       }
     }
