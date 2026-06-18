@@ -341,6 +341,25 @@ export const resources = {
         federatedDiscoveryLabel: "Community discovery",
         federatedDiscoveryDescription: "Shows reading discussions from the wider fediverse in search results. Fetches public posts from relay servers.",
         privacyFootnote: "All search features run locally on your device. No search queries or reading history leave this app. You can change these settings later in Settings."
+      },
+      social: {
+        filterLabel: "Activity filters",
+        filterAll: "All",
+        filterBooks: "Books",
+        filterReviews: "Reviews",
+        filterRecommendations: "Recommendations",
+        filterFollowing: "Following",
+        noActivity: "No activity yet.",
+        noMatchingActivity: "No matching activity for this filter.",
+        otherActivity: "Other Activity",
+        readingActivity: "Updated their reading activity.",
+        groupAuthorCount: "{{count}} people",
+        groupAuthorCount_one: "1 person",
+        typeReview: "Review",
+        typeRating: "Rating",
+        typeReadingUpdate: "Reading",
+        typeRecommendation: "Rec",
+        typeDiscussion: "Discussion"
       }
     }
   },
@@ -686,6 +705,25 @@ export const resources = {
         federatedDiscoveryLabel: "Descubrimiento comunitario",
         federatedDiscoveryDescription: "Muestra discusiones de lectura del fediverso en los resultados de busqueda. Obtiene publicaciones publicas de servidores relay.",
         privacyFootnote: "Todas las funciones de busqueda se ejecutan localmente en tu dispositivo. Ninguna consulta de busqueda ni historial de lectura sale de esta aplicacion. Puedes cambiar estos ajustes mas tarde en Configuracion."
+      },
+      social: {
+        filterLabel: "Filtros de actividad",
+        filterAll: "Todo",
+        filterBooks: "Libros",
+        filterReviews: "Resenas",
+        filterRecommendations: "Recomendaciones",
+        filterFollowing: "Siguiendo",
+        noActivity: "Sin actividad todavia.",
+        noMatchingActivity: "No hay actividad para este filtro.",
+        otherActivity: "Otra actividad",
+        readingActivity: "Actualizo su actividad de lectura.",
+        groupAuthorCount: "{{count}} personas",
+        groupAuthorCount_one: "1 persona",
+        typeReview: "Resena",
+        typeRating: "Calificacion",
+        typeReadingUpdate: "Lectura",
+        typeRecommendation: "Rec",
+        typeDiscussion: "Discusion"
       }
     }
   }
