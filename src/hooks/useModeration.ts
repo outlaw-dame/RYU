@@ -6,7 +6,7 @@
  * when moderation lists change.
  */
 
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import type {
   MuteEntry,
   BlockEntry,
@@ -96,6 +96,25 @@ export function useModeration(): UseModerationResult {
   const [domainBlockList, setDomainBlockList] = useState<DomainBlock[]>(() => loadDomainBlockList());
   const [contentFilters, setContentFilters] = useState<ContentFilter[]>(() => loadContentFilters());
   const [safeSearchLevel, setSafeSearchLevelState] = useState<SafeSearchLevel>(() => loadSafeSearchLevel());
+
+  // Cross-instance / cross-tab sync via storage events
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === "ryu:mute-list") {
+        setMuteList(loadMuteList());
+      } else if (event.key === "ryu:block-list") {
+        setBlockList(loadBlockList());
+      } else if (event.key === "ryu:domain-block-list") {
+        setDomainBlockList(loadDomainBlockList());
+      } else if (event.key === "ryu:content-filters") {
+        setContentFilters(loadContentFilters());
+      } else if (event.key === "ryu:safe-search-level") {
+        setSafeSearchLevelState(loadSafeSearchLevel());
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   const mute = useCallback((accountId: string, options?: { acct?: string; durationMs?: number; hideNotifications?: boolean }) => {
     const updated = addMuteStore(accountId, options);
