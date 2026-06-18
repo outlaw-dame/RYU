@@ -2,11 +2,12 @@
  * Phase 30: React hook for sync queue health visibility.
  *
  * Provides reactive access to queue health for the debug/settings panel.
+ * Uses the engine's referentially stable `health()` method to avoid
+ * violating React concurrent rendering rules.
  */
 
-import { useCallback, useMemo, useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import {
-  computeQueueHealth,
   createSyncQueueEngine,
   type QueueHealth,
   type SyncQueueEngine,
@@ -32,17 +33,6 @@ export function setSyncQueueEngine(engine: SyncQueueEngine): void {
   sharedEngine = engine;
 }
 
-let cachedHealth: QueueHealth = {
-  pending: 0,
-  processing: 0,
-  completed: 0,
-  failed: 0,
-  oldestEntryAt: null,
-  lastErrorAt: null,
-  lastSuccessAt: null,
-  lastError: null,
-};
-
 export type UseSyncQueueHealthResult = {
   /** Current health snapshot */
   health: QueueHealth;
@@ -63,22 +53,8 @@ export function useSyncQueueHealth(): UseSyncQueueHealthResult {
 
   const health = useSyncExternalStore(
     engine.subscribe,
-    () => {
-      const next = computeQueueHealth(engine.entries());
-      // Only update cache if values actually changed
-      if (
-        next.pending !== cachedHealth.pending ||
-        next.processing !== cachedHealth.processing ||
-        next.completed !== cachedHealth.completed ||
-        next.failed !== cachedHealth.failed ||
-        next.lastErrorAt !== cachedHealth.lastErrorAt ||
-        next.lastSuccessAt !== cachedHealth.lastSuccessAt
-      ) {
-        cachedHealth = next;
-      }
-      return cachedHealth;
-    },
-    () => cachedHealth
+    engine.health,
+    engine.health
   );
 
   const retry = useCallback((entryId: string) => {

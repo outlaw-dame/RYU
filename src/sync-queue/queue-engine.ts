@@ -101,6 +101,7 @@ export function createSyncQueueEngine(options: QueueEngineOptions = {}): SyncQue
   const logger = options.logger ?? console;
 
   let entries: QueueEntry[] = loadEntries();
+  let cachedHealth: QueueHealth | null = null;
   let running = false;
   let activeCount = 0;
   const activeIds = new Set<string>();
@@ -121,6 +122,7 @@ export function createSyncQueueEngine(options: QueueEngineOptions = {}): SyncQue
   }
 
   function persist(): void {
+    cachedHealth = null;
     try {
       localStorage.setItem(storagePrefix, JSON.stringify(entries));
     } catch {
@@ -165,6 +167,7 @@ export function createSyncQueueEngine(options: QueueEngineOptions = {}): SyncQue
   }
 
   function getHealth(): QueueHealth {
+    if (cachedHealth) return cachedHealth;
     const pending = entries.filter((e) => e.status === 'pending').length;
     const processing = entries.filter((e) => e.status === 'processing').length;
     const completed = entries.filter((e) => e.status === 'completed').length;
@@ -187,7 +190,8 @@ export function createSyncQueueEngine(options: QueueEngineOptions = {}): SyncQue
 
     const lastErrorAt = lastError?.timestamp ?? null;
 
-    return { pending, processing, completed, failed, oldestEntryAt, lastErrorAt, lastSuccessAt, lastError };
+    cachedHealth = { pending, processing, completed, failed, oldestEntryAt, lastErrorAt, lastSuccessAt, lastError };
+    return cachedHealth;
   }
 
   async function processEntry(entry: QueueEntry): Promise<void> {
@@ -357,6 +361,18 @@ export function createSyncQueueEngine(options: QueueEngineOptions = {}): SyncQue
   function getEntries(status?: QueueStatus): QueueEntry[] {
     if (!status) return [...entries];
     return entries.filter((e) => e.status === status);
+  }
+
+  // Cross-tab synchronization: listen for storage changes from other tabs
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (event) => {
+      if (event.key === storagePrefix) {
+        entries = loadEntries();
+        cachedHealth = null;
+        notify();
+        drain();
+      }
+    });
   }
 
   return {

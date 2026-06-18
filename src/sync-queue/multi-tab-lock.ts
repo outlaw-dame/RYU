@@ -95,7 +95,14 @@ export function createMultiTabLock(options: MultiTabLockOptions = {}): MultiTabL
         }
         break;
       case 'heartbeat':
-        // Update last-seen for the tab (used for stale claim detection)
+        // Update timestamps for all claims held by the sending tab
+        if (msg.tabId !== currentTabId) {
+          for (const [entryId, claim] of claims.entries()) {
+            if (claim.tabId === msg.tabId) {
+              claims.set(entryId, { tabId: msg.tabId, timestamp: msg.timestamp });
+            }
+          }
+        }
         break;
     }
   }
