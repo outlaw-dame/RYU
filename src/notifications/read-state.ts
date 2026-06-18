@@ -109,10 +109,14 @@ export function isNotificationRead(
 export function isGroupRead(
   state: ReadState,
   notificationIds: string[],
-  latestAt: string
+  latestAt: string,
+  getCreatedAt?: (id: string) => string
 ): boolean {
   // If markAllReadAt covers the entire group, it's read
   if (state.markAllReadAt && latestAt <= state.markAllReadAt) return true;
-  // Otherwise check each ID
-  return notificationIds.every((id) => state.readIds.has(id));
+  // Otherwise check each ID individually (respects markAllReadAt for older items)
+  return notificationIds.every((id) => {
+    const createdAt = getCreatedAt ? getCreatedAt(id) : latestAt;
+    return isNotificationRead(state, id, createdAt);
+  });
 }

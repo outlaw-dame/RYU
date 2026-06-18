@@ -59,9 +59,19 @@ export function NotificationGroup({ group, isRead, onMarkRead }: NotificationGro
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Enter" || e.key === " ") && !isRead && onMarkRead) {
+      e.preventDefault();
+      onMarkRead(group.notificationIds);
+    }
+  };
+
   return (
     <article
       onClick={handleClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={isRead ? undefined : 0}
+      role={isRead ? undefined : "button"}
       style={{
         borderRadius: "var(--radius-md)",
         background: isRead

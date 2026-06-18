@@ -101,10 +101,15 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
     if (remoteNotifications.length === 0) return;
 
     const raw = remoteNotifications.map(toRawNotification);
-    saveCachedNotifications(raw);
-    setCachedNotifications(raw);
+    const isDifferent = cachedNotifications.length !== raw.length ||
+      raw.some((n, i) => cachedNotifications[i]?.id !== n.id);
+
+    if (isDifferent) {
+      saveCachedNotifications(raw);
+      setCachedNotifications(raw);
+    }
     hasSyncedRef.current = true;
-  }, [remoteNotifications]);
+  }, [remoteNotifications, cachedNotifications]);
 
   // Build the effective notification list (remote takes priority, fallback to cache)
   const effectiveNotifications: RawNotification[] = useMemo(() => {
@@ -155,9 +160,12 @@ export function useNotifications(options: UseNotificationsOptions = {}): UseNoti
 
   const isRead = useCallback(
     (group: GroupedNotification) => {
-      return isGroupRead(readState, group.notificationIds, group.latestAt);
+      return isGroupRead(readState, group.notificationIds, group.latestAt, (id) => {
+        const n = effectiveNotifications.find((x) => x.id === id);
+        return n ? n.created_at : group.latestAt;
+      });
     },
-    [readState]
+    [readState, effectiveNotifications]
   );
 
   return {

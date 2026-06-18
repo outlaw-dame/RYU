@@ -12,8 +12,7 @@
 import type {
   GroupedNotification,
   NotificationType,
-  RawNotification,
-  NOTIFICATION_TYPES
+  RawNotification
 } from "./types";
 
 /** Types that can be grouped by target status. */
@@ -31,7 +30,6 @@ const GROUPABLE_WITHOUT_STATUS = new Set<string>(["follow"]);
 export function groupNotifications(notifications: RawNotification[]): GroupedNotification[] {
   const groups: GroupedNotification[] = [];
   const statusGroupMap = new Map<string, GroupedNotification>();
-  const followGroup: GroupedNotification | null = null;
   let currentFollowGroup: GroupedNotification | null = null;
 
   for (const notification of notifications) {
