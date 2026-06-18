@@ -361,6 +361,25 @@ export const resources = {
         typeRecommendation: "Rec",
         typeDiscussion: "Discussion"
       },
+      notifications: {
+        filterAll: "All",
+        filterMentions: "Mentions",
+        filterFavourites: "Favourites",
+        filterFollows: "Follows",
+        filterBoosts: "Boosts",
+        filterStatuses: "Posts",
+        filterUpdates: "Updates",
+        filterPolls: "Polls",
+        filtersLabel: "Notification filters",
+        listLabel: "Notifications",
+        markAllRead: "Mark all read",
+        andOthers_one: "and {{count}} other",
+        andOthers_other: "and {{count}} others",
+        andOthers: "and {{count}} others",
+        unread: "Unread",
+        loading: "Loading notifications...",
+        empty: "No notifications yet."
+      },
       composer: {
         title: {
           status: "Reading Update",
@@ -773,6 +792,25 @@ export const resources = {
         typeReadingUpdate: "Lectura",
         typeRecommendation: "Rec",
         typeDiscussion: "Discusion"
+      },
+      notifications: {
+        filterAll: "Todas",
+        filterMentions: "Menciones",
+        filterFavourites: "Favoritos",
+        filterFollows: "Seguidores",
+        filterBoosts: "Impulsos",
+        filterStatuses: "Publicaciones",
+        filterUpdates: "Actualizaciones",
+        filterPolls: "Encuestas",
+        filtersLabel: "Filtros de notificaciones",
+        listLabel: "Notificaciones",
+        markAllRead: "Marcar todo como leido",
+        andOthers_one: "y {{count}} mas",
+        andOthers_other: "y {{count}} mas",
+        andOthers: "y {{count}} mas",
+        unread: "No leida",
+        loading: "Cargando notificaciones...",
+        empty: "Aun no hay notificaciones."
       },
       composer: {
         title: {
