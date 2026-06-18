@@ -48,6 +48,7 @@ function computeBackoffMs(attempt: number, baseMs = 2000, capMs = 30000): number
  */
 function classifyInput(input: string): ImportSource {
   const trimmed = input.trim();
+  const lower = trimmed.toLowerCase();
 
   // ISBN pattern: 10 or 13 digits (possibly with hyphens/spaces)
   const cleaned = trimmed.replace(/[-\s]/g, '');
@@ -55,9 +56,9 @@ function classifyInput(input: string): ImportSource {
     return 'isbn';
   }
 
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-    if (trimmed.includes('openlibrary.org')) return 'openlibrary';
-    if (trimmed.includes('books.google.com') || trimmed.includes('googleapis.com')) return 'google_books';
+  if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    if (lower.includes('openlibrary.org')) return 'openlibrary';
+    if (lower.includes('books.google.com') || lower.includes('googleapis.com')) return 'google_books';
     return 'bookwyrm';
   }
 
@@ -199,27 +200,37 @@ export function createImportQueue(options: ImportQueueOptions = {}): ImportQueue
 
     try {
       const result = await executor(job);
+      const exists = jobs.some((j) => j.id === job.id);
+      if (!exists) return;
+
       updateJob(job.id, {
         status: 'completed',
         resultEditionId: result.editionId,
         title: result.title ?? job.title
       });
-      const updatedJob = jobs.find((j) => j.id === job.id)!;
-      emitEvent({ type: 'completed', job: updatedJob });
+      const updatedJob = jobs.find((j) => j.id === job.id);
+      if (updatedJob) {
+        emitEvent({ type: 'completed', job: updatedJob });
+      }
     } catch (error) {
+      const exists = jobs.some((j) => j.id === job.id);
+      if (!exists) return;
+
       const attempts = job.attempts + 1;
       const lastError = error instanceof Error ? error.message : String(error);
 
       if (attempts >= maxAttempts) {
         updateJob(job.id, { status: 'failed', attempts, lastError });
-        const updatedJob = jobs.find((j) => j.id === job.id)!;
-        emitEvent({ type: 'failed', job: updatedJob });
+        const updatedJob = jobs.find((j) => j.id === job.id);
+        if (updatedJob) {
+          emitEvent({ type: 'failed', job: updatedJob });
+        }
       } else {
-        const nextRetryAt = new Date(Date.now() + computeBackoffMs(attempts)).toISOString();
+        const backoffMs = computeBackoffMs(attempts);
+        const nextRetryAt = new Date(Date.now() + backoffMs).toISOString();
         updateJob(job.id, { status: 'pending', attempts, lastError, nextRetryAt });
         // Schedule drain after backoff
-        const delay = computeBackoffMs(attempts);
-        setTimeout(() => drain(), delay);
+        setTimeout(() => drain(), backoffMs);
       }
     } finally {
       activeJobIds.delete(job.id);
