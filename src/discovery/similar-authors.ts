@@ -47,7 +47,7 @@ export async function findSimilarAuthors(
   // Collect the user's known author IDs
   const userAuthorIds = new Set<string>();
   for (const edition of userEditions) {
-    for (const authorId of edition.authorIds) {
+    for (const authorId of edition.authorIds || []) {
       userAuthorIds.add(authorId);
     }
   }
@@ -57,10 +57,10 @@ export async function findSimilarAuthors(
   // Find all co-authors (authors who appear on editions with the user's authors)
   const coAuthorScores = new Map<string, number>();
   for (const edition of editions) {
-    const hasUserAuthor = edition.authorIds.some((aid) => userAuthorIds.has(aid));
+    const hasUserAuthor = (edition.authorIds || []).some((aid) => userAuthorIds.has(aid));
     if (!hasUserAuthor) continue;
 
-    for (const authorId of edition.authorIds) {
+    for (const authorId of edition.authorIds || []) {
       if (excludeSet.has(authorId)) continue;
       coAuthorScores.set(authorId, (coAuthorScores.get(authorId) || 0) + 1);
     }

@@ -61,7 +61,7 @@ export async function findBecauseYouRead(
   // Build an author frequency map from reading history
   const authorFrequency = new Map<string, { count: number; titles: string[] }>();
   for (const edition of historyEditions) {
-    for (const authorId of edition.authorIds) {
+    for (const authorId of edition.authorIds || []) {
       const entry = authorFrequency.get(authorId) || { count: 0, titles: [] };
       entry.count++;
       if (entry.titles.length < 3) entry.titles.push(edition.title);
@@ -82,7 +82,7 @@ export async function findBecauseYouRead(
   for (const candidate of candidateEditions) {
     if (seenIds.has(candidate.id) || excludeSet.has(candidate.id)) continue;
 
-    const matchingAuthorIds = candidate.authorIds.filter((aid) =>
+    const matchingAuthorIds = (candidate.authorIds || []).filter((aid) =>
       authorFrequency.has(aid)
     );
 
@@ -109,7 +109,7 @@ export async function findBecauseYouRead(
     // Use the most recent book title as the "because you read" source
     const sourceTitle = authorEntry?.titles[0] || "";
     const sourceEdition = historyEditions.find(
-      (e) => e.authorIds.includes(bestAuthorId)
+      (e) => (e.authorIds || []).includes(bestAuthorId)
     );
 
     const confidence = Math.min(bestCount / 5, 1) * 0.85;
