@@ -45,8 +45,14 @@ export interface UndoSnapshot {
   operation: MergeOperation;
   /** Serialized state of the source entity before merge. */
   sourceEntitySnapshot: string;
-  /** IDs of reviews that were transferred. */
+  /** IDs of reviews that were transferred (edition merges). */
   transferredReviewIds: string[];
+  /** IDs of editions that were transferred (work merges). */
+  transferredEditionIds?: string[];
+  /** Modified works and their original authorIds (author merges). */
+  modifiedWorks?: Array<{ id: string; originalAuthorIds: string[] }>;
+  /** Modified editions and their original authorIds (author merges). */
+  modifiedEditions?: Array<{ id: string; originalAuthorIds: string[] }>;
   /** IDs of entity resolution records created. */
   resolutionRecordIds: string[];
   /** Timestamp of snapshot creation. */
