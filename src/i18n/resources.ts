@@ -428,6 +428,28 @@ export const resources = {
           tooManyAttachments: "Too many attachments",
           unknown: "Something went wrong"
         }
+      },
+      discovery: {
+        title: "For You",
+        feedLabel: "Recommendations",
+        coverAlt: "Cover of {{title}}",
+        loading: "Finding recommendations...",
+        error: "Could not load recommendations right now.",
+        empty: "Add books to your library to get personalized recommendations.",
+        disabled: "Recommendations are turned off.",
+        enable: "Enable recommendations",
+        disable: "Turn off",
+        dismiss: "Dismiss",
+        reset: "Reset",
+        reason: {
+          sameAuthor: "More by {{author}}",
+          sameWork: "Another edition of {{title}}",
+          similarTitle: "Similar to {{title}}",
+          becauseYouRead: "Because you read {{title}}",
+          similarAuthor: "Similar to {{author}}",
+          popularInLibrary: "Popular in your library",
+          recommended: "Recommended for you"
+        }
       }
     }
   },
@@ -859,6 +881,28 @@ export const resources = {
           cwTooLong: "La advertencia excede el limite de caracteres",
           tooManyAttachments: "Demasiados archivos adjuntos",
           unknown: "Algo salio mal"
+        }
+      },
+      discovery: {
+        title: "Para ti",
+        feedLabel: "Recomendaciones",
+        coverAlt: "Portada de {{title}}",
+        loading: "Buscando recomendaciones...",
+        error: "No se pudieron cargar las recomendaciones ahora.",
+        empty: "Agrega libros a tu biblioteca para obtener recomendaciones personalizadas.",
+        disabled: "Las recomendaciones estan desactivadas.",
+        enable: "Activar recomendaciones",
+        disable: "Desactivar",
+        dismiss: "Descartar",
+        reset: "Restablecer",
+        reason: {
+          sameAuthor: "Mas de {{author}}",
+          sameWork: "Otra edicion de {{title}}",
+          similarTitle: "Similar a {{title}}",
+          becauseYouRead: "Porque leiste {{title}}",
+          similarAuthor: "Similar a {{author}}",
+          popularInLibrary: "Popular en tu biblioteca",
+          recommended: "Recomendado para ti"
         }
       }
     }
