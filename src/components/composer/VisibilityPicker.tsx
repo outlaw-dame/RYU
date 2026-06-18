@@ -1,7 +1,8 @@
 /**
  * Phase 32 - Visibility picker component.
  *
- * Dropdown/radio-group for selecting post visibility.
+ * Uses native radio inputs (visually hidden) with labels for
+ * correct keyboard navigation and screen reader support.
  * Each option shows a label and human-readable description.
  */
 
@@ -31,22 +32,14 @@ export function VisibilityPicker({ value, onChange, disabled }: VisibilityPicker
       >
         {t('composer.visibility.label')}
       </legend>
-      <div
-        role="radiogroup"
-        aria-label={t('composer.visibility.label')}
-        style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}
-      >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
         {VISIBILITY_OPTIONS.map(({ value: optValue, labelKey, descriptionKey }) => {
           const active = value === optValue;
+          const inputId = `visibility-${optValue}`;
           return (
-            <button
+            <label
               key={optValue}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              aria-label={`${t(labelKey)}: ${t(descriptionKey)}`}
-              onClick={() => onChange(optValue)}
-              disabled={disabled}
+              htmlFor={inputId}
               style={{
                 flex: '1 1 auto',
                 minWidth: '80px',
@@ -63,11 +56,38 @@ export function VisibilityPicker({ value, onChange, disabled }: VisibilityPicker
                 fontWeight: active ? 700 : 500,
                 cursor: disabled ? 'default' : 'pointer',
                 opacity: disabled ? 0.6 : 1,
-                padding: 'var(--space-2) var(--space-3)'
+                padding: 'var(--space-2) var(--space-3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
             >
-              {t(labelKey)}
-            </button>
+              <input
+                type="radio"
+                id={inputId}
+                name="composer-visibility"
+                value={optValue}
+                checked={active}
+                disabled={disabled}
+                onChange={() => onChange(optValue)}
+                aria-describedby={`visibility-desc-${optValue}`}
+                style={{
+                  position: 'absolute',
+                  width: '1px',
+                  height: '1px',
+                  padding: 0,
+                  margin: '-1px',
+                  overflow: 'hidden',
+                  clip: 'rect(0, 0, 0, 0)',
+                  whiteSpace: 'nowrap',
+                  border: 0
+                }}
+              />
+              <span>{t(labelKey)}</span>
+              <span id={`visibility-desc-${optValue}`} style={{ position: 'absolute', width: '1px', height: '1px', overflow: 'hidden', clip: 'rect(0,0,0,0)' }}>
+                {t(descriptionKey)}
+              </span>
+            </label>
           );
         })}
       </div>

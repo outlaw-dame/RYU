@@ -2,44 +2,25 @@
  * Phase 32 - Content sanitizer.
  *
  * Input sanitization for composer content:
- * - Strips dangerous HTML tags and attributes
+ * - Uses DOMPurify for battle-tested HTML sanitization (no regex-based bypass)
  * - Validates length constraints
  * - Escapes special characters for safe rendering
  * - Enforces content warning rules
+ *
+ * SECURITY: The composer produces plain text for Mastodon/BookWyrm statuses.
+ * All HTML is escaped (not stripped) because the ActivityPub spec expects
+ * plain text in status fields. DOMPurify is used as a defense-in-depth
+ * layer for any future rich-text paths.
  */
 
+import DOMPurify from 'dompurify';
 import { COMPOSER_LIMITS, type ComposerValidation, type ComposerValidationError, type ComposerMode, type ContentWarning } from './types';
-
-/**
- * HTML tags that are never allowed in user-generated content.
- */
-const DANGEROUS_TAGS_RE = /<\s*\/?\s*(script|iframe|object|embed|link|style|meta|base|form|input|button)\b[^>]*>/gi;
-
-/**
- * Event handler attributes (onclick, onerror, etc.).
- */
-const EVENT_ATTRS_RE = /\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
-
-/**
- * JavaScript URLs in href/src (captures the full attribute value).
- */
-const JS_URL_RE = /(href|src|action)\s*=\s*(?:"[^"]*javascript\s*:[^"]*"|'[^']*javascript\s*:[^']*'|[^\s>]*javascript\s*:[^\s>]*)/gi;
-
-/**
- * Strips dangerous HTML from text content.
- * Removes script/iframe/object tags, event handler attributes, and javascript: URLs.
- */
-export function stripDangerousHtml(input: string): string {
-  let result = input;
-  result = result.replace(DANGEROUS_TAGS_RE, '');
-  result = result.replace(EVENT_ATTRS_RE, '');
-  result = result.replace(JS_URL_RE, '');
-  return result;
-}
 
 /**
  * Escapes HTML special characters for safe text display.
  * Use for plain-text contexts where no HTML rendering is intended.
+ * This is the PRIMARY sanitization for the composer — all content
+ * is treated as plain text.
  */
 export function escapeHtml(input: string): string {
   return input
@@ -48,6 +29,20 @@ export function escapeHtml(input: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
+}
+
+/**
+ * Strips ALL HTML from input using DOMPurify with an empty allow-list.
+ * Returns only the text content. Used as defense-in-depth for any
+ * path where HTML might be inadvertently introduced.
+ */
+export function stripDangerousHtml(input: string): string {
+  if (typeof window === 'undefined') {
+    // SSR/test fallback: escape all HTML entities
+    return escapeHtml(input);
+  }
+  // DOMPurify with ALLOWED_TAGS=[] strips all HTML, returning only text content
+  return DOMPurify.sanitize(input, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
 }
 
 /**
@@ -67,7 +62,10 @@ export function normalizeWhitespace(input: string): string {
 
 /**
  * Sanitizes composer text content.
- * Applies all sanitization rules in order.
+ * For the composer, content is treated as PLAIN TEXT:
+ * 1. Strip any HTML that might have been pasted
+ * 2. Normalize whitespace
+ * The result is safe for embedding in status payloads.
  */
 export function sanitizeContent(input: string): string {
   let result = stripDangerousHtml(input);

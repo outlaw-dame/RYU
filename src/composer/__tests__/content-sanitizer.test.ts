@@ -13,7 +13,7 @@ describe('content-sanitizer', () => {
   describe('stripDangerousHtml', () => {
     it('removes script tags', () => {
       expect(stripDangerousHtml('hello <script>alert("xss")</script> world'))
-        .toBe('hello alert("xss") world');
+        .toBe('hello  world');
     });
 
     it('removes iframe tags', () => {
@@ -23,17 +23,17 @@ describe('content-sanitizer', () => {
 
     it('removes event handlers', () => {
       expect(stripDangerousHtml('<div onclick="bad()">text</div>'))
-        .toBe('<div>text</div>');
+        .toBe('text');
     });
 
     it('removes javascript: URLs', () => {
       expect(stripDangerousHtml('<a href="javascript:alert(1)">click</a>'))
-        .toBe('<a >click</a>');
+        .toBe('click');
     });
 
-    it('preserves safe HTML', () => {
+    it('strips all HTML tags (plain text output)', () => {
       expect(stripDangerousHtml('<p>Hello <strong>world</strong></p>'))
-        .toBe('<p>Hello <strong>world</strong></p>');
+        .toBe('Hello world');
     });
 
     it('handles empty input', () => {
@@ -78,7 +78,7 @@ describe('content-sanitizer', () => {
     it('applies all sanitization in order', () => {
       const input = '  <script>bad</script> Hello\n\n\n\nWorld  ';
       const result = sanitizeContent(input);
-      expect(result).toBe('bad Hello\n\nWorld');
+      expect(result).toBe('Hello\n\nWorld');
     });
   });
 
