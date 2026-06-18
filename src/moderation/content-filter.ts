@@ -66,9 +66,12 @@ export function addContentFilter(
 ): ContentFilter[] {
   const filters = loadContentFilters();
 
+  const trimmedPhrase = phrase.trim();
+  if (!trimmedPhrase) return filters;
+
   const filter: ContentFilter = {
     id: generateFilterId(),
-    phrase: phrase.trim(),
+    phrase: trimmedPhrase,
     wholeWord: options.wholeWord ?? false,
     action: options.action ?? "hide",
     createdAt: new Date().toISOString(),
@@ -109,11 +112,14 @@ export function updateContentFilter(
 
 /**
  * Build a regex pattern for a content filter phrase.
+ * Uses Unicode-aware word boundaries for proper international text support.
  */
 function buildFilterPattern(filter: ContentFilter): RegExp {
   const escaped = filter.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = filter.wholeWord ? `\\b${escaped}\\b` : escaped;
-  return new RegExp(pattern, "i");
+  const pattern = filter.wholeWord
+    ? `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`
+    : escaped;
+  return new RegExp(pattern, "iu");
 }
 
 /**

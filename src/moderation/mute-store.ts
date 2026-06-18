@@ -45,28 +45,39 @@ export function isExpired(entry: MuteEntry): boolean {
 }
 
 /**
- * Add a mute entry. If the account is already muted, update the entry.
+ * Add a mute entry. If the account is already muted, merge new options
+ * with the existing entry (preserving createdAt and only updating fields
+ * that are explicitly provided).
  */
 export function addMute(
   accountId: string,
   options: { acct?: string; durationMs?: number; hideNotifications?: boolean } = {}
 ): MuteEntry[] {
   const list = loadMuteList();
-  const existing = list.findIndex((e) => e.accountId === accountId);
+  const existingIndex = list.findIndex((e) => e.accountId === accountId);
 
-  const entry: MuteEntry = {
-    accountId,
-    acct: options.acct,
-    createdAt: new Date().toISOString(),
-    expiresAt: options.durationMs
-      ? new Date(Date.now() + options.durationMs).toISOString()
-      : null,
-    hideNotifications: options.hideNotifications ?? true
-  };
-
-  if (existing >= 0) {
-    list[existing] = entry;
+  if (existingIndex >= 0) {
+    const prev = list[existingIndex];
+    list[existingIndex] = {
+      ...prev,
+      ...(options.acct !== undefined && { acct: options.acct }),
+      ...(options.durationMs !== undefined && {
+        expiresAt: new Date(Date.now() + options.durationMs).toISOString()
+      }),
+      ...(options.hideNotifications !== undefined && {
+        hideNotifications: options.hideNotifications
+      })
+    };
   } else {
+    const entry: MuteEntry = {
+      accountId,
+      acct: options.acct,
+      createdAt: new Date().toISOString(),
+      expiresAt: options.durationMs
+        ? new Date(Date.now() + options.durationMs).toISOString()
+        : null,
+      hideNotifications: options.hideNotifications ?? true
+    };
     list.push(entry);
   }
 

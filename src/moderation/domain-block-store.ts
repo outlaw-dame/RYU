@@ -34,10 +34,30 @@ export function saveDomainBlockList(entries: DomainBlock[]): void {
 }
 
 /**
- * Normalize a domain string (lowercase, trim whitespace).
+ * Normalize a domain string: extracts hostname from URLs, account handles, etc.
  */
-export function normalizeDomain(domain: string): string {
-  return domain.trim().toLowerCase();
+export function normalizeDomain(input: string): string {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return "";
+
+  // Handle @user@domain.com format
+  const atParts = trimmed.split("@").filter(Boolean);
+  if (atParts.length >= 2) {
+    const domain = atParts[atParts.length - 1];
+    try {
+      return new URL(`https://${domain}`).hostname;
+    } catch {
+      return domain;
+    }
+  }
+
+  // Handle full URLs
+  try {
+    const url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+    return url.hostname;
+  } catch {
+    return trimmed;
+  }
 }
 
 /**
