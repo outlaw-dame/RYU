@@ -88,14 +88,15 @@ export async function findRelatedBooks(
 
   // 1. Same author - find other editions by the same author(s)
   if ((edition.authorIds || []).length > 0) {
-    const authorDocs = await db.authors.findByIds([...(edition.authorIds || [])]).exec();
+    const editionAuthorSet = new Set(edition.authorIds || []);
+    const authorDocs = await db.authors.findByIds([...editionAuthorSet]).exec();
 
     for (const doc of allEditionDocs) {
       const other = doc.toJSON() as EditionDoc;
       if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
 
       const sharedAuthors = (other.authorIds || []).filter((aid) =>
-        (edition.authorIds || []).includes(aid)
+        editionAuthorSet.has(aid)
       );
 
       if (sharedAuthors.length > 0) {
