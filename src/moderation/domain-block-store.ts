@@ -43,10 +43,10 @@ export function normalizeDomain(input: string): string {
   if (!trimmed) return "";
 
   // Parse URLs first (before @ splitting) to handle profile URLs like
-  // https://mastodon.social/@username correctly.
-  if (trimmed.includes("://") || trimmed.startsWith("www.")) {
+  // Handle URLs (including paths like mastodon.social/@username)
+  if (trimmed.includes("://") || trimmed.startsWith("www.") || trimmed.includes("/")) {
     try {
-      const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+      const url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
       return url.hostname;
     } catch {
       // Fall through to other strategies

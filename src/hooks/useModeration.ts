@@ -100,6 +100,9 @@ export function useModeration(): UseModerationResult {
   // Cross-instance / cross-tab sync via storage events + same-tab sync
   // via custom event. The storage event only fires in OTHER tabs; the
   // custom event ensures all hook instances in the current tab stay in sync.
+  // Each instance ignores its own notifications to avoid redundant reloads.
+  const instanceId = useMemo(() => Math.random().toString(36).slice(2), []);
+
   useEffect(() => {
     const reload = () => {
       setMuteList(loadMuteList());
@@ -109,21 +112,23 @@ export function useModeration(): UseModerationResult {
       setSafeSearchLevelState(loadSafeSearchLevel());
     };
     const handleStorage = (event: StorageEvent) => {
-      if (event.key?.startsWith("ryu:")) reload();
+      if (event.key === null || event.key?.startsWith("ryu:")) reload();
     };
-    const handleSync = () => reload();
+    const handleSync = (event: Event) => {
+      if ((event as CustomEvent).detail !== instanceId) reload();
+    };
     window.addEventListener("storage", handleStorage);
     window.addEventListener("ryu:moderation-sync", handleSync);
     return () => {
       window.removeEventListener("storage", handleStorage);
       window.removeEventListener("ryu:moderation-sync", handleSync);
     };
-  }, []);
+  }, [instanceId]);
 
   /** Notify other hook instances in the same tab that moderation state changed. */
   const notifySync = useCallback(() => {
-    window.dispatchEvent(new Event("ryu:moderation-sync"));
-  }, []);
+    window.dispatchEvent(new CustomEvent("ryu:moderation-sync", { detail: instanceId }));
+  }, [instanceId]);
 
   const mute = useCallback((accountId: string, options?: { acct?: string; durationMs?: number; hideNotifications?: boolean }) => {
     const updated = addMuteStore(accountId, options);
