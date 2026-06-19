@@ -149,6 +149,41 @@ export const mastodonListSchema = z.object({
   replies_policy: z.string().optional()
 }).passthrough();
 
+// ─── Moderation Schemas ────────────────────────────────────────────────────────
+
+export const mastodonFilterKeywordSchema = z.object({
+  id: z.string().min(1),
+  keyword: z.string().min(1),
+  whole_word: z.boolean().optional().default(false)
+}).passthrough();
+
+export const mastodonFilterSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  context: z.array(z.string()).default([]),
+  expires_at: z.string().nullable().optional(),
+  filter_action: z.enum(["warn", "hide"]).default("warn"),
+  keywords: z.array(mastodonFilterKeywordSchema).default([])
+}).passthrough();
+
+export const mastodonRelationshipSchema = z.object({
+  id: z.string().min(1),
+  following: z.boolean().default(false),
+  followed_by: z.boolean().default(false),
+  blocking: z.boolean().default(false),
+  blocked_by: z.boolean().default(false),
+  muting: z.boolean().default(false),
+  muting_notifications: z.boolean().default(false),
+  requested: z.boolean().default(false),
+  domain_blocking: z.boolean().default(false),
+  endorsed: z.boolean().default(false),
+  note: z.string().optional()
+}).passthrough();
+
+export type MastodonFilterKeyword = z.infer<typeof mastodonFilterKeywordSchema>;
+export type MastodonFilter = z.infer<typeof mastodonFilterSchema>;
+export type MastodonRelationship = z.infer<typeof mastodonRelationshipSchema>;
+
 export type MastodonAccount = z.infer<typeof mastodonAccountSchema>;
 export type MastodonAccountFull = z.infer<typeof mastodonAccountFullSchema>;
 export type MastodonStatus = z.infer<typeof mastodonStatusSchema>;

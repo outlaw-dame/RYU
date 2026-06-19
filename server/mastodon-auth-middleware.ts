@@ -12,7 +12,7 @@ import {
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
 import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
-import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
+import { MastodonApiResponseError, MastodonClient, mastodonFilterSchema, mastodonRelationshipSchema, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import type { UnifiedShelf, UnifiedShelvesPayload } from "../src/sync/shelf-model";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
@@ -1706,6 +1706,340 @@ async function handleMastodonDiscoverySearch(
   });
 }
 
+// ─── Moderation Write Handlers ────────────────────────────────────────────────
+
+const mastodonCreateFilterBodySchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  context: z.array(z.string().min(1).max(48)).min(1),
+  filter_action: z.enum(["warn", "hide"]).default("warn"),
+  expires_in: z.number().int().positive().optional(),
+  keywords_attributes: z.array(z.object({
+    keyword: z.string().min(1).max(200),
+    whole_word: z.boolean().optional()
+  })).optional()
+});
+
+const mastodonMuteAccountBodySchema = z.object({
+  account_id: z.string().trim().min(1).max(64).regex(/^[\w-]+$/),
+  notifications: z.boolean().optional().default(true),
+  duration: z.number().int().positive().optional()
+});
+
+const mastodonBlockAccountBodySchema = z.object({
+  account_id: z.string().trim().min(1).max(64).regex(/^[\w-]+$/)
+});
+
+async function handleModerationCreateFilter(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before creating filters." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonCreateFilterBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = mastodonCreateFilterBodySchema.parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const filterUrl = new URL("/api/v2/filters", session.instanceOrigin);
+    const response = await fetchWithRetry(filterUrl.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      },
+      body: JSON.stringify(body)
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(filterUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    const created = mastodonFilterSchema.parse(await response.json());
+    sendJson(res, 200, created);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleModerationMuteAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before muting accounts." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonMuteAccountBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = mastodonMuteAccountBodySchema.parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const muteUrl = new URL(`/api/v1/accounts/${encodeURIComponent(body.account_id)}/mute`, session.instanceOrigin);
+    const muteBody: Record<string, unknown> = { notifications: body.notifications };
+    if (body.duration) muteBody.duration = body.duration;
+
+    const response = await fetchWithRetry(muteUrl.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      },
+      body: JSON.stringify(muteBody)
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(muteUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    const result = mastodonRelationshipSchema.parse(await response.json());
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleModerationUnmuteAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before unmuting accounts." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonMuteAccountBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = z.object({ account_id: z.string().trim().min(1).max(64).regex(/^[\w-]+$/) }).parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const unmuteUrl = new URL(`/api/v1/accounts/${encodeURIComponent(body.account_id)}/unmute`, session.instanceOrigin);
+    const response = await fetchWithRetry(unmuteUrl.toString(), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      }
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(unmuteUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    const result = mastodonRelationshipSchema.parse(await response.json());
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleModerationBlockAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before blocking accounts." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonBlockAccountBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = mastodonBlockAccountBodySchema.parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const blockUrl = new URL(`/api/v1/accounts/${encodeURIComponent(body.account_id)}/block`, session.instanceOrigin);
+    const response = await fetchWithRetry(blockUrl.toString(), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      }
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(blockUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    const result = mastodonRelationshipSchema.parse(await response.json());
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleModerationUnblockAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer
+): Promise<void> {
+  const contentType = req.headers["content-type"] ?? "";
+  if (!contentType.includes("application/json")) {
+    await drainBody(req);
+    sendJson(res, 415, { error: "unsupported_media_type", message: "Content-Type must be application/json" });
+    return;
+  }
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    await drainBody(req);
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before unblocking accounts." });
+    return;
+  }
+
+  let body: z.infer<typeof mastodonBlockAccountBodySchema>;
+  try {
+    const raw = await readRequestBody(req);
+    body = mastodonBlockAccountBodySchema.parse(JSON.parse(raw));
+  } catch (error) {
+    sendJson(res, 400, {
+      error: "invalid_request",
+      message: error instanceof z.ZodError
+        ? error.errors.map((e) => e.message).join("; ")
+        : "Invalid request body"
+    });
+    return;
+  }
+
+  try {
+    const unblockUrl = new URL(`/api/v1/accounts/${encodeURIComponent(body.account_id)}/unblock`, session.instanceOrigin);
+    const response = await fetchWithRetry(unblockUrl.toString(), {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      }
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(unblockUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    const result = mastodonRelationshipSchema.parse(await response.json());
+    sendJson(res, 200, result);
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
+async function handleModerationDeleteFilter(
+  req: IncomingMessage,
+  res: ServerResponse,
+  sessKey: Buffer,
+  filterId: string
+): Promise<void> {
+  await drainBody(req);
+
+  const session = readSessionPayload(req, res, sessKey);
+  if (!session) {
+    sendJson(res, 401, { error: "not_authenticated", message: "Sign in before deleting filters." });
+    return;
+  }
+
+  try {
+    const deleteUrl = new URL(`/api/v2/filters/${encodeURIComponent(filterId)}`, session.instanceOrigin);
+    const response = await fetchWithRetry(deleteUrl.toString(), {
+      method: "DELETE",
+      headers: {
+        Accept: "application/json",
+        Authorization: `${session.tokenType} ${session.accessToken}`
+      }
+    }, 2);
+
+    if (!response.ok) {
+      throw new MastodonApiResponseError(deleteUrl.toString(), response.status, await response.text().catch(() => ""));
+    }
+
+    sendJson(res, 200, { deleted: true });
+  } catch (error) {
+    sendMastodonProxyError(req, res, error);
+  }
+}
+
 // ─── Request Dispatcher ───────────────────────────────────────────────────────
 
 async function dispatch(
@@ -1825,6 +2159,151 @@ async function dispatch(
 
     if (url.pathname === "/api/auth/mastodon/search/statuses") {
       await handleMastodonDiscoverySearch(req, res, sessKey, url);
+      return;
+    }
+
+    // ─── Moderation proxy routes ──────────────────────────────────────────────
+
+    if (url.pathname === "/api/auth/mastodon/moderation/filters") {
+      if (req.method === "GET" || req.method === "HEAD") {
+        await handleMastodonProxy(req, res, sessKey, async (client, session) => {
+          const filterUrl = new URL("/api/v2/filters", session.instanceOrigin);
+          const response = await fetch(filterUrl.toString(), {
+            headers: {
+              Accept: "application/json",
+              Authorization: `${session.tokenType} ${session.accessToken}`
+            }
+          });
+          if (!response.ok) {
+            throw new MastodonApiResponseError(filterUrl.toString(), response.status, await response.text().catch(() => ""));
+          }
+          const json = await response.json();
+          return z.array(mastodonFilterSchema).parse(json);
+        });
+        return;
+      }
+
+      if (req.method === "POST") {
+        await handleModerationCreateFilter(req, res, sessKey);
+        return;
+      }
+
+      sendJson(res, 405, { error: "method_not_allowed" });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/mutes") {
+      await handleMastodonProxy(req, res, sessKey, async (_client, session) => {
+        const mutesUrl = new URL("/api/v1/mutes", session.instanceOrigin);
+        const pq = parsePaginationQuery(url);
+        if (pq.limit) mutesUrl.searchParams.set("limit", String(pq.limit));
+        if (pq.maxId) mutesUrl.searchParams.set("max_id", pq.maxId);
+        if (pq.sinceId) mutesUrl.searchParams.set("since_id", pq.sinceId);
+
+        const response = await fetch(mutesUrl.toString(), {
+          headers: {
+            Accept: "application/json",
+            Authorization: `${session.tokenType} ${session.accessToken}`
+          }
+        });
+        if (!response.ok) {
+          throw new MastodonApiResponseError(mutesUrl.toString(), response.status, await response.text().catch(() => ""));
+        }
+        return { items: await response.json(), links: {} };
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/blocks") {
+      await handleMastodonProxy(req, res, sessKey, async (_client, session) => {
+        const blocksUrl = new URL("/api/v1/blocks", session.instanceOrigin);
+        const pq = parsePaginationQuery(url);
+        if (pq.limit) blocksUrl.searchParams.set("limit", String(pq.limit));
+        if (pq.maxId) blocksUrl.searchParams.set("max_id", pq.maxId);
+        if (pq.sinceId) blocksUrl.searchParams.set("since_id", pq.sinceId);
+
+        const response = await fetch(blocksUrl.toString(), {
+          headers: {
+            Accept: "application/json",
+            Authorization: `${session.tokenType} ${session.accessToken}`
+          }
+        });
+        if (!response.ok) {
+          throw new MastodonApiResponseError(blocksUrl.toString(), response.status, await response.text().catch(() => ""));
+        }
+        return { items: await response.json(), links: {} };
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/relationships") {
+      await handleMastodonProxy(req, res, sessKey, async (_client, session) => {
+        const ids = readArrayQuery(url, "id") ?? [];
+        if (ids.length === 0) {
+          return [];
+        }
+        const relUrl = new URL("/api/v1/accounts/relationships", session.instanceOrigin);
+        for (const id of ids) {
+          relUrl.searchParams.append("id[]", id);
+        }
+
+        const response = await fetch(relUrl.toString(), {
+          headers: {
+            Accept: "application/json",
+            Authorization: `${session.tokenType} ${session.accessToken}`
+          }
+        });
+        if (!response.ok) {
+          throw new MastodonApiResponseError(relUrl.toString(), response.status, await response.text().catch(() => ""));
+        }
+        return z.array(mastodonRelationshipSchema).parse(await response.json());
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/mute") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleModerationMuteAccount(req, res, sessKey);
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/unmute") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleModerationUnmuteAccount(req, res, sessKey);
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/block") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleModerationBlockAccount(req, res, sessKey);
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/unblock") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleModerationUnblockAccount(req, res, sessKey);
+      return;
+    }
+
+    const moderationFilterDeleteMatch = /^\/api\/auth\/mastodon\/moderation\/filters\/([\w-]{1,64})$/.exec(url.pathname);
+    if (moderationFilterDeleteMatch) {
+      if (req.method !== "DELETE") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      await handleModerationDeleteFilter(req, res, sessKey, moderationFilterDeleteMatch[1]!);
       return;
     }
 
@@ -1950,7 +2429,9 @@ export function createMastodonAuthMiddleware(): ConnectHandler {
       url.pathname === "/api/auth/mastodon/statuses" ||
       url.pathname.startsWith("/api/auth/mastodon/statuses/")
     );
-    if (isStatusWriteOp && !allowWriteRequest(ip)) {
+    const isModerationWriteOp = (req.method === "POST" || req.method === "DELETE") &&
+      url.pathname.startsWith("/api/auth/mastodon/moderation/");
+    if ((isStatusWriteOp || isModerationWriteOp) && !allowWriteRequest(ip)) {
       sendJson(res, 429, { error: "rate_limited", message: "Too many requests" });
       return;
     }
