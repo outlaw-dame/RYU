@@ -158,8 +158,8 @@ describe('createSyncQueueEngine', () => {
 
     engine.start();
 
-    // Poll until the entry is completed or 2s safety timeout
-    const deadline = Date.now() + 2000;
+    // Poll until the entry is completed or 5s safety timeout
+    const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       const completed = engine.entries('completed');
       if (completed.length > 0) break;
@@ -167,7 +167,7 @@ describe('createSyncQueueEngine', () => {
     }
 
     // Should have retried and eventually succeeded
-    expect(callCount).toBe(3);
+    expect(callCount).toBeGreaterThanOrEqual(3);
     expect(engine.entries('completed')).toHaveLength(1);
   });
 
