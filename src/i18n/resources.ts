@@ -496,6 +496,37 @@ export const resources = {
           off: "Off",
           offDesc: "Do not auto-filter any content. Content warnings still show as overlays."
         }
+      },
+      a11y: {
+        skipToContent: "Skip to content",
+        loading: "Loading",
+        searchResultsCount: "{{count}} result found",
+        searchResultsCount_other: "{{count}} results found",
+        searchNoResults: "No results found",
+        searchUpdated: "Search results updated",
+        pageLoaded: "Page loaded: {{page}}",
+        dialogOpened: "Dialog opened: {{title}}",
+        dialogClosed: "Dialog closed",
+        menuExpanded: "Menu expanded",
+        menuCollapsed: "Menu collapsed",
+        selected: "Selected: {{item}}",
+        deselected: "Deselected: {{item}}",
+        tabSelected: "Tab selected: {{tab}}",
+        actionCompleted: "{{action}} completed",
+        actionFailed: "{{action}} failed",
+        formError: "Error: {{message}}",
+        navigationLandmark: "Navigation",
+        mainLandmark: "Main content",
+        searchLandmark: "Search",
+        complementaryLandmark: "Complementary content",
+        closeButton: "Close",
+        expandButton: "Expand",
+        collapseButton: "Collapse",
+        moreOptions: "More options",
+        sortBy: "Sort by {{field}}",
+        filterBy: "Filter by {{field}}",
+        currentPage: "Page {{current}} of {{total}}",
+        newNotification: "New notification from {{source}}"
       }
     }
   },
@@ -996,6 +1027,37 @@ export const resources = {
           off: "Desactivado",
           offDesc: "No filtrar automaticamente ningun contenido. Las advertencias de contenido aun se muestran."
         }
+      },
+      a11y: {
+        skipToContent: "Ir al contenido",
+        loading: "Cargando",
+        searchResultsCount: "{{count}} resultado encontrado",
+        searchResultsCount_other: "{{count}} resultados encontrados",
+        searchNoResults: "No se encontraron resultados",
+        searchUpdated: "Resultados de busqueda actualizados",
+        pageLoaded: "Pagina cargada: {{page}}",
+        dialogOpened: "Dialogo abierto: {{title}}",
+        dialogClosed: "Dialogo cerrado",
+        menuExpanded: "Menu expandido",
+        menuCollapsed: "Menu contraido",
+        selected: "Seleccionado: {{item}}",
+        deselected: "Deseleccionado: {{item}}",
+        tabSelected: "Pestana seleccionada: {{tab}}",
+        actionCompleted: "{{action}} completado",
+        actionFailed: "{{action}} fallido",
+        formError: "Error: {{message}}",
+        navigationLandmark: "Navegacion",
+        mainLandmark: "Contenido principal",
+        searchLandmark: "Busqueda",
+        complementaryLandmark: "Contenido complementario",
+        closeButton: "Cerrar",
+        expandButton: "Expandir",
+        collapseButton: "Contraer",
+        moreOptions: "Mas opciones",
+        sortBy: "Ordenar por {{field}}",
+        filterBy: "Filtrar por {{field}}",
+        currentPage: "Pagina {{current}} de {{total}}",
+        newNotification: "Nueva notificacion de {{source}}"
       }
     }
   }
