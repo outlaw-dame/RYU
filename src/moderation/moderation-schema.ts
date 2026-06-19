@@ -18,7 +18,7 @@ const shortText = { type: "string", maxLength: 512 } as const;
 const text = { type: "string", maxLength: 4096 } as const;
 const longText = { type: "string", maxLength: 20000 } as const;
 const timestamp = { type: "string", minLength: 20, maxLength: 40 } as const;
-const optionalTimestamp = { type: "string", maxLength: 40 } as const;
+const optionalTimestamp = { type: ["string", "null"], maxLength: 40 } as const;
 const sourceEnum = { type: "string", enum: ["local", "remote"] } as const;
 
 export const moderationCollections = {

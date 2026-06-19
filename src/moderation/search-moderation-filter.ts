@@ -7,6 +7,7 @@
 
 import type { PolicyAccount, PolicyDomain, PolicyFilter } from "./policy-types";
 import { matchesFilterKeywords, isFilterExpired } from "./policy-engine";
+import { isMuteExpired as isMuteExpiredShared, extractDomainFromAcct } from "./shared-utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -98,30 +99,5 @@ export function filterSearchResults<T extends SearchModerationInput>(
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isMuteExpired(entry: PolicyAccount): boolean {
-  if (!entry.expiresAt) return false;
-  return Date.now() > Date.parse(entry.expiresAt);
-}
-
-function extractDomainFromAcct(acct: string | undefined): string | undefined {
-  if (!acct) return undefined;
-  const trimmed = acct.trim();
-
-  if (trimmed.includes("://")) {
-    try {
-      return new URL(trimmed).hostname?.toLowerCase() || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  if (trimmed.includes("/@")) {
-    const hostPart = trimmed.split("/@")[0];
-    if (hostPart && !hostPart.includes(" ") && hostPart.includes(".")) {
-      return hostPart.toLowerCase();
-    }
-  }
-
-  const parts = trimmed.split("@");
-  const domain = parts.length >= 2 ? parts[parts.length - 1] : undefined;
-  return domain?.toLowerCase() || undefined;
+  return isMuteExpiredShared(entry);
 }

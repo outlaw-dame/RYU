@@ -163,3 +163,8 @@ export { createRelationshipHydrator } from "./relationship-hydration";
 // ─── Moderation schema (RxDB) ─────────────────────────────────────────────────
 
 export { moderationCollections } from "./moderation-schema";
+
+// ─── Shared utilities ─────────────────────────────────────────────────────────
+
+export { buildKeywordRegex, isCjkText, hasNonAsciiWordChars } from "./keyword-utils";
+export { isMuteExpired, extractDomainFromAcct } from "./shared-utils";

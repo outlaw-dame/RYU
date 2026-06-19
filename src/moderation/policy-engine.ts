@@ -19,6 +19,8 @@ import type {
   BookSafetyLabel,
   LabelSeverity
 } from "./policy-types";
+import { buildKeywordRegex } from "./keyword-utils";
+import { isMuteExpired as isMuteExpiredShared, extractDomainFromAcct } from "./shared-utils";
 
 // ─── Input Types ──────────────────────────────────────────────────────────────
 
@@ -49,47 +51,11 @@ export type PolicyStoreState = {
 // ─── Keyword Matching ─────────────────────────────────────────────────────────
 
 /**
- * Check if text contains non-ASCII word characters.
- */
-function hasNonAsciiWordChars(text: string): boolean {
-  return /[^\x00-\x7F]/.test(text);
-}
-
-/**
- * Check if a keyword consists entirely of CJK ideographs (Han script).
- */
-function isCjkKeyword(keyword: string): boolean {
-  return /^[\p{Script=Han}\p{Script=Katakana}]+$/u.test(keyword);
-}
-
-/**
  * Build a regex for a keyword with optional whole-word matching.
- * Handles non-ASCII with Unicode property escapes.
- *
- * For CJK ideographs: match when not directly adjacent to other Han ideographs
- * (since CJK languages do not use spaces for word separation, kana/particles
- * are valid boundaries).
- * For other non-ASCII: use Unicode letter/number boundaries.
+ * Delegates to shared keyword-utils for CJK-aware boundary logic.
  */
 function buildKeywordPattern(keyword: string, wholeWord: boolean): RegExp {
-  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-  if (!wholeWord) {
-    return new RegExp(escaped, "iu");
-  }
-
-  if (isCjkKeyword(keyword)) {
-    // For CJK, "whole word" means not directly adjacent to other Han ideographs
-    const pattern = `(?<![\\p{Script=Han}])${escaped}(?![\\p{Script=Han}])`;
-    return new RegExp(pattern, "iu");
-  }
-
-  if (hasNonAsciiWordChars(keyword)) {
-    const pattern = `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`;
-    return new RegExp(pattern, "iu");
-  }
-
-  return new RegExp(`\\b${escaped}\\b`, "iu");
+  return buildKeywordRegex(keyword, wholeWord);
 }
 
 /**
@@ -142,30 +108,7 @@ function surfaceToFilterContexts(surface: PolicyEvaluationContext["surface"]): F
 
 // ─── Domain Extraction ────────────────────────────────────────────────────────
 
-function extractDomainFromAcct(acct: string | undefined): string | undefined {
-  if (!acct) return undefined;
-  const trimmed = acct.trim();
-
-  if (trimmed.includes("://")) {
-    try {
-      const parsed = new URL(trimmed);
-      return parsed.hostname?.toLowerCase() || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  if (trimmed.includes("/@")) {
-    const hostPart = trimmed.split("/@")[0];
-    if (hostPart && !hostPart.includes(" ") && hostPart.includes(".")) {
-      return hostPart.toLowerCase();
-    }
-  }
-
-  const parts = trimmed.split("@");
-  const domain = parts.length >= 2 ? parts[parts.length - 1] : undefined;
-  return domain?.toLowerCase() || undefined;
-}
+// extractDomainFromAcct imported from ./shared-utils
 
 // ─── Policy Evaluation ────────────────────────────────────────────────────────
 
@@ -215,6 +158,17 @@ export function evaluatePolicy(
 
   // 2. Domain block check
   const domain = input.domain ?? extractDomainFromAcct(input.acct);
+
+  // Domain-level relationship blocking (check regardless of whether domain is resolved)
+  if (relationship?.domainBlocking) {
+    return {
+      action: "hide",
+      reasons: ["Domain is blocked (via relationship)"],
+      matchedFilters: [],
+      safetyLabels
+    };
+  }
+
   if (domain) {
     const domainBlocked = state.domains.find(
       (d) => d.domain === domain && d.severity === "block"
@@ -223,16 +177,6 @@ export function evaluatePolicy(
       return {
         action: "hide",
         reasons: ["Domain is blocked"],
-        matchedFilters: [],
-        safetyLabels
-      };
-    }
-
-    // Domain-level relationship blocking
-    if (relationship?.domainBlocking) {
-      return {
-        action: "hide",
-        reasons: ["Domain is blocked (via relationship)"],
         matchedFilters: [],
         safetyLabels
       };
@@ -360,8 +304,7 @@ export function evaluatePolicy(
  * Check if a mute entry has expired.
  */
 function isMuteExpired(entry: PolicyAccount): boolean {
-  if (!entry.expiresAt) return false;
-  return Date.now() > Date.parse(entry.expiresAt);
+  return isMuteExpiredShared(entry);
 }
 
 // ─── Safety Label Helpers ─────────────────────────────────────────────────────

@@ -112,11 +112,23 @@ export function useModeration(): UseModerationResult {
         return;
       }
 
-      if (event.key === "ryu:mute-list") setMuteList(loadMuteList());
-      if (event.key === "ryu:block-list") setBlockList(loadBlockList());
-      if (event.key === "ryu:domain-block-list") setDomainBlockList(loadDomainBlockList());
-      if (event.key === "ryu:content-filters") setContentFilters(loadContentFilters());
-      if (event.key === "ryu:safe-search-level") setSafeSearchLevelState(loadSafeSearchLevel());
+      switch (event.key) {
+        case "ryu:mute-list":
+          setMuteList(loadMuteList());
+          break;
+        case "ryu:block-list":
+          setBlockList(loadBlockList());
+          break;
+        case "ryu:domain-block-list":
+          setDomainBlockList(loadDomainBlockList());
+          break;
+        case "ryu:content-filters":
+          setContentFilters(loadContentFilters());
+          break;
+        case "ryu:safe-search-level":
+          setSafeSearchLevelState(loadSafeSearchLevel());
+          break;
+      }
     };
 
     window.addEventListener("storage", handleStorage);

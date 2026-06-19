@@ -149,6 +149,50 @@ export const mastodonListSchema = z.object({
   replies_policy: z.string().optional()
 }).passthrough();
 
+export const mastodonFilterKeywordSchema = z.object({
+  id: z.string().min(1),
+  keyword: z.string().min(1),
+  whole_word: z.boolean()
+}).passthrough();
+
+export const mastodonFilterSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  keywords: z.array(mastodonFilterKeywordSchema).default([]),
+  context: z.array(z.string()).default([]),
+  filter_action: z.enum(["warn", "hide", "blur"]).default("warn"),
+  expires_at: z.string().nullable().optional()
+}).passthrough();
+
+export const mastodonRelationshipSchema = z.object({
+  id: z.string().min(1),
+  following: z.boolean(),
+  followed_by: z.boolean(),
+  blocking: z.boolean(),
+  blocked_by: z.boolean(),
+  muting: z.boolean(),
+  muting_notifications: z.boolean(),
+  requested: z.boolean(),
+  requested_by: z.boolean().optional(),
+  domain_blocking: z.boolean(),
+  endorsed: z.boolean(),
+  note: z.string().optional(),
+  muting_expires_at: z.string().nullable().optional()
+}).passthrough();
+
+export const mastodonMuteAccountBodySchema = z.object({
+  accountId: z.string().min(1).max(64),
+  notifications: z.boolean().default(true),
+  duration: z.number().int().min(0).max(31536000).optional()
+});
+
+export const mastodonBlockAccountBodySchema = z.object({
+  accountId: z.string().min(1).max(64)
+});
+
+export type MastodonFilter = z.infer<typeof mastodonFilterSchema>;
+export type MastodonRelationshipResponse = z.infer<typeof mastodonRelationshipSchema>;
+
 export type MastodonAccount = z.infer<typeof mastodonAccountSchema>;
 export type MastodonAccountFull = z.infer<typeof mastodonAccountFullSchema>;
 export type MastodonStatus = z.infer<typeof mastodonStatusSchema>;

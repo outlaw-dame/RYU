@@ -119,11 +119,11 @@ export function createRelationshipHydrator(
       }
     }
 
-    // Collect all requested relationships from cache
+    // Collect all requested relationships from cache (only valid entries)
     for (const id of uniqueIds) {
-      const cached = cache.get(id);
-      if (cached) {
-        results.push(cached);
+      const valid = getCached(id);
+      if (valid) {
+        results.push(valid);
       }
     }
 

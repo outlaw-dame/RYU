@@ -59,7 +59,6 @@ const MASS_MENTION_THRESHOLD = 10;
 /** Suspicious link patterns (common phishing indicators). */
 const SUSPICIOUS_LINK_PATTERNS = [
   /bit\.ly\//i,
-  /t\.co\//i,
   /tinyurl\.com\//i,
   /free.*crypto/i,
   /claim.*reward/i,
@@ -99,6 +98,27 @@ export function evaluateNotification(
   const rel = relationships.find((r) => r.accountId === input.accountId);
   const isFollowing = input.isFollowing ?? rel?.following ?? false;
   const isFollowedBy = rel?.followedBy ?? false;
+
+  // If we are blocking or muting this account, hide the notification
+  if (rel?.blocking) {
+    return {
+      trustLevel: "blocked",
+      categories: [],
+      showInMainFeed: false,
+      quarantine: false,
+      reasons: ["Account is blocked (via relationship)"]
+    };
+  }
+
+  if (rel?.muting) {
+    return {
+      trustLevel: "blocked",
+      categories: [],
+      showInMainFeed: false,
+      quarantine: false,
+      reasons: ["Account is muted (via relationship)"]
+    };
+  }
 
   // Trusted: mutual follows or accounts we explicitly follow
   if (isFollowing) {
@@ -146,7 +166,7 @@ export function evaluateNotification(
   // Determine trust level and quarantine status
   if (categories.length === 0) {
     return {
-      trustLevel: isFollowedBy ? "normal" : "normal",
+      trustLevel: isFollowedBy ? "trusted" : "normal",
       categories: [],
       showInMainFeed: true,
       quarantine: false,

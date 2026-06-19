@@ -12,7 +12,7 @@ import {
   parseMastodonRegisterResponse
 } from "../src/auth/contracts";
 import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
-import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
+import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, mastodonBlockAccountBodySchema, mastodonMuteAccountBodySchema, mastodonFilterSchema, mastodonRelationshipSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import type { UnifiedShelf, UnifiedShelvesPayload } from "../src/sync/shelf-model";
 import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
@@ -1870,6 +1870,301 @@ async function dispatch(
         return;
       }
       await handleDeleteStatus(req, res, sessKey, deleteStatusId);
+      return;
+    }
+
+    // ─── Moderation read proxies (use fetchWithRetry for idempotent GETs) ─────
+
+    if (url.pathname === "/api/auth/mastodon/moderation/filters") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const response = await fetchWithRetry(`${session.instanceOrigin}/api/v2/filters`, {
+          method: "GET",
+          headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
+        });
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch filters." });
+          return;
+        }
+        const data = z.array(mastodonFilterSchema).parse(await response.json());
+        sendJson(res, 200, data);
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/mutes") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const response = await fetchWithRetry(`${session.instanceOrigin}/api/v1/mutes`, {
+          method: "GET",
+          headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
+        });
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch mutes." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/blocks") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const response = await fetchWithRetry(`${session.instanceOrigin}/api/v1/blocks`, {
+          method: "GET",
+          headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
+        });
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch blocks." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/relationships") {
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const ids = url.searchParams.getAll("id[]");
+        if (ids.length === 0) {
+          sendJson(res, 400, { error: "invalid_request", message: "Provide at least one account id." });
+          return;
+        }
+        const relUrl = new URL(`${session.instanceOrigin}/api/v1/accounts/relationships`);
+        for (const id of ids.slice(0, 40)) {
+          relUrl.searchParams.append("id[]", id);
+        }
+        const response = await fetchWithRetry(relUrl.toString(), {
+          method: "GET",
+          headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
+        });
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch relationships." });
+          return;
+        }
+        const data = z.array(mastodonRelationshipSchema).parse(await response.json());
+        sendJson(res, 200, data);
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    // ─── Moderation write proxies ─────────────────────────────────────────────
+
+    if (url.pathname === "/api/auth/mastodon/moderation/mute") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        await drainBody(req);
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const raw = await readRequestBody(req);
+        const body = mastodonMuteAccountBodySchema.parse(JSON.parse(raw));
+        const muteUrl = `${session.instanceOrigin}/api/v1/accounts/${encodeURIComponent(body.accountId)}/mute`;
+        const upstream: Record<string, unknown> = { notifications: body.notifications };
+        if (body.duration != null) upstream.duration = body.duration;
+        const response = await fetchWithRetry(muteUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `${session.tokenType} ${session.accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify(upstream)
+        }, 2);
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Mute failed." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/unmute") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        await drainBody(req);
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const raw = await readRequestBody(req);
+        const body = mastodonBlockAccountBodySchema.parse(JSON.parse(raw));
+        const unmuteUrl = `${session.instanceOrigin}/api/v1/accounts/${encodeURIComponent(body.accountId)}/unmute`;
+        const response = await fetchWithRetry(unmuteUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `${session.tokenType} ${session.accessToken}`,
+            Accept: "application/json"
+          }
+        }, 2);
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Unmute failed." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/block") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        await drainBody(req);
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const raw = await readRequestBody(req);
+        const body = mastodonBlockAccountBodySchema.parse(JSON.parse(raw));
+        const blockUrl = `${session.instanceOrigin}/api/v1/accounts/${encodeURIComponent(body.accountId)}/block`;
+        const response = await fetchWithRetry(blockUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `${session.tokenType} ${session.accessToken}`,
+            Accept: "application/json"
+          }
+        }, 2);
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Block failed." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/unblock") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        await drainBody(req);
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const raw = await readRequestBody(req);
+        const body = mastodonBlockAccountBodySchema.parse(JSON.parse(raw));
+        const unblockUrl = `${session.instanceOrigin}/api/v1/accounts/${encodeURIComponent(body.accountId)}/unblock`;
+        const response = await fetchWithRetry(unblockUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `${session.tokenType} ${session.accessToken}`,
+            Accept: "application/json"
+          }
+        }, 2);
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Unblock failed." });
+          return;
+        }
+        sendJson(res, 200, await response.json());
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
+      return;
+    }
+
+    if (url.pathname === "/api/auth/mastodon/moderation/filters/create") {
+      if (req.method !== "POST") {
+        sendJson(res, 405, { error: "method_not_allowed" });
+        return;
+      }
+      const session = readSessionPayload(req, res, sessKey);
+      if (!session) {
+        await drainBody(req);
+        sendJson(res, 401, { error: "not_authenticated", message: "Sign in first." });
+        return;
+      }
+      try {
+        const raw = await readRequestBody(req);
+        const body = JSON.parse(raw);
+        // Single attempt (no retry) for non-idempotent filter creation POST
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 10_000);
+        const response = await fetch(`${session.instanceOrigin}/api/v2/filters`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            Authorization: `${session.tokenType} ${session.accessToken}`,
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify(body)
+        });
+        clearTimeout(timer);
+        if (!response.ok) {
+          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Filter creation failed." });
+          return;
+        }
+        const data = mastodonFilterSchema.parse(await response.json());
+        sendJson(res, 200, data);
+      } catch (error) {
+        sendMastodonProxyError(req, res, error);
+      }
       return;
     }
 
