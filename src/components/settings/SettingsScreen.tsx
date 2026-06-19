@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SearchRuntimeSettingsPanel } from './SearchRuntimeSettingsPanel';
+import { ModerationControls } from '../moderation/ModerationControls';
 
-type SettingsPage = 'root' | 'intelligence';
+type SettingsPage = 'root' | 'intelligence' | 'moderation';
 
 function SettingsRow({
   title,
@@ -74,6 +75,7 @@ export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }
   const { t } = useTranslation();
   const [page, setPage] = useState<SettingsPage>('root');
   const openIntelligence = useCallback(() => setPage('intelligence'), []);
+  const openModeration = useCallback(() => setPage('moderation'), []);
   const openRoot = useCallback(() => setPage('root'), []);
 
   if (page === 'intelligence') {
@@ -99,6 +101,26 @@ export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }
     );
   }
 
+  if (page === 'moderation') {
+    return (
+      <div style={{ display: 'grid', gap: 'var(--space-4)' }}>
+        <BackButton onBack={openRoot} />
+        <header style={{ padding: '0 var(--space-4)' }}>
+          <h2 style={{
+            margin: 0,
+            fontFamily: 'var(--font-display)',
+            fontSize: 'var(--text-title1)',
+            lineHeight: 'var(--leading-title1)',
+            color: 'var(--color-text)'
+          }}>
+            {t('settings.privacy.title')}
+          </h2>
+        </header>
+        <ModerationControls />
+      </div>
+    );
+  }
+
   return (
     <section style={{ padding: '0 var(--space-4)', display: 'grid', gap: 'var(--space-4)' }}>
       <SettingsRow
@@ -114,7 +136,7 @@ export function SettingsScreen({ onOpenAccount }: { onOpenAccount?: () => void }
       <SettingsRow
         title={t('settings.privacy.title')}
         description={t('settings.rows.privacy')}
-        onSelect={() => {}}
+        onSelect={openModeration}
       />
     </section>
   );

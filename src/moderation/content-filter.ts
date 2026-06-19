@@ -116,10 +116,17 @@ export function updateContentFilter(
  */
 function buildFilterPattern(filter: ContentFilter): RegExp {
   const escaped = filter.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = filter.wholeWord
-    ? `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`
-    : escaped;
-  return new RegExp(pattern, "iu");
+  if (filter.wholeWord) {
+    // Prefer Unicode-aware lookbehind/lookahead for multilingual support.
+    // Fall back to ASCII \b on older browsers (Safari < 16.4) that throw
+    // on lookbehind syntax.
+    try {
+      return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu");
+    } catch {
+      return new RegExp(`\\b${escaped}\\b`, "i");
+    }
+  }
+  return new RegExp(escaped, "iu");
 }
 
 /**
