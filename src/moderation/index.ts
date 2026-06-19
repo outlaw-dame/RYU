@@ -168,3 +168,70 @@ export { moderationCollections } from "./moderation-schema";
 
 export { buildKeywordRegex, isCjkText, hasNonAsciiWordChars } from "./keyword-utils";
 export { isMuteExpired, extractDomainFromAcct } from "./shared-utils";
+
+// ─── Semantic Filter ──────────────────────────────────────────────────────────
+
+export type {
+  SemanticFilterKeyword,
+  SemanticFilter,
+  SemanticMatchResult
+} from "./semantic-filter";
+export {
+  semanticMatch,
+  exactMatch,
+  computeSemanticSimilarity,
+  createSemanticFilter,
+  precomputeFilterEmbeddings,
+  getOrComputeEmbedding,
+  clearEmbeddingCache,
+  DEFAULT_SEMANTIC_THRESHOLD,
+  MIN_SEMANTIC_THRESHOLD,
+  MAX_SEMANTIC_THRESHOLD
+} from "./semantic-filter";
+
+// ─── Spoiler Engine ───────────────────────────────────────────────────────────
+
+export type {
+  SpoilerDetectionResult,
+  SpoilerPreferences,
+  ReadingStatusLookup
+} from "./spoiler-engine";
+export {
+  evaluateSpoiler,
+  extractBookTitle,
+  isGenericContentWarning,
+  loadSpoilerPreferences,
+  saveSpoilerPreferences,
+  createLocalStorageReadingStatusLookup
+} from "./spoiler-engine";
+
+// ─── Trust Controls ───────────────────────────────────────────────────────────
+
+export type {
+  SuppressionType,
+  SuppressionEntry,
+  ModerationPreset,
+  TrustScore,
+  ReviewBombInput,
+  ReviewEntry,
+  ReviewBombResult,
+  SpamScoreInput,
+  SpamScoreResult,
+  CommunityModerationSettings
+} from "./trust-controls";
+export {
+  loadSuppressions,
+  saveSuppressions,
+  addSuppression,
+  removeSuppression,
+  isSuppressed,
+  computeTrustScore,
+  detectReviewBomb,
+  computeSpamScore,
+  getPresetConfig,
+  loadCommunitySettings,
+  saveCommunitySettings,
+  getEffectiveSpamThreshold,
+  isReviewBombDetectionEnabled,
+  isSemanticFilteringEnabled
+} from "./trust-controls";

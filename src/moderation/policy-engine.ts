@@ -5,6 +5,9 @@
  * preferences into one RYU policy model. Applies policy consistently across
  * timelines, search, discovery, reviews, notifications, profiles, and
  * BookTok/now-reading feeds.
+ *
+ * Integrates semantic keyword filtering, BookWyrm spoiler support, and
+ * recommendation/trust controls for comprehensive moderation.
  */
 
 import type {
@@ -21,6 +24,10 @@ import type {
 } from "./policy-types";
 import { buildKeywordRegex } from "./keyword-utils";
 import { isMuteExpired as isMuteExpiredShared, extractDomainFromAcct } from "./shared-utils";
+import { evaluateSpoiler, createLocalStorageReadingStatusLookup } from "./spoiler-engine";
+import type { ReadingStatusLookup, SpoilerPreferences } from "./spoiler-engine";
+import { isSuppressed } from "./trust-controls";
+import type { SuppressionType } from "./trust-controls";
 
 // ─── Input Types ──────────────────────────────────────────────────────────────
 
@@ -39,6 +46,10 @@ export type PolicyInput = {
   domain?: string;
   /** Safety labels already applied to this content. */
   safetyLabels?: SafetyLabel[];
+  /** Author name (for suppression checks). */
+  authorName?: string;
+  /** Work/book title (for suppression checks). */
+  workTitle?: string;
 };
 
 export type PolicyStoreState = {
@@ -254,7 +265,25 @@ export function evaluatePolicy(
     }
   }
 
-  // 5. Safety labels check
+  // 5. Suppression checks (author/work/entity)
+  if (input.authorName && isSuppressed("author", input.authorName)) {
+    return {
+      action: "hide",
+      reasons: [`Author is suppressed: "${input.authorName}"`],
+      matchedFilters,
+      safetyLabels
+    };
+  }
+  if (input.workTitle && isSuppressed("work", input.workTitle)) {
+    return {
+      action: "hide",
+      reasons: [`Work is suppressed: "${input.workTitle}"`],
+      matchedFilters,
+      safetyLabels
+    };
+  }
+
+  // 6. Safety labels check
   if (safetyLabels.length > 0) {
     const highSeverity = safetyLabels.find((l) => l.severity === "hide");
     if (highSeverity) {
@@ -277,7 +306,7 @@ export function evaluatePolicy(
     }
   }
 
-  // 6. Sensitive content
+  // 7. Sensitive content
   if (input.sensitive) {
     return {
       action: "blur",
@@ -287,8 +316,32 @@ export function evaluatePolicy(
     };
   }
 
-  // 7. Content warning overlay
+  // 8. BookWyrm spoiler / content warning evaluation
   if (input.spoilerText && input.spoilerText.trim().length > 0) {
+    const spoilerResult = evaluateSpoilerForPolicy(input.spoilerText);
+    if (spoilerResult.shouldEnforce) {
+      return {
+        action: "collapse",
+        reasons: [spoilerResult.reason],
+        matchedFilters,
+        safetyLabels,
+        collapseSummary: input.spoilerText
+      };
+    }
+    // If spoiler is not enforced (e.g. book already read), show normally
+    if (spoilerResult.isBookSpoiler && !spoilerResult.shouldEnforce) {
+      return { action: "show", reasons: [spoilerResult.reason], matchedFilters, safetyLabels };
+    }
+    // Generic CW that is not enforced - still show the warning
+    if (spoilerResult.isGenericCW && !spoilerResult.shouldEnforce) {
+      return {
+        action: "warn",
+        reasons: ["Content has a content warning"],
+        matchedFilters,
+        safetyLabels
+      };
+    }
+    // Unrecognized CW that is not enforced
     return {
       action: "warn",
       reasons: ["Content has a content warning"],
@@ -298,6 +351,17 @@ export function evaluatePolicy(
   }
 
   return { action: "show", reasons: [], matchedFilters, safetyLabels };
+}
+
+// ─── Spoiler Policy Helper ────────────────────────────────────────────────────
+
+/**
+ * Evaluate spoiler text for policy decisions.
+ * Uses localStorage-based reading status lookup.
+ */
+function evaluateSpoilerForPolicy(spoilerText: string) {
+  const lookup = createLocalStorageReadingStatusLookup();
+  return evaluateSpoiler(spoilerText, lookup);
 }
 
 /**
