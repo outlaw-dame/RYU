@@ -129,12 +129,11 @@ describe('memory-monitor', () => {
       });
 
       const listener = vi.fn();
-      subscribeMemoryMonitor(listener);
+      // subscribeMemoryMonitor auto-starts the monitor
+      const unsub = subscribeMemoryMonitor(listener);
 
-      startMemoryMonitor(1000);
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(5000);
 
-      // No change yet (same values), but polling ran.
       // Change the values to trigger notification.
       setPerformance({
         memory: {
@@ -143,10 +142,10 @@ describe('memory-monitor', () => {
         },
         now: performance.now.bind(performance)
       });
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(5000);
       expect(listener).toHaveBeenCalled();
 
-      stopMemoryMonitor();
+      unsub();
       listener.mockClear();
 
       vi.advanceTimersByTime(5000);

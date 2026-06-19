@@ -1976,9 +1976,6 @@ async function dispatch(
           res.setHeader("Link", linkHeader);
         }
         sendJson(res, 200, await response.json());
-          return;
-        }
-        sendJson(res, 200, await response.json());
       } catch (error) {
         sendMastodonProxyError(req, res, error);
       }

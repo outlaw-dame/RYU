@@ -121,8 +121,14 @@ export function getMemorySnapshot(): MemorySnapshot {
  */
 export function subscribeMemoryMonitor(callback: () => void): () => void {
   listeners.add(callback);
+  if (listeners.size === 1) {
+    startMemoryMonitor();
+  }
   return () => {
     listeners.delete(callback);
+    if (listeners.size === 0) {
+      stopMemoryMonitor();
+    }
   };
 }
 

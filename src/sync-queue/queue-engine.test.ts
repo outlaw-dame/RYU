@@ -158,13 +158,8 @@ describe('createSyncQueueEngine', () => {
 
     engine.start();
 
-    // Poll until the entry is completed or 5s safety timeout
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      const completed = engine.entries('completed');
-      if (completed.length > 0) break;
-      await new Promise((r) => setTimeout(r, 50));
-    }
+    // Wait generously for retries with backoff
+    await new Promise((r) => setTimeout(r, 500));
 
     // Should have retried and eventually succeeded
     expect(callCount).toBeGreaterThanOrEqual(3);

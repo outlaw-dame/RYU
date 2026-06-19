@@ -38,6 +38,10 @@ export function extractDomainFromAcct(acct: string | undefined): string | undefi
   }
 
   const parts = trimmed.split("@");
-  const domain = parts.length >= 2 ? parts[parts.length - 1] : undefined;
+  // "@user" (local) has parts ["", "user"] — only extract domain if
+  // there are at least 3 parts for @-prefixed or 2 for unprefixed
+  const isPrefixed = trimmed.startsWith("@");
+  const hasDomain = isPrefixed ? parts.length >= 3 : parts.length >= 2;
+  const domain = hasDomain ? parts[parts.length - 1] : undefined;
   return domain?.toLowerCase() || undefined;
 }
