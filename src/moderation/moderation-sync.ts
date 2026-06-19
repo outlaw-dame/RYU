@@ -302,16 +302,27 @@ export async function flushQueue(options: ModerationServerApiOptions = {}): Prom
   const remaining: QueuedAction[] = [];
   let flushed = 0;
 
-  for (const action of queue) {
+  for (let i = 0; i < queue.length; i++) {
+    // Check abort signal before processing each action — preserve unprocessed items
+    if (options.signal?.aborted) {
+      remaining.push(...queue.slice(i));
+      break;
+    }
+
+    const action = queue[i];
     try {
       await executeAction(action, options);
       flushed++;
     } catch (error) {
-      if (error instanceof ModerationServerApiError && error.isAuthError) {
-        // Drop actions that fail due to auth - they will never succeed
-        continue;
+      if (error instanceof ModerationServerApiError) {
+        // Drop ALL client errors (4xx) — they will never succeed:
+        // 401/403 = auth, 400 = bad request, 404 = deleted account, 410 = gone
+        if (error.status >= 400 && error.status < 500) {
+          continue;
+        }
+        // Server errors (5xx) and network errors (status=0) are retryable
       }
-      // Keep actions that failed due to network issues
+      // Keep actions that failed due to network/server issues for retry
       remaining.push(action);
     }
   }
