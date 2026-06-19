@@ -97,74 +97,93 @@ export function useModeration(): UseModerationResult {
   const [contentFilters, setContentFilters] = useState<ContentFilter[]>(() => loadContentFilters());
   const [safeSearchLevel, setSafeSearchLevelState] = useState<SafeSearchLevel>(() => loadSafeSearchLevel());
 
-  // Cross-instance / cross-tab sync via storage events
+  // Cross-instance / cross-tab sync via storage events + same-tab sync
+  // via custom event. The storage event only fires in OTHER tabs; the
+  // custom event ensures all hook instances in the current tab stay in sync.
   useEffect(() => {
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === "ryu:mute-list") {
-        setMuteList(loadMuteList());
-      } else if (event.key === "ryu:block-list") {
-        setBlockList(loadBlockList());
-      } else if (event.key === "ryu:domain-block-list") {
-        setDomainBlockList(loadDomainBlockList());
-      } else if (event.key === "ryu:content-filters") {
-        setContentFilters(loadContentFilters());
-      } else if (event.key === "ryu:safe-search-level") {
-        setSafeSearchLevelState(loadSafeSearchLevel());
-      }
+    const reload = () => {
+      setMuteList(loadMuteList());
+      setBlockList(loadBlockList());
+      setDomainBlockList(loadDomainBlockList());
+      setContentFilters(loadContentFilters());
+      setSafeSearchLevelState(loadSafeSearchLevel());
     };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key?.startsWith("ryu:")) reload();
+    };
+    const handleSync = () => reload();
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
+    window.addEventListener("ryu:moderation-sync", handleSync);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("ryu:moderation-sync", handleSync);
+    };
+  }, []);
+
+  /** Notify other hook instances in the same tab that moderation state changed. */
+  const notifySync = useCallback(() => {
+    window.dispatchEvent(new Event("ryu:moderation-sync"));
   }, []);
 
   const mute = useCallback((accountId: string, options?: { acct?: string; durationMs?: number; hideNotifications?: boolean }) => {
     const updated = addMuteStore(accountId, options);
     setMuteList(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const unmute = useCallback((accountId: string) => {
     const updated = removeMuteStore(accountId);
     setMuteList(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const block = useCallback((accountId: string, acct?: string) => {
     const updated = addBlockStore(accountId, acct);
     setBlockList(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const unblock = useCallback((accountId: string) => {
     const updated = removeBlockStore(accountId);
     setBlockList(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const blockDomain = useCallback((domain: string, reason?: string) => {
     const updated = addDomainBlockStore(domain, reason);
     setDomainBlockList(updated);
+    notifySync();
   }, []);
 
   const unblockDomain = useCallback((domain: string) => {
     const updated = removeDomainBlockStore(domain);
     setDomainBlockList(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const addFilter = useCallback((phrase: string, options?: { wholeWord?: boolean; action?: ContentFilterAction; durationMs?: number }) => {
     const updated = addContentFilterStore(phrase, options);
     setContentFilters(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const removeFilter = useCallback((filterId: string) => {
     const updated = removeContentFilterStore(filterId);
     setContentFilters(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const updateFilter = useCallback((filterId: string, updates: Partial<Pick<ContentFilter, "phrase" | "wholeWord" | "action" | "expiresAt">>) => {
     const updated = updateContentFilterStore(filterId, updates);
     setContentFilters(updated);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const setSafeSearchLevel = useCallback((level: SafeSearchLevel) => {
     saveSafeSearchLevel(level);
     setSafeSearchLevelState(level);
-  }, []);
+    notifySync();
+  }, [notifySync]);
 
   const evaluate = useCallback((input: ModerationInput, context?: ModerationContext): ModerationResult => {
     return evaluateModeration(input, context);

@@ -35,10 +35,23 @@ export function saveDomainBlockList(entries: DomainBlock[]): void {
 
 /**
  * Normalize a domain string: extracts hostname from URLs, account handles, etc.
+ * Handles Mastodon profile URLs (https://instance/@user), full URLs,
+ * @user@domain handles, and plain domain names.
  */
 export function normalizeDomain(input: string): string {
   const trimmed = input.trim().toLowerCase();
   if (!trimmed) return "";
+
+  // Parse URLs first (before @ splitting) to handle profile URLs like
+  // https://mastodon.social/@username correctly.
+  if (trimmed.includes("://") || trimmed.startsWith("www.")) {
+    try {
+      const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`);
+      return url.hostname;
+    } catch {
+      // Fall through to other strategies
+    }
+  }
 
   // Handle @user@domain.com format
   const atParts = trimmed.split("@").filter(Boolean);
@@ -51,9 +64,9 @@ export function normalizeDomain(input: string): string {
     }
   }
 
-  // Handle full URLs
+  // Plain domain or hostname
   try {
-    const url = new URL(trimmed.includes("://") ? trimmed : `https://${trimmed}`);
+    const url = new URL(`https://${trimmed}`);
     return url.hostname;
   } catch {
     return trimmed;
