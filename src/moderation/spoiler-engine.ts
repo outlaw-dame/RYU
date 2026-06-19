@@ -204,21 +204,9 @@ export function evaluateSpoiler(
     };
   }
 
-  // Check if it is a generic CW
-  if (isGenericContentWarning(spoilerText)) {
-    const shouldEnforce = prefs.autoHideAllCW;
-    return {
-      isBookSpoiler: false,
-      isGenericCW: true,
-      bookTitle: null,
-      shouldEnforce,
-      reason: shouldEnforce
-        ? "Generic content warning (auto-hide enabled)"
-        : "Generic content warning (auto-hide disabled)"
-    };
-  }
-
-  // Try to extract a book title
+  // Try to extract a book title FIRST (before generic CW check)
+  // because book-specific spoilers like "CW: spoilers for Dune" contain
+  // generic CW prefixes but should be treated as book spoilers
   const bookTitle = extractBookTitle(spoilerText);
 
   if (bookTitle) {

@@ -174,7 +174,7 @@ export function useMastodonRelationships(
   options: { enabled?: boolean } = {}
 ): UseQueryResult<ModerationRelationship[]> {
   return useQuery({
-    queryKey: [...mastodonModerationQueryKeys.relationships(), ...accountIds.sort()],
+    queryKey: [...mastodonModerationQueryKeys.relationships(), ...[...accountIds].sort()],
     queryFn: () => fetchRelationships(accountIds),
     enabled: (options.enabled ?? true) && accountIds.length > 0,
     staleTime: 60_000,

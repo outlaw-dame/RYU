@@ -110,13 +110,13 @@ export function evaluateNotification(
     };
   }
 
-  if (rel?.muting) {
+  if (rel?.muting && rel?.mutingNotifications !== false) {
     return {
       trustLevel: "blocked",
       categories: [],
       showInMainFeed: false,
       quarantine: false,
-      reasons: ["Account is muted (via relationship)"]
+      reasons: ["Account is muted with notification suppression (via relationship)"]
     };
   }
 

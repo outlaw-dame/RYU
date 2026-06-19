@@ -1970,20 +1970,27 @@ async function dispatch(
           sendJson(res, 400, { error: "invalid_request", message: "Provide at least one account id." });
           return;
         }
-        const relUrl = new URL(`${session.instanceOrigin}/api/v1/accounts/relationships`);
-        for (const id of ids.slice(0, 40)) {
-          relUrl.searchParams.append("id[]", id);
+        // Mastodon limits to 40 IDs per request; batch if needed
+        const BATCH_SIZE = 40;
+        const allResults: z.infer<typeof mastodonRelationshipSchema>[] = [];
+        for (let offset = 0; offset < ids.length; offset += BATCH_SIZE) {
+          const batch = ids.slice(offset, offset + BATCH_SIZE);
+          const relUrl = new URL(`${session.instanceOrigin}/api/v1/accounts/relationships`);
+          for (const id of batch) {
+            relUrl.searchParams.append("id[]", id);
+          }
+          const response = await fetchWithRetry(relUrl.toString(), {
+            method: "GET",
+            headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
+          });
+          if (!response.ok) {
+            sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch relationships." });
+            return;
+          }
+          const data = z.array(mastodonRelationshipSchema).parse(await response.json());
+          allResults.push(...data);
         }
-        const response = await fetchWithRetry(relUrl.toString(), {
-          method: "GET",
-          headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
-        });
-        if (!response.ok) {
-          sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch relationships." });
-          return;
-        }
-        const data = z.array(mastodonRelationshipSchema).parse(await response.json());
-        sendJson(res, 200, data);
+        sendJson(res, 200, allResults);
       } catch (error) {
         sendMastodonProxyError(req, res, error);
       }
