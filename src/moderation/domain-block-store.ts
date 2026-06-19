@@ -81,12 +81,41 @@ export function isDomainBlocked(domain: string): boolean {
 }
 
 /**
- * Extract the domain from an account acct string (e.g. "user@instance.tld" -> "instance.tld").
+ * Extract the domain from an account acct string or profile URL.
+ *
+ * Handles:
+ * - "user@instance.tld" -> "instance.tld"
+ * - "@user@instance.tld" -> "instance.tld"
+ * - "https://instance.tld/@user" -> "instance.tld"
+ * - Non-http URLs with "://" are parsed as-is (e.g. "ftp://host.tld/path")
+ * - Profile URLs without protocol that contain "/@" (e.g. "instance.tld/@user")
+ *
  * Returns undefined if no domain part is found (local accounts).
  */
 export function extractDomain(acct: string | undefined): string | undefined {
   if (!acct) return undefined;
-  const parts = acct.split("@");
+
+  const trimmed = acct.trim();
+
+  // Handle URLs with any protocol scheme (contains "://")
+  if (trimmed.includes("://")) {
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.hostname ? normalizeDomain(parsed.hostname) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Handle profile URLs without protocol that contain "/@"
+  if (trimmed.includes("/@")) {
+    const hostPart = trimmed.split("/@")[0];
+    if (hostPart && !hostPart.includes(" ") && hostPart.includes(".")) {
+      return normalizeDomain(hostPart);
+    }
+  }
+
+  const parts = trimmed.split("@");
   // "user@domain" or "@user@domain"
   const domain = parts.length >= 2 ? parts[parts.length - 1] : undefined;
   return domain ? normalizeDomain(domain) : undefined;

@@ -47,6 +47,19 @@ describe("domain-block-store", () => {
     it("returns undefined for undefined input", () => {
       expect(extractDomain(undefined)).toBeUndefined();
     });
+
+    it("extracts domain from profile URLs without protocol containing /@", () => {
+      expect(extractDomain("instance.tld/@user")).toBe("instance.tld");
+      expect(extractDomain("mastodon.social/@alice")).toBe("mastodon.social");
+    });
+
+    it("extracts domain from full https URLs", () => {
+      expect(extractDomain("https://mastodon.social/@user")).toBe("mastodon.social");
+    });
+
+    it("extracts domain from non-http URLs with ://", () => {
+      expect(extractDomain("ftp://files.example.com/path")).toBe("files.example.com");
+    });
   });
 
   describe("loadDomainBlockList", () => {

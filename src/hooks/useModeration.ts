@@ -4,9 +4,11 @@
  * Provides moderation actions (mute, block, domain-block, filter) and state.
  * Wraps the moderation stores with React state management so UI updates
  * when moderation lists change.
+ *
+ * Listens for storage events so cross-tab changes are reflected.
  */
 
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import type {
   MuteEntry,
   BlockEntry,
@@ -96,6 +98,30 @@ export function useModeration(): UseModerationResult {
   const [domainBlockList, setDomainBlockList] = useState<DomainBlock[]>(() => loadDomainBlockList());
   const [contentFilters, setContentFilters] = useState<ContentFilter[]>(() => loadContentFilters());
   const [safeSearchLevel, setSafeSearchLevelState] = useState<SafeSearchLevel>(() => loadSafeSearchLevel());
+
+  // Sync state when localStorage changes from other tabs (or localStorage.clear())
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      // event.key === null means localStorage.clear() was called - reload all
+      if (event.key === null) {
+        setMuteList(loadMuteList());
+        setBlockList(loadBlockList());
+        setDomainBlockList(loadDomainBlockList());
+        setContentFilters(loadContentFilters());
+        setSafeSearchLevelState(loadSafeSearchLevel());
+        return;
+      }
+
+      if (event.key === "ryu:mute-list") setMuteList(loadMuteList());
+      if (event.key === "ryu:block-list") setBlockList(loadBlockList());
+      if (event.key === "ryu:domain-block-list") setDomainBlockList(loadDomainBlockList());
+      if (event.key === "ryu:content-filters") setContentFilters(loadContentFilters());
+      if (event.key === "ryu:safe-search-level") setSafeSearchLevelState(loadSafeSearchLevel());
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
 
   const mute = useCallback((accountId: string, options?: { acct?: string; durationMs?: number; hideNotifications?: boolean }) => {
     const updated = addMuteStore(accountId, options);

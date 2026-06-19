@@ -108,12 +108,45 @@ export function updateContentFilter(
 }
 
 /**
+ * Check if a string contains non-ASCII word characters that \b cannot handle.
+ */
+function hasNonAsciiWordChars(text: string): boolean {
+  return /[^\x00-\x7F]/.test(text);
+}
+
+/**
+ * Check if a phrase consists entirely of CJK ideographs (Han/Katakana script).
+ */
+function isCjkPhrase(text: string): boolean {
+  return /^[\p{Script=Han}\p{Script=Katakana}]+$/u.test(text);
+}
+
+/**
  * Build a regex pattern for a content filter phrase.
+ * Uses Unicode-aware word boundaries for non-ASCII phrases.
+ *
+ * For CJK: match when not adjacent to other Han ideographs.
+ * For other non-ASCII: use Unicode letter/number boundaries.
  */
 function buildFilterPattern(filter: ContentFilter): RegExp {
   const escaped = filter.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = filter.wholeWord ? `\\b${escaped}\\b` : escaped;
-  return new RegExp(pattern, "i");
+
+  if (!filter.wholeWord) {
+    return new RegExp(escaped, "iu");
+  }
+
+  if (isCjkPhrase(filter.phrase)) {
+    const pattern = `(?<![\\p{Script=Han}])${escaped}(?![\\p{Script=Han}])`;
+    return new RegExp(pattern, "iu");
+  }
+
+  if (hasNonAsciiWordChars(filter.phrase)) {
+    const pattern = `(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`;
+    return new RegExp(pattern, "iu");
+  }
+
+  const pattern = `\\b${escaped}\\b`;
+  return new RegExp(pattern, "iu");
 }
 
 /**
