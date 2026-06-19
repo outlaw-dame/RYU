@@ -53,7 +53,7 @@ const BOOK_SPOILER_PATTERNS: RegExp[] = [
   /(?:book|novel|series)\s+spoilers?[:\s]+(.+)/i,
   /spoiler(?:s)?\s*[-:]\s*(.+)/i,
   /(.+?)\s+spoilers?$/i,
-  /cw[:\s]+(?:spoilers?\s+(?:for|about))?\s*(.+)/i
+  /cw[:\s]+(?:spoilers?\s+(?:for|about))\s+(.+)/i
 ];
 
 /**

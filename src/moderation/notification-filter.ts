@@ -94,6 +94,22 @@ export function evaluateNotification(
     };
   }
 
+  // Check if account is locally muted with notification suppression
+  const localMute = blockedAccounts.find(
+    (a: any) => a.accountId === input.accountId &&
+           a.action === "mute" &&
+           (!a.expiresAt || Date.now() < Date.parse(a.expiresAt))
+  );
+  if (localMute && localMute.hideNotifications) {
+    return {
+      trustLevel: "blocked",
+      categories: [],
+      showInMainFeed: false,
+      quarantine: false,
+      reasons: ["Account is muted locally (notifications hidden)"]
+    };
+  }
+
   // Check relationship
   const rel = relationships.find((r) => r.accountId === input.accountId);
   const isFollowing = input.isFollowing ?? rel?.following ?? false;

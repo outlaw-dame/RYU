@@ -158,8 +158,13 @@ describe('createSyncQueueEngine', () => {
 
     engine.start();
 
-    // Wait long enough for retries with backoff to complete
-    await new Promise((r) => setTimeout(r, 300));
+    // Poll until the entry is completed or 2s safety timeout
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const completed = engine.entries('completed');
+      if (completed.length > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
 
     // Should have retried and eventually succeeded
     expect(callCount).toBe(3);

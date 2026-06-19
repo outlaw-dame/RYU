@@ -1913,13 +1913,27 @@ async function dispatch(
         return;
       }
       try {
-        const response = await fetchWithRetry(`${session.instanceOrigin}/api/v1/mutes`, {
+        const mutesUrl = new URL(`${session.instanceOrigin}/api/v1/mutes`);
+        // Forward pagination params
+        const limit = url.searchParams.get("limit");
+        const maxId = url.searchParams.get("max_id");
+        const sinceId = url.searchParams.get("since_id");
+        if (limit) mutesUrl.searchParams.set("limit", limit);
+        if (maxId) mutesUrl.searchParams.set("max_id", maxId);
+        if (sinceId) mutesUrl.searchParams.set("since_id", sinceId);
+
+        const response = await fetchWithRetry(mutesUrl.toString(), {
           method: "GET",
           headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
         });
         if (!response.ok) {
           sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch mutes." });
           return;
+        }
+        // Forward Link header for pagination
+        const linkHeader = response.headers.get("Link");
+        if (linkHeader) {
+          res.setHeader("Link", linkHeader);
         }
         sendJson(res, 200, await response.json());
       } catch (error) {
@@ -1939,12 +1953,29 @@ async function dispatch(
         return;
       }
       try {
-        const response = await fetchWithRetry(`${session.instanceOrigin}/api/v1/blocks`, {
+        const blocksUrl = new URL(`${session.instanceOrigin}/api/v1/blocks`);
+        // Forward pagination params
+        const limit = url.searchParams.get("limit");
+        const maxId = url.searchParams.get("max_id");
+        const sinceId = url.searchParams.get("since_id");
+        if (limit) blocksUrl.searchParams.set("limit", limit);
+        if (maxId) blocksUrl.searchParams.set("max_id", maxId);
+        if (sinceId) blocksUrl.searchParams.set("since_id", sinceId);
+
+        const response = await fetchWithRetry(blocksUrl.toString(), {
           method: "GET",
           headers: { Authorization: `${session.tokenType} ${session.accessToken}`, Accept: "application/json" }
         });
         if (!response.ok) {
           sendJson(res, response.status, { error: "mastodon_request_failed", message: "Failed to fetch blocks." });
+          return;
+        }
+        // Forward Link header for pagination
+        const linkHeader = response.headers.get("Link");
+        if (linkHeader) {
+          res.setHeader("Link", linkHeader);
+        }
+        sendJson(res, 200, await response.json());
           return;
         }
         sendJson(res, 200, await response.json());
@@ -1968,6 +1999,10 @@ async function dispatch(
         const ids = url.searchParams.getAll("id[]");
         if (ids.length === 0) {
           sendJson(res, 400, { error: "invalid_request", message: "Provide at least one account id." });
+          return;
+        }
+        if (ids.length > 200) {
+          sendJson(res, 400, { error: "invalid_request", message: "Too many account IDs. Maximum is 200." });
           return;
         }
         // Mastodon limits to 40 IDs per request; batch if needed
