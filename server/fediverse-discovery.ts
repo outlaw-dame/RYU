@@ -11,11 +11,6 @@
  */
 
 import { z } from "zod";
-import { gunzip, brotliDecompress } from "node:zlib";
-import { promisify } from "node:util";
-
-const gunzipAsync = promisify(gunzip);
-const brotliDecompressAsync = promisify(brotliDecompress);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -205,17 +200,10 @@ function isDomainBlocked(domain: string, blockedDomains: Set<string>): boolean {
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
   let lastError: Error | null = null;
 
-  // Add Accept-Encoding for upstream compression support.
-  const headers = new Headers(init.headers);
-  if (!headers.has("Accept-Encoding")) {
-    headers.set("Accept-Encoding", "gzip, deflate, br");
-  }
-  const initWithEncoding = { ...init, headers };
-
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url, initWithEncoding);
-      if (response.ok) return decompressIfNeeded(response);
+      const response = await fetch(url, init);
+      if (response.ok) return response;
 
       if (response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500) {
         if (attempt < attempts) {
@@ -224,7 +212,7 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
         }
       }
 
-      return decompressIfNeeded(response);
+      return response;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < attempts) {
@@ -236,31 +224,6 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
   throw lastError ?? new Error("Network request failed");
 }
 
-async function decompressIfNeeded(response: Response): Promise<Response> {
-  const encoding = response.headers.get("content-encoding")?.toLowerCase();
-  if (!encoding || encoding === "identity") return response;
-
-  const compressed = Buffer.from(await response.arrayBuffer());
-  let decompressed: Buffer;
-
-  if (encoding === "gzip" || encoding === "x-gzip") {
-    decompressed = await gunzipAsync(compressed);
-  } else if (encoding === "br") {
-    decompressed = await brotliDecompressAsync(compressed);
-  } else {
-    return response;
-  }
-
-  const newHeaders = new Headers(response.headers);
-  newHeaders.delete("content-encoding");
-  newHeaders.delete("content-length");
-
-  return new Response(decompressed, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: newHeaders
-  });
-}
 
 async function fetchOliphantTier0Domains(force = false): Promise<Set<string>> {
   if (!force && tier0Cache && Date.now() - tier0Cache.fetchedAt < OLIPHANT_CACHE_TTL_MS) {

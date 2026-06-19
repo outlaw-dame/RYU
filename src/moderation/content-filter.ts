@@ -114,17 +114,23 @@ export function updateContentFilter(
  * Build a regex pattern for a content filter phrase.
  * Uses Unicode-aware word boundaries for proper international text support.
  */
+// Detect lookbehind support once at module level to avoid try-catch per-call
+const supportsLookbehind = (() => {
+  try {
+    new RegExp("(?<!x)y");
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
 function buildFilterPattern(filter: ContentFilter): RegExp {
   const escaped = filter.phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   if (filter.wholeWord) {
-    // Prefer Unicode-aware lookbehind/lookahead for multilingual support.
-    // Fall back to ASCII \b on older browsers (Safari < 16.4) that throw
-    // on lookbehind syntax.
-    try {
+    if (supportsLookbehind) {
       return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu");
-    } catch {
-      return new RegExp(`\\b${escaped}\\b`, "i");
     }
+    return new RegExp(`\\b${escaped}\\b`, "iu");
   }
   return new RegExp(escaped, "iu");
 }

@@ -2,61 +2,10 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { URL } from "node:url";
-import { gzipSync, gunzipSync, gunzip, brotliDecompress, constants as zlibConstants } from "node:zlib";
-import { promisify } from "node:util";
+import { gzipSync, gunzipSync } from "node:zlib";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { z } from "zod";
 
-const gunzipAsync = promisify(gunzip);
-const brotliDecompressAsync = promisify(brotliDecompress);
-
-// Zstd decompression is available natively in Node.js >= 22.15.
-type ZlibPlusZstd = { zstdDecompressSync?: (buf: Buffer) => Buffer };
-let zstdDecompressSync: ((buf: Buffer) => Buffer) | undefined;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const zlib = await import("node:zlib") as unknown as ZlibPlusZstd;
-  zstdDecompressSync = zlib.zstdDecompressSync;
-} catch { /* older Node.js, zstd unavailable */ }
-
-/**
- * Decompress a response body based on Content-Encoding header.
- * Returns a new Response with the decompressed body and the
- * Content-Encoding header removed.
- */
-async function decompressResponse(response: Response): Promise<Response> {
-  const encoding = response.headers.get("content-encoding")?.toLowerCase();
-  if (!encoding || encoding === "identity") return response;
-
-  const compressed = Buffer.from(await response.arrayBuffer());
-  let decompressed: Buffer;
-
-  if (encoding === "gzip" || encoding === "x-gzip") {
-    decompressed = await gunzipAsync(compressed);
-  } else if (encoding === "br") {
-    decompressed = await brotliDecompressAsync(compressed);
-  } else if (encoding === "zstd" && zstdDecompressSync) {
-    decompressed = zstdDecompressSync(compressed);
-  } else {
-    // Unknown encoding — return as-is
-    return response;
-  }
-
-  const headers = new Headers(response.headers);
-  headers.delete("content-encoding");
-  headers.delete("content-length");
-
-  return new Response(decompressed, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-}
-
-/** Accept-Encoding value for upstream requests. */
-const UPSTREAM_ACCEPT_ENCODING = zstdDecompressSync
-  ? "zstd, gzip, deflate, br"
-  : "gzip, deflate, br";
 import {
   parseMastodonExchangeRequest,
   parseMastodonExchangeResponse,
@@ -1008,22 +957,15 @@ function backoffMs(attempt: number): number {
 async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
   let lastError: Error | null = null;
 
-  // Merge Accept-Encoding into headers for upstream compression support.
-  const headers = new Headers(init.headers);
-  if (!headers.has("Accept-Encoding")) {
-    headers.set("Accept-Encoding", UPSTREAM_ACCEPT_ENCODING);
-  }
-  const initWithEncoding = { ...init, headers };
-
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10_000);
 
     try {
-      const response = await fetch(url, { ...initWithEncoding, signal: controller.signal });
+      const response = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timer);
 
-      if (response.ok) return decompressResponse(response);
+      if (response.ok) return response;
 
       const retryable = response.status === 408 || response.status === 425 ||
         response.status === 429 || response.status >= 500;
@@ -1032,7 +974,7 @@ async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Pro
         continue;
       }
 
-      return decompressResponse(response);
+      return response;
     } catch (error) {
       clearTimeout(timer);
       lastError = error instanceof Error ? error : new Error(String(error));

@@ -153,7 +153,7 @@ export function useModeration(): UseModerationResult {
     const updated = addDomainBlockStore(domain, reason);
     setDomainBlockList(updated);
     notifySync();
-  }, []);
+  }, [notifySync]);
 
   const unblockDomain = useCallback((domain: string) => {
     const updated = removeDomainBlockStore(domain);

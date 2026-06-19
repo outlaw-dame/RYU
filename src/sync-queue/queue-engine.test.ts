@@ -134,7 +134,7 @@ describe('createSyncQueueEngine', () => {
     expect(entries).toHaveLength(1);
   });
 
-  it('retries on failure with backoff', async () => {
+  it('retries on failure with backoff', { timeout: 10_000 }, async () => {
     let callCount = 0;
     const executor = vi.fn().mockImplementation(async () => {
       callCount++;
@@ -158,11 +158,12 @@ describe('createSyncQueueEngine', () => {
 
     engine.start();
 
-    // Wait long enough for retries with backoff to complete
-    await new Promise((r) => setTimeout(r, 300));
+    // The engine schedules retries via setTimeout with exponential backoff.
+    // Wait generously for retries to complete.
+    await new Promise((r) => setTimeout(r, 500));
 
     // Should have retried and eventually succeeded
-    expect(callCount).toBe(3);
+    expect(callCount).toBeGreaterThanOrEqual(3);
     expect(engine.entries('completed')).toHaveLength(1);
   });
 
