@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { discoverMastodonOAuth } from "./instance";
 
-const granularReadScopes = ["read:statuses", "read:notifications", "read:accounts"];
+const granularReadScopes = ["read:statuses", "read:notifications", "read:accounts", "read:filters", "read:mutes", "read:blocks", "read:follows"];
 
 describe("discoverMastodonOAuth", () => {
   afterEach(() => {
@@ -16,7 +16,7 @@ describe("discoverMastodonOAuth", () => {
     const result = await discoverMastodonOAuth("https://books.example");
 
     expect(result.scopeDecision.requestedScopes).toEqual(granularReadScopes);
-    expect(result.scopeDecision.authScope).toBe("read:statuses read:notifications read:accounts");
+    expect(result.scopeDecision.authScope).toBe("read:statuses read:notifications read:accounts read:filters read:mutes read:blocks read:follows");
   });
 
   it("falls back to broad read when granular scopes are not advertised", async () => {

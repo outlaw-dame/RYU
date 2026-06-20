@@ -76,3 +76,24 @@ export {
   shouldHideContent,
   shouldWarnContent
 } from "./moderation-engine";
+
+// Server API (proxy-based moderation operations)
+export type {
+  ModerationApiOptions,
+  CreateFilterParams,
+  MuteAccountParams,
+  BlockAccountParams
+} from "./server-api";
+export {
+  ModerationApiError,
+  getServerFilters,
+  getServerMutes,
+  getServerBlocks,
+  getRelationships,
+  createServerFilter,
+  deleteServerFilter,
+  muteAccount,
+  unmuteAccount,
+  blockAccount,
+  unblockAccount
+} from "./server-api";

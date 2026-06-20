@@ -1,8 +1,27 @@
 import type { MastodonDiscoveryResult, OAuthServerMetadata } from "./types";
 
-const DEFAULT_SCOPE_SET = ["read:statuses", "read:notifications", "read:accounts"];
+const DEFAULT_SCOPE_SET = [
+  "read:statuses",
+  "read:notifications",
+  "read:accounts",
+  "read:filters",
+  "read:mutes",
+  "read:blocks",
+  "read:follows"
+];
 const BROAD_READ_SCOPE_SET = ["read"];
 const FALLBACK_SCOPE_SET = ["profile"];
+
+/**
+ * Write scopes for moderation actions. These are only requested when the user
+ * opts into moderation write features (e.g. creating server-side filters,
+ * muting, or blocking from within the app).
+ */
+export const MODERATION_WRITE_SCOPES = [
+  "write:filters",
+  "write:mutes",
+  "write:blocks"
+];
 
 function buildFallbackEndpoints(instanceOrigin: string) {
   return {
