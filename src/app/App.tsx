@@ -37,7 +37,7 @@ import {
   parseMastodonNotificationPageResponse,
   parseMastodonStatusPageResponse
 } from "../sync/mastodon-session-api";
-import { CURATED_BOOKTOK_TRENDS, parseBookTokTrendingPayload, type BookTokTrend } from "../sync/booktok-trending";
+import { CURATED_TRENDING_BOOKS } from "../sync/booktok-trending";
 import { pollRelayBuzz, relayResultToMastodonStatus, type RelayDiscoveryResult, type RelayEntity } from "../sync/relay-discovery";
 import { buildLocalRelayEntityCatalog } from "../sync/relay-entity-catalog";
 import {
@@ -2108,7 +2108,7 @@ export function App() {
   const bookTokQuery = useBookTokTrends({ enabled: activeTab === "home" });
   const disconnectMutation = useDisconnectMastodon();
 
-  const bookTokTrends = bookTokQuery.data?.length ? bookTokQuery.data : CURATED_BOOKTOK_TRENDS;
+  const bookTokTrends = bookTokQuery.data?.length ? bookTokQuery.data : CURATED_TRENDING_BOOKS;
   const bookTokLoading = bookTokQuery.isPending;
   const bookTokError = useMemo(() => {
     const err = getMastodonActivityErrorState(bookTokQuery.error);
@@ -2956,7 +2956,7 @@ export function App() {
                   <CoverGrid books={featuredBooks.slice(3).length > 0 ? featuredBooks.slice(3, 9) : featuredBooks.slice(0, 6)} onBookPress={setActiveBookDetail} />
                   <div style={{ height: "var(--space-8)" }} />
                   <SectionHeader
-                    title={t("section.bookTokTrending")}
+                    title={t("section.trendingBooks")}
                     actionLabel={bookTokLoading ? undefined : t("action.refresh")}
                     onAction={bookTokLoading ? undefined : () => setBookTokRefreshNonce((value) => value + 1)}
                   />
@@ -2971,11 +2971,11 @@ export function App() {
                     </p>
                   ) : bookTokLoadedAt ? (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      {t("home.bookTokUpdatedAt", { date: new Date(bookTokLoadedAt).toLocaleString(i18n.language) })}
+                      {t("home.trendingUpdatedAt", { date: new Date(bookTokLoadedAt).toLocaleString(i18n.language) })}
                     </p>
                   ) : (
                     <p style={{ margin: "var(--space-3) var(--space-4) 0", color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                      {t("home.bookTokFallback")}
+                      {t("home.trendingFallback")}
                     </p>
                   )}
                 </TabPanel>

@@ -3,7 +3,7 @@ import { EmptyState } from "../components/common/EmptyState";
 import { SectionHeader } from "../components/common/SectionHeader";
 import { Skeleton } from "../components/common/Skeleton";
 import { sanitizeUrl, stripHtml } from "../lib/sanitize";
-import { CURATED_BOOKTOK_TRENDS, type BookTokTrend } from "../sync/booktok-trending";
+import { CURATED_TRENDING_BOOKS, type TrendingBook } from "../sync/booktok-trending";
 import type { MastodonNotification, MastodonStatus } from "../sync/mastodon-client";
 import {
   getMastodonActivityErrorState,
@@ -38,7 +38,7 @@ export function MastodonActivityPanel({
   const timelineItems = homeTimeline.data?.items ?? [];
   const notificationItems = notifications.data?.items ?? [];
   const accountStatusItems = accountStatuses.data?.items ?? [];
-  const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_BOOKTOK_TRENDS;
+  const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_TRENDING_BOOKS;
   const activityError = useMemo(() => [
     getMastodonActivityErrorState(session.error),
     getMastodonActivityErrorState(homeTimeline.error),
@@ -172,7 +172,7 @@ export function MastodonActivityPanel({
         </ActivityList>
       ) : null}
 
-      <BookTokTrendRail trends={trendItems} loading={bookTokTrends.isLoading || bookTokTrends.isPending} />
+      <TrendingBooksRail trends={trendItems} loading={bookTokTrends.isLoading || bookTokTrends.isPending} />
     </ActivityShell>
   );
 }
@@ -278,12 +278,12 @@ function ActivityCardHeader({ label, createdAt }: { label: string; createdAt: st
   );
 }
 
-function BookTokTrendRail({ trends, loading }: { trends: BookTokTrend[]; loading: boolean }) {
+function TrendingBooksRail({ trends, loading }: { trends: TrendingBook[]; loading: boolean }) {
   const visibleTrends = useMemo(() => trends.slice(0, 6), [trends]);
 
   return (
     <section style={{ display: "grid", gap: "var(--space-3)" }}>
-      <SectionHeader title="BookTok signals" actionLabel={loading ? "Refreshing…" : undefined} />
+      <SectionHeader title="Trending Books" actionLabel={loading ? "Refreshing…" : undefined} />
       <div style={{
         display: "grid",
         gridAutoFlow: "column",
@@ -302,11 +302,6 @@ function BookTokTrendRail({ trends, loading }: { trends: BookTokTrend[]; loading
             <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--text-headline)", lineHeight: "var(--leading-headline)" }}>{trend.title}</strong>
             {trend.author ? <span style={{ color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>{trend.author}</span> : null}
             {trend.reason ? <p style={activityTextStyle}>{trend.reason}</p> : null}
-            {typeof trend.mentionCount === "number" ? (
-              <span style={{ color: "var(--color-text-tertiary)", fontSize: "var(--text-caption1)" }}>
-                {trend.mentionCount.toLocaleString()} mentions
-              </span>
-            ) : null}
           </article>
         ))}
       </div>
