@@ -8,6 +8,7 @@ import { EmptyState } from "../components/common/EmptyState";
 import { CoverGrid } from "../components/common/CoverGrid";
 import { BookDetailSheet } from "../components/common/BookDetailSheet";
 import { SectionHeader } from "../components/common/SectionHeader";
+import { MediaGallery, type MediaAttachmentData } from "../components/media";
 import { Skeleton, SkeletonCoverGrid } from "../components/common/Skeleton";
 import { useDatabase } from "../hooks/useDatabase";
 import { useImportedBooks } from "../hooks/useImportedBooks";
@@ -546,6 +547,41 @@ function statusMediaCover(status: MastodonStatus): string | null {
   }
 
   return null;
+}
+
+/**
+ * Extract all media attachments from a Mastodon status for gallery rendering.
+ */
+function statusMediaAttachments(status: MastodonStatus): MediaAttachmentData[] {
+  const record = status as unknown as Record<string, unknown>;
+  const media = Array.isArray(record.media_attachments) ? record.media_attachments : [];
+  const results: MediaAttachmentData[] = [];
+
+  for (const item of media) {
+    const mediaRecord = asRecord(item);
+    if (!mediaRecord) continue;
+
+    const type = typeof mediaRecord.type === "string" ? mediaRecord.type : "unknown";
+    const url = typeof mediaRecord.url === "string" ? mediaRecord.url : "";
+    const previewUrl = typeof mediaRecord.preview_url === "string" ? mediaRecord.preview_url : undefined;
+    const remoteUrl = typeof mediaRecord.remote_url === "string" ? mediaRecord.remote_url : undefined;
+    const description = typeof mediaRecord.description === "string" ? mediaRecord.description : undefined;
+    const id = typeof mediaRecord.id === "string" ? mediaRecord.id : `media-${results.length}`;
+
+    if (!url && !remoteUrl) continue;
+
+    results.push({
+      id,
+      type: type as MediaAttachmentData["type"],
+      url,
+      preview_url: previewUrl,
+      remote_url: remoteUrl,
+      description,
+      meta: mediaRecord.meta as MediaAttachmentData["meta"]
+    });
+  }
+
+  return results;
 }
 
 function normalizeLookupText(value: string): string {
@@ -1746,6 +1782,8 @@ function ActivityStatusRow({
   const mentionedBooks = useMemo(() => findMentionedImportedBooks(text, importedBooks), [text, importedBooks]);
   const primaryMentionedBook = useMemo(() => selectPrimaryMentionedBook(mentionedBooks), [mentionedBooks]);
   const statusInstanceOrigin = useMemo(() => accountInstanceOrigin(status.account), [status.account]);
+  const mediaAttachments = useMemo(() => statusMediaAttachments(status), [status]);
+  const hasNonImageMedia = useMemo(() => mediaAttachments.some((a) => a.type !== "image"), [mediaAttachments]);
   const inferredCoverSrc = useMemo(() => (
     resolveCoverProxySrc(card.image)
     ?? resolveCoverProxySrc(statusMediaCover(status))
@@ -1883,7 +1921,7 @@ function ActivityStatusRow({
           {formatActivityDate(status.created_at)}
         </span>
       </div>
-      {inferredCoverSrc ? (
+      {inferredCoverSrc && !hasNonImageMedia ? (
         <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--color-bg)" }}>
           <img
             src={inferredCoverSrc}
@@ -1895,6 +1933,9 @@ function ActivityStatusRow({
             style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
           />
         </div>
+      ) : null}
+      {mediaAttachments.length > 0 && (hasNonImageMedia || !inferredCoverSrc) ? (
+        <MediaGallery attachments={mediaAttachments} sensitive={Boolean((status as unknown as Record<string, unknown>).sensitive)} />
       ) : null}
       {mentionedBooks.length > 0 ? (
         <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)", lineHeight: "var(--leading-footnote)", overflowWrap: "anywhere" }}>
