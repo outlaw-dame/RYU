@@ -144,6 +144,14 @@ export const resources = {
         previous: "Previous",
         next: "Next"
       },
+      media: {
+        sensitiveContent: "Sensitive content",
+        revealSensitive: "Tap to reveal",
+        loadFailed: "Failed to load",
+        animatedImage: "Animated image",
+        video: "Video",
+        audio: "Audio"
+      },
       account: {
         postReadingUpdate: "Post Reading Update",
         switchAccount: "Switch account",
@@ -646,6 +654,14 @@ export const resources = {
         fediverse: "Fediverso",
         previous: "Anterior",
         next: "Siguiente"
+      },
+      media: {
+        sensitiveContent: "Contenido sensible",
+        revealSensitive: "Toca para revelar",
+        loadFailed: "Error al cargar",
+        animatedImage: "Imagen animada",
+        video: "Video",
+        audio: "Audio"
       },
       account: {
         postReadingUpdate: "Publicar actualización de lectura",
