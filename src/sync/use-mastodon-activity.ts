@@ -6,7 +6,7 @@ import {
   type UseMutationResult,
   type UseQueryResult
 } from "@tanstack/react-query";
-import type { BookTokTrend } from "./booktok-trending";
+import type { TrendingBook } from "./booktok-trending";
 import type { MastodonNotification, MastodonPage, MastodonPaginationParams, MastodonStatus } from "./mastodon-client";
 import {
   disconnectMastodon,
@@ -124,7 +124,7 @@ export function useMastodonAccountStatuses(
   });
 }
 
-export function useBookTokTrends(options: { enabled?: boolean } = {}): UseQueryResult<BookTokTrend[], Error> {
+export function useBookTokTrends(options: { enabled?: boolean } = {}): UseQueryResult<TrendingBook[], Error> {
   return useQuery({
     queryKey: mastodonActivityQueryKeys.bookTokTrends(),
     queryFn: ({ signal }) => getBookTokTrends({ signal }),

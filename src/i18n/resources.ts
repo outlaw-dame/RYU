@@ -21,7 +21,8 @@ export const resources = {
       },
       section: {
         currentlyReading: "Currently Reading",
-        bookTokTrending: "BookTok Trending"
+        bookTokTrending: "BookTok Trending",
+        trendingBooks: "Trending Books"
       },
       action: {
         refresh: "Refresh"
@@ -41,7 +42,9 @@ export const resources = {
         importedFromBookWyrm: "Imported From BookWyrm",
         recentlyAdded: "Recently Added",
         bookTokUpdatedAt: "BookTok updated: {{date}}",
-        bookTokFallback: "Showing curated BookTok picks while live trend sync initializes."
+        bookTokFallback: "Showing curated BookTok picks while live trend sync initializes.",
+        trendingUpdatedAt: "Trending updated: {{date}}",
+        trendingFallback: "Showing curated picks while live trending data loads."
       },
       search: {
         placeholder: "Search books, authors, ISBNs, themes...",
@@ -521,7 +524,8 @@ export const resources = {
       },
       section: {
         currentlyReading: "Lectura actual",
-        bookTokTrending: "Tendencias de BookTok"
+        bookTokTrending: "Tendencias de BookTok",
+        trendingBooks: "Libros en tendencia"
       },
       action: {
         refresh: "Actualizar"
@@ -541,7 +545,9 @@ export const resources = {
         importedFromBookWyrm: "Importado desde BookWyrm",
         recentlyAdded: "Recién agregado",
         bookTokUpdatedAt: "BookTok actualizado: {{date}}",
-        bookTokFallback: "Mostrando selecciones curadas de BookTok mientras se inicia la sincronización en vivo."
+        bookTokFallback: "Mostrando selecciones curadas de BookTok mientras se inicia la sincronización en vivo.",
+        trendingUpdatedAt: "Tendencias actualizadas: {{date}}",
+        trendingFallback: "Mostrando selecciones curadas mientras se cargan las tendencias."
       },
       search: {
         placeholder: "Busca libros, autores, ISBN y temas...",

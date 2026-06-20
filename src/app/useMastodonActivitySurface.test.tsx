@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BookTokTrend } from "../sync/booktok-trending";
+import type { TrendingBook } from "../sync/booktok-trending";
 import type { MastodonNotification, MastodonPage, MastodonStatus } from "../sync/mastodon-client";
 import { MastodonActivityApiError, type MastodonSessionState } from "../sync/mastodon-activity-api";
 
@@ -17,7 +17,7 @@ type HookState = {
   homeTimeline: QueryMock<MastodonPage<MastodonStatus>>;
   notifications: QueryMock<MastodonPage<MastodonNotification>>;
   accountStatuses: QueryMock<MastodonPage<MastodonStatus>>;
-  trends: QueryMock<BookTokTrend[]>;
+  trends: QueryMock<TrendingBook[]>;
 };
 
 const hookMocks = vi.hoisted(() => ({
@@ -41,7 +41,7 @@ vi.mock("../sync/use-mastodon-activity", async (importOriginal) => {
   };
 });
 
-import { CURATED_BOOKTOK_TRENDS } from "../sync/booktok-trending";
+import { CURATED_TRENDING_BOOKS } from "../sync/booktok-trending";
 import { useMastodonActivitySurface } from "./useMastodonActivitySurface";
 
 beforeEach(() => {
@@ -89,7 +89,7 @@ describe("useMastodonActivitySurface", () => {
 
     const { result } = renderHook(() => useMastodonActivitySurface(true));
 
-    expect(result.current.trendItems).toEqual(CURATED_BOOKTOK_TRENDS);
+    expect(result.current.trendItems).toEqual(CURATED_TRENDING_BOOKS);
   });
 
   it("keeps BookTok fallback errors out of the primary activity error while preserving observability", () => {
@@ -103,7 +103,7 @@ describe("useMastodonActivitySurface", () => {
 
     expect(result.current.activityError).toBeNull();
     expect(result.current.trendError).toMatchObject({ kind: "refresh-failed" });
-    expect(result.current.trendItems).toEqual(CURATED_BOOKTOK_TRENDS);
+    expect(result.current.trendItems).toEqual(CURATED_TRENDING_BOOKS);
   });
 
   it("maps auth errors through the centralized activity error model", () => {
@@ -183,7 +183,7 @@ function defaultHookState(): HookState {
     homeTimeline: query({ data: page<MastodonStatus>([]) }),
     notifications: query({ data: page<MastodonNotification>([]) }),
     accountStatuses: query({ data: page<MastodonStatus>([]) }),
-    trends: query({ data: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 3 }] })
+    trends: query({ data: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads" }] })
   };
 }
 

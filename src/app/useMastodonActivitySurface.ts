@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { CURATED_BOOKTOK_TRENDS } from "../sync/booktok-trending";
+import { CURATED_TRENDING_BOOKS } from "../sync/booktok-trending";
 import {
   getMastodonActivityErrorState,
   useBookTokTrends,
@@ -23,7 +23,7 @@ export function useMastodonActivitySurface(enabled = true) {
   const timelineItems = homeTimeline.data?.items ?? EMPTY_ARRAY;
   const notificationItems = notifications.data?.items ?? EMPTY_ARRAY;
   const accountStatusItems = accountStatuses.data?.items ?? EMPTY_ARRAY;
-  const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_BOOKTOK_TRENDS;
+  const trendItems = bookTokTrends.data?.length ? bookTokTrends.data : CURATED_TRENDING_BOOKS;
   const trendError = getMastodonActivityErrorState(bookTokTrends.error);
   const activityError = useMemo(() => [
     getMastodonActivityErrorState(session.error),

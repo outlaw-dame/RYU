@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BookTokTrend } from "../sync/booktok-trending";
+import type { TrendingBook } from "../sync/booktok-trending";
 import type { MastodonNotification, MastodonPage, MastodonStatus } from "../sync/mastodon-client";
 import { MastodonActivityApiError, type MastodonSessionState } from "../sync/mastodon-activity-api";
 
@@ -22,7 +22,7 @@ type HookState = {
   homeTimeline: QueryMock<MastodonPage<MastodonStatus>>;
   notifications: QueryMock<MastodonPage<MastodonNotification>>;
   accountStatuses: QueryMock<MastodonPage<MastodonStatus>>;
-  trends: QueryMock<BookTokTrend[]>;
+  trends: QueryMock<TrendingBook[]>;
   disconnect: MutationMock;
 };
 
@@ -169,21 +169,20 @@ describe("MastodonActivityPanel", () => {
     expect(screen.getByLabelText("Loading activity")).toBeInTheDocument();
   });
 
-  it("renders the BookTok trend rail with trends", () => {
+  it("renders the trending books rail with trends", () => {
     hookMocks.state.session = query({ data: connectedSession() });
     hookMocks.state.trends = query({
       data: [
-        { id: "t1", title: "Iron Flame", author: "Rebecca Yarros", reason: "Romantasy surge", mentionCount: 42 },
-        { id: "t2", title: "Fourth Wing", author: "Rebecca Yarros", reason: "Series continuation", mentionCount: 31 }
+        { id: "t1", title: "Iron Flame", author: "Rebecca Yarros", reason: "Romantasy surge" },
+        { id: "t2", title: "Fourth Wing", author: "Rebecca Yarros", reason: "Series continuation" }
       ]
     });
 
     render(<MastodonActivityPanel onConnect={vi.fn()} />);
 
-    expect(screen.getByText("BookTok signals")).toBeInTheDocument();
+    expect(screen.getByText("Trending Books")).toBeInTheDocument();
     expect(screen.getByText("Iron Flame")).toBeInTheDocument();
     expect(screen.getByText("Fourth Wing")).toBeInTheDocument();
-    expect(screen.getByText("42 mentions")).toBeInTheDocument();
   });
 
   it("renders loading activity skeleton cards when activity is loading", () => {
@@ -202,7 +201,7 @@ function defaultHookState(): HookState {
     homeTimeline: query({ data: page<MastodonStatus>([]) }),
     notifications: query({ data: page<MastodonNotification>([]) }),
     accountStatuses: query({ data: page<MastodonStatus>([]) }),
-    trends: query({ data: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads", mentionCount: 3 }] }),
+    trends: query({ data: [{ id: "trend-1", title: "Cozy fantasy", reason: "Warm reads" }] }),
     disconnect: { mutateAsync: hookMocks.disconnectMutateAsync, isPending: false }
   };
 }

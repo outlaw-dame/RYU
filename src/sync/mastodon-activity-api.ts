@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { parseBookTokTrendingPayload, type BookTokTrend } from "./booktok-trending";
+import { parseTrendingBooksPayload, type TrendingBook } from "./booktok-trending";
+
+/** @deprecated Use TrendingBook */
+export type { TrendingBook as BookTokTrend } from "./booktok-trending";
 import {
   mastodonAccountFullSchema,
   mastodonFeaturedTagSchema,
@@ -245,9 +248,9 @@ export async function searchDiscoveryStatuses(
   return parseMastodonStatusPageResponse(response);
 }
 
-export async function getBookTokTrends(options: MastodonActivityApiOptions = {}): Promise<BookTokTrend[]> {
+export async function getBookTokTrends(options: MastodonActivityApiOptions = {}): Promise<TrendingBook[]> {
   const response = await requestProxy(BOOKTOK_TRENDING_ENDPOINT, { method: "GET" }, { ...options, attempts: options.attempts ?? 2 });
-  return parseBookTokTrendingPayload(await response.json());
+  return parseTrendingBooksPayload(await response.json());
 }
 
 export async function disconnectMastodon(options: MastodonActivityApiOptions = {}): Promise<void> {
