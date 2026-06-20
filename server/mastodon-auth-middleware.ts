@@ -2184,17 +2184,21 @@ async function dispatch(
         // Single attempt (no retry) for non-idempotent filter creation POST
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 10_000);
-        const response = await fetch(`${session.instanceOrigin}/api/v2/filters`, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            Authorization: `${session.tokenType} ${session.accessToken}`,
-            "Content-Type": "application/json",
-            Accept: "application/json"
-          },
-          body: JSON.stringify(body)
-        });
-        clearTimeout(timer);
+        let response: Response;
+        try {
+          response = await fetch(`${session.instanceOrigin}/api/v2/filters`, {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `${session.tokenType} ${session.accessToken}`,
+              "Content-Type": "application/json",
+              Accept: "application/json"
+            },
+            body: JSON.stringify(body)
+          });
+        } finally {
+          clearTimeout(timer);
+        }
         if (!response.ok) {
           sendJson(res, response.status, { error: "mastodon_request_failed", message: "Filter creation failed." });
           return;

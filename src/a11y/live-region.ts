@@ -71,6 +71,13 @@ export function announce(
   const { clearDelay = 1000 } = options;
   const region = getOrCreateRegion(politeness);
 
+  // Clear any existing timeout for this region to prevent premature clearing
+  const activeTimeout = (region as any)._ryuTimeoutId;
+  if (activeTimeout) {
+    clearTimeout(activeTimeout);
+    (region as any)._ryuTimeoutId = null;
+  }
+
   // Clear and re-set to trigger screen reader re-announcement
   region.textContent = "";
 
@@ -79,8 +86,9 @@ export function announce(
     region.textContent = message;
 
     if (clearDelay > 0) {
-      setTimeout(() => {
+      (region as any)._ryuTimeoutId = setTimeout(() => {
         region.textContent = "";
+        (region as any)._ryuTimeoutId = null;
       }, clearDelay);
     }
   });

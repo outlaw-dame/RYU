@@ -39,7 +39,12 @@ function notify(): void {
  * This is a lightweight probe -- no eviction is performed.
  */
 export async function analyzeStorage(): Promise<StorageReport> {
-  const estimate = await probeStorageQuota();
+  let estimate: { usageBytes?: number; quotaBytes?: number } = {};
+  try {
+    estimate = await probeStorageQuota();
+  } catch {
+    // Fallback if navigator.storage is unavailable or restricted
+  }
 
   const usageBytes = estimate.usageBytes;
   const quotaBytes = estimate.quotaBytes;

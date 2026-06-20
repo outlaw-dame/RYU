@@ -139,6 +139,16 @@ export function extractBookTitle(spoilerText: string): string | null {
         .replace(/^["'\u201C\u201D\u2018\u2019]+|["'\u201C\u201D\u2018\u2019]+$/g, "")
         .trim();
       if (title.length > 0 && title.length < 200) {
+        // Filter out generic spoiler words that are not book titles
+        const genericWords = new Set([
+          "major", "minor", "huge", "plot", "ending", "character", "story", "series",
+          "book", "movie", "show", "game", "uncensored", "graphic", "mild", "potential",
+          "possible", "accidental", "unintentional", "late", "early", "text", "image",
+          "video", "audio", "full", "half", "partial", "total", "complete", "final"
+        ]);
+        if (genericWords.has(title.toLowerCase())) {
+          return null;
+        }
         return title;
       }
     }

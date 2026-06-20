@@ -25,7 +25,7 @@ const PII_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
   // Email addresses
   { pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, replacement: '[REDACTED_EMAIL]' },
   // Query parameters that may contain search text
-  { pattern: /[?&](q|query|search|text)=[^\s&]*/gi, replacement: '$1=[REDACTED_QUERY]' },
+  { pattern: /([?&])(q|query|search|text)=[^\s&]*/gi, replacement: '$1$2=[REDACTED_QUERY]' },
   // Generic token-like strings (hex or base64, 20+ chars) -- last, as it's most aggressive
   { pattern: /\b[A-Za-z0-9\-._~+/]{20,}={0,2}\b/g, replacement: '[REDACTED_TOKEN]' },
 ];
