@@ -15,6 +15,7 @@ import type { DataMigrationInfo } from './data-migration-audit';
 import { runSettingsAudit } from './settings-audit';
 import type { SettingsInfo } from './settings-audit';
 import { getKnownLimitationSummaries } from './known-limitations';
+import type { PackagingDecision } from '../native-packaging/types';
 
 export interface ReleaseChecklistInput {
   manifest: ManifestData;
@@ -25,6 +26,8 @@ export interface ReleaseChecklistInput {
   settingsInfo: SettingsInfo;
   /** Additional smoke-test results (build pass, tests pass, no console.log). */
   smokeTests?: CheckResult[];
+  /** Native packaging decision (from Phase 40 ADR-002). */
+  packagingDecision?: PackagingDecision;
 }
 
 /**
@@ -50,6 +53,9 @@ export function runReleaseChecklist(input: ReleaseChecklistInput): BetaReadiness
   // Settings checks
   results.push(...runSettingsAudit(input.settingsInfo));
 
+  // Packaging decision check (Phase 40)
+  results.push(...runPackagingDecisionCheck(input.packagingDecision));
+
   // Smoke tests (if provided)
   if (input.smokeTests) {
     results.push(...input.smokeTests);
@@ -70,6 +76,49 @@ export function runReleaseChecklist(input: ReleaseChecklistInput): BetaReadiness
     results,
     knownLimitations: getKnownLimitationSummaries(),
   };
+}
+
+/**
+ * Run packaging decision checks.
+ * Verifies that a native packaging decision has been made (ADR-002).
+ */
+function runPackagingDecisionCheck(decision?: PackagingDecision): CheckResult[] {
+  const results: CheckResult[] = [];
+
+  results.push({
+    name: 'Native packaging decision documented',
+    category: 'pwa',
+    passed: decision != null,
+    description: 'A packaging decision (PWA-only vs Capacitor) must be documented in ADR-002.',
+    failureReason: decision == null ? 'No packaging decision provided' : undefined,
+    severity: 'critical',
+  });
+
+  if (decision) {
+    results.push({
+      name: 'Packaging decision has rationale',
+      category: 'pwa',
+      passed: decision.rationale.length > 0,
+      description: 'The packaging decision must include a clear rationale.',
+      failureReason: decision.rationale.length === 0 ? 'Rationale is empty' : undefined,
+      severity: 'warning',
+    });
+
+    results.push({
+      name: 'Packaging revisit conditions defined',
+      category: 'pwa',
+      passed: !decision.deferredEvaluation || decision.revisitConditions.length > 0,
+      description:
+        'If evaluation is deferred, conditions for revisiting must be specified.',
+      failureReason:
+        decision.deferredEvaluation && decision.revisitConditions.length === 0
+          ? 'Deferred evaluation without revisit conditions'
+          : undefined,
+      severity: 'warning',
+    });
+  }
+
+  return results;
 }
 
 /**
