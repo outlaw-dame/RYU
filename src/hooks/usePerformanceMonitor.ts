@@ -6,13 +6,11 @@
  * to device constraints.
  */
 
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import type { PerformanceMonitorState, StorageReport } from '../performance/types';
 import {
   getMemoryPressureLevel,
   subscribeMemoryMonitor,
-  startMemoryMonitor,
-  stopMemoryMonitor
 } from '../performance/memory-monitor';
 import {
   getStorageReport,
@@ -35,11 +33,7 @@ import type { StartupProfile } from '../performance/types';
  */
 export function usePerformanceMonitor(): PerformanceMonitorState {
   useEffect(() => {
-    startMemoryMonitor();
     void analyzeStorage();
-    return () => {
-      stopMemoryMonitor();
-    };
   }, []);
 
   const memoryPressure: MemoryPressureLevel = useSyncExternalStore(

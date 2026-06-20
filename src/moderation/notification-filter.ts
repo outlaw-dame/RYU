@@ -157,7 +157,7 @@ export function evaluateNotification(
   }
 
   // Private mention from non-followed account
-  if (input.type === "mention" && input.visibility === "direct" && !isFollowedBy) {
+  if (input.type === "mention" && input.visibility === "direct") {
     categories.push("private_mention");
     reasons.push("Private mention from non-followed account");
   }

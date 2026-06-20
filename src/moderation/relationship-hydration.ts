@@ -60,8 +60,10 @@ export function createRelationshipHydrator(
 ) {
   const cache: RelationshipCache = new Map();
   const cacheTimestamps = new Map<string, number>();
+  const insertionOrder: string[] = [];
   const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
+  const MAX_CACHE_ENTRIES = 1000;
 
   /**
    * Check if a cached entry is still valid.
@@ -115,6 +117,22 @@ export function createRelationshipHydrator(
           );
           cache.set(raw.id, normalized);
           cacheTimestamps.set(raw.id, Date.now());
+          // Track insertion order for FIFO eviction
+          const existingIdx = insertionOrder.indexOf(raw.id);
+          if (existingIdx === -1) {
+            insertionOrder.push(raw.id);
+          }
+        }
+      }
+
+      // FIFO eviction: remove oldest entries when over the limit
+      while (cache.size > MAX_CACHE_ENTRIES) {
+        const oldest = insertionOrder.shift();
+        if (oldest) {
+          cache.delete(oldest);
+          cacheTimestamps.delete(oldest);
+        } else {
+          break;
         }
       }
     }

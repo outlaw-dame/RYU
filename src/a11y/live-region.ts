@@ -14,6 +14,7 @@ interface LiveRegionOptions {
 
 let politeRegion: HTMLElement | null = null;
 let assertiveRegion: HTMLElement | null = null;
+let activeTimer: ReturnType<typeof setTimeout> | null = null;
 
 const REGION_STYLES = [
   "position: absolute",
@@ -74,13 +75,17 @@ export function announce(
   // Clear and re-set to trigger screen reader re-announcement
   region.textContent = "";
 
+  // Clear previous timer to avoid race conditions with rapid calls
+  if (activeTimer) clearTimeout(activeTimer);
+
   // Use a microtask to ensure the DOM update is processed as two separate changes
   requestAnimationFrame(() => {
     region.textContent = message;
 
     if (clearDelay > 0) {
-      setTimeout(() => {
+      activeTimer = setTimeout(() => {
         region.textContent = "";
+        activeTimer = null;
       }, clearDelay);
     }
   });

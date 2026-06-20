@@ -171,20 +171,20 @@ function loadImage(element: Element, src: string, options: ImageLoadOptions): vo
     applyImageSrc(element, options.placeholderSrc);
   }
 
-  // Load the full image.
-  if (typeof Image !== 'undefined') {
-    const img = new Image();
-    img.onload = () => {
-      applyImageSrc(element, src);
-      // Estimate size (width * height * 4 bytes for RGBA).
-      const sizeEstimate = (img.naturalWidth || 100) * (img.naturalHeight || 100) * 4;
-      cacheImage(src, src, sizeEstimate);
-    };
-    img.onerror = () => {
-      // On error, just apply src directly and let the browser show the broken state.
-      applyImageSrc(element, src);
-    };
-    img.src = src;
+  // Load the full image as a blob and cache the object URL.
+  if (typeof fetch !== 'undefined') {
+    fetch(src)
+      .then((r) => r.blob())
+      .then((blob) => {
+        const blobUrl = URL.createObjectURL(blob);
+        applyImageSrc(element, blobUrl);
+        const sizeEstimate = blob.size || 0;
+        cacheImage(src, blobUrl, sizeEstimate);
+      })
+      .catch(() => {
+        // On error, just apply src directly and let the browser show the broken state.
+        applyImageSrc(element, src);
+      });
   } else {
     applyImageSrc(element, src);
   }

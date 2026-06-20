@@ -211,7 +211,12 @@ export function evaluatePolicy(
   const muted = state.accounts.find(
     (a) => a.accountId === input.accountId && a.action === "mute" && !isMuteExpired(a)
   );
-  if (muted || relationship?.muting) {
+
+  // Check relationship muting, but also verify mute hasn't expired
+  const isRelationshipMuteActive = relationship?.muting &&
+    (!relationship.mutingExpiresAt || Date.now() < Date.parse(relationship.mutingExpiresAt));
+
+  if (muted || isRelationshipMuteActive) {
     const muteEntry = muted;
     if (context.surface === "notifications") {
       const hideNotif = muteEntry?.hideNotifications ?? relationship?.mutingNotifications ?? true;
