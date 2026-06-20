@@ -35,9 +35,11 @@ export interface MediaAttachmentProps {
   sensitive?: boolean;
   /** Compact mode for gallery grid items */
   compact?: boolean;
+  /** Fill the parent container's height (useful for grid layouts) */
+  filled?: boolean;
 }
 
-export function MediaAttachment({ attachment, sensitive = false, compact = false }: MediaAttachmentProps) {
+export function MediaAttachment({ attachment, sensitive = false, compact = false, filled = false }: MediaAttachmentProps) {
   const { t } = useTranslation();
   const [revealed, setRevealed] = useState(!sensitive);
   const [imageError, setImageError] = useState(false);
@@ -52,7 +54,8 @@ export function MediaAttachment({ attachment, sensitive = false, compact = false
   const containerStyle: React.CSSProperties = {
     position: "relative",
     width: "100%",
-    aspectRatio: compact ? "1" : aspectRatio,
+    height: filled ? "100%" : undefined,
+    aspectRatio: filled ? undefined : (compact ? "1" : aspectRatio),
     borderRadius: "var(--radius-md)",
     overflow: "hidden",
     background: "var(--color-bg)"
@@ -154,9 +157,7 @@ export function MediaAttachment({ attachment, sensitive = false, compact = false
             preload="metadata"
             aria-label={alt || t("media.video")}
             style={{ width: "100%", height: "100%", objectFit: "contain", display: "block", background: "#000" }}
-          >
-            <track kind="descriptions" label={alt} />
-          </video>
+          />
         </div>
       );
 

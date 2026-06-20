@@ -1783,7 +1783,9 @@ function ActivityStatusRow({
   const primaryMentionedBook = useMemo(() => selectPrimaryMentionedBook(mentionedBooks), [mentionedBooks]);
   const statusInstanceOrigin = useMemo(() => accountInstanceOrigin(status.account), [status.account]);
   const mediaAttachments = useMemo(() => statusMediaAttachments(status), [status]);
-  const hasNonImageMedia = useMemo(() => mediaAttachments.some((a) => a.type !== "image"), [mediaAttachments]);
+  const showGallery = useMemo(() => (
+    mediaAttachments.length > 1 || mediaAttachments.some((a) => a.type !== "image")
+  ), [mediaAttachments]);
   const inferredCoverSrc = useMemo(() => (
     resolveCoverProxySrc(card.image)
     ?? resolveCoverProxySrc(statusMediaCover(status))
@@ -1921,7 +1923,7 @@ function ActivityStatusRow({
           {formatActivityDate(status.created_at)}
         </span>
       </div>
-      {inferredCoverSrc && !hasNonImageMedia ? (
+      {inferredCoverSrc && !showGallery ? (
         <div style={{ width: "100%", aspectRatio: "16 / 9", borderRadius: "var(--radius-md)", overflow: "hidden", background: "var(--color-bg)" }}>
           <img
             src={inferredCoverSrc}
@@ -1934,7 +1936,7 @@ function ActivityStatusRow({
           />
         </div>
       ) : null}
-      {mediaAttachments.length > 0 && (hasNonImageMedia || !inferredCoverSrc) ? (
+      {showGallery ? (
         <MediaGallery attachments={mediaAttachments} sensitive={Boolean((status as unknown as Record<string, unknown>).sensitive)} />
       ) : null}
       {mentionedBooks.length > 0 ? (

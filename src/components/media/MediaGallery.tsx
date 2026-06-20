@@ -65,7 +65,8 @@ export function MediaGallery({ attachments, sensitive = false }: MediaGalleryPro
           <MediaAttachment
             attachment={attachment}
             sensitive={sensitive}
-            compact={supported.length > 1}
+            compact={supported.length === 2}
+            filled={supported.length >= 3}
           />
         </div>
       ))}
