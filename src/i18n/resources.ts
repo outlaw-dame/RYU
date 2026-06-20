@@ -152,6 +152,16 @@ export const resources = {
         video: "Video",
         audio: "Audio"
       },
+      gif: {
+        searchPlaceholder: "Search KLIPY",
+        searchLabel: "Search GIFs",
+        loading: "Loading GIFs...",
+        noResults: "No GIFs found",
+        selectGif: "Select GIF",
+        poweredBy: "Powered by KLIPY",
+        notConfigured: "GIF search is not configured. Set VITE_KLIPY_API_KEY to enable.",
+        buttonLabel: "GIF"
+      },
       account: {
         postReadingUpdate: "Post Reading Update",
         switchAccount: "Switch account",
@@ -662,6 +672,16 @@ export const resources = {
         animatedImage: "Imagen animada",
         video: "Video",
         audio: "Audio"
+      },
+      gif: {
+        searchPlaceholder: "Buscar en KLIPY",
+        searchLabel: "Buscar GIFs",
+        loading: "Cargando GIFs...",
+        noResults: "No se encontraron GIFs",
+        selectGif: "Seleccionar GIF",
+        poweredBy: "Con tecnología de KLIPY",
+        notConfigured: "La búsqueda de GIFs no está configurada. Configura VITE_KLIPY_API_KEY para activarla.",
+        buttonLabel: "GIF"
       },
       account: {
         postReadingUpdate: "Publicar actualización de lectura",
