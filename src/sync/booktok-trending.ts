@@ -47,18 +47,28 @@ const openLibraryTrendingResponseSchema = z.object({
   works: z.array(openLibraryWorkSchema)
 });
 
+export type FetchOpenLibraryOptions = {
+  signal?: AbortSignal;
+  /** Custom fetch implementation (e.g. fetchWithRetry on the server). */
+  fetchImpl?: typeof fetch;
+};
+
 /**
  * Fetches trending books from Open Library's public daily trending endpoint.
  * Returns up to MAX_TRENDING_RESULTS items mapped to TrendingBook format.
+ *
+ * Accepts a custom `fetchImpl` so the server can reuse this without
+ * duplicating the URL, User-Agent, schema validation, and mapping logic.
  */
-export async function fetchOpenLibraryTrending(signal?: AbortSignal): Promise<TrendingBook[]> {
-  const response = await fetch(OPEN_LIBRARY_TRENDING_URL, {
+export async function fetchOpenLibraryTrending(options: FetchOpenLibraryOptions = {}): Promise<TrendingBook[]> {
+  const fetchFn = options.fetchImpl ?? fetch;
+  const response = await fetchFn(OPEN_LIBRARY_TRENDING_URL, {
     method: "GET",
     headers: {
       Accept: "application/json",
       "User-Agent": OPEN_LIBRARY_USER_AGENT
     },
-    signal
+    signal: options.signal
   });
 
   if (!response.ok) {
