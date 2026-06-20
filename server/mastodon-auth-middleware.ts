@@ -1522,7 +1522,10 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
       // Use plain fetch (not fetchWithRetry which adds Accept-Encoding and
       // decompresses) because Node's undici fetch already decodes the body
       // transparently — double-decompression would corrupt the response.
-      parsed = await fetchOpenLibraryTrending({ fetchImpl: fetch });
+      // AbortSignal.timeout provides a 10s deadline so a stalled connection
+      // falls back to curated trends instead of hanging indefinitely.
+      const signal = AbortSignal.timeout(10_000);
+      parsed = await fetchOpenLibraryTrending({ fetchImpl: fetch, signal });
     }
 
     const enriched = await enrichBookTokTrendsWithGoogleCovers(parsed);
