@@ -66,12 +66,11 @@ import {
 import { buildDiscoveryQueryPlan } from "../src/sync/discovery-query";
 import { MastodonApiResponseError, MastodonClient, mastodonStatusSchema, type MastodonStatus } from "../src/sync/mastodon-client";
 import type { UnifiedShelf, UnifiedShelvesPayload } from "../src/sync/shelf-model";
-import { CURATED_TRENDING_BOOKS, parseTrendingBooksPayload, type TrendingBook } from "../src/sync/booktok-trending";
-
-// Backward-compat aliases used within this file
-const CURATED_BOOKTOK_TRENDS = CURATED_TRENDING_BOOKS;
-type BookTokTrend = TrendingBook;
+import { CURATED_TRENDING_BOOKS, fetchOpenLibraryTrending, parseTrendingBooksPayload, type TrendingBook } from "../src/sync/booktok-trending";
 import { discoverFediverseInstances, getInstanceDiscoverySnapshot } from "./fediverse-discovery";
+
+// Backward-compat type alias
+type BookTokTrend = TrendingBook;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1513,44 +1512,23 @@ async function handleBookTokTrends(req: IncomingMessage, res: ServerResponse): P
       });
 
       if (!response.ok) {
-        sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
+        sendJson(res, 200, { items: CURATED_TRENDING_BOOKS });
         return;
       }
 
       parsed = parseTrendingBooksPayload(await response.json());
     } else {
-      // Default: fetch from Open Library trending
-      const response = await fetchWithRetry("https://openlibrary.org/trending/daily.json", {
-        method: "GET",
-        headers: {
-          Accept: "application/json",
-          "User-Agent": "RYU/0.2.0 (BookWyrm PWA; +https://github.com/outlaw-dame/RYU)"
-        }
-      });
-
-      if (!response.ok) {
-        sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
-        return;
-      }
-
-      const data = await response.json() as { works?: unknown[] };
-      const works = Array.isArray(data?.works) ? data.works : [];
-      parsed = works.slice(0, 12).map((work: Record<string, unknown>) => ({
-        id: String(work.key ?? ""),
-        title: String(work.title ?? ""),
-        author: Array.isArray(work.author_name) ? String(work.author_name[0] ?? "") : undefined,
-        coverUrl: typeof work.cover_i === "number"
-          ? `https://covers.openlibrary.org/b/id/${work.cover_i}-M.jpg`
-          : undefined,
-        sourceUrl: `https://openlibrary.org${String(work.key ?? "")}`,
-        reason: "Trending on Open Library"
-      })).filter((t) => t.id && t.title);
+      // Default: fetch from Open Library via the shared module.
+      // Use plain fetch (not fetchWithRetry which adds Accept-Encoding and
+      // decompresses) because Node's undici fetch already decodes the body
+      // transparently — double-decompression would corrupt the response.
+      parsed = await fetchOpenLibraryTrending({ fetchImpl: fetch });
     }
 
     const enriched = await enrichBookTokTrendsWithGoogleCovers(parsed);
-    sendJson(res, 200, { items: enriched.length > 0 ? enriched : CURATED_BOOKTOK_TRENDS });
+    sendJson(res, 200, { items: enriched.length > 0 ? enriched : CURATED_TRENDING_BOOKS });
   } catch {
-    sendJson(res, 200, { items: CURATED_BOOKTOK_TRENDS });
+    sendJson(res, 200, { items: CURATED_TRENDING_BOOKS });
   }
 }
 
