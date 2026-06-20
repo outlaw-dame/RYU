@@ -2,13 +2,14 @@
  * MediaAttachment - renders a single Mastodon media attachment.
  *
  * Supports:
- * - image: standard <img> with lazy loading
+ * - image: standard <img> with lazy loading + proxy retry fallback
  * - gifv: autoplay muted loop <video> (animated GIF replacement)
  * - video: native <video> with controls
  * - audio: native <audio> with controls
  *
  * All media respects the sensitive/content-warning flag via an optional
- * blur overlay that the user can tap to reveal.
+ * blur overlay that the user can tap to reveal. Supports gallery-wide
+ * reveal via controlled revealed/onReveal props.
  */
 
 import React, { useState } from "react";
@@ -37,14 +38,36 @@ export interface MediaAttachmentProps {
   compact?: boolean;
   /** Fill the parent container's height (useful for grid layouts) */
   filled?: boolean;
+  /** Controlled reveal state (for gallery-wide sensitive reveal) */
+  revealed?: boolean;
+  /** Callback when user reveals sensitive content (for gallery-wide reveal) */
+  onReveal?: () => void;
 }
 
-export function MediaAttachment({ attachment, sensitive = false, compact = false, filled = false }: MediaAttachmentProps) {
+export function MediaAttachment({
+  attachment,
+  sensitive = false,
+  compact = false,
+  filled = false,
+  revealed: controlledRevealed,
+  onReveal
+}: MediaAttachmentProps) {
   const { t } = useTranslation();
-  const [revealed, setRevealed] = useState(!sensitive);
+  const [localRevealed, setLocalRevealed] = useState(!sensitive);
   const [imageError, setImageError] = useState(false);
+  const [retryWithProxy, setRetryWithProxy] = useState(false);
+
+  const revealed = controlledRevealed !== undefined ? controlledRevealed : localRevealed;
+  const handleReveal = () => {
+    if (onReveal) {
+      onReveal();
+    } else {
+      setLocalRevealed(true);
+    }
+  };
 
   const src = attachment.url || attachment.remote_url || "";
+  const displaySrc = retryWithProxy && src ? `/api/media/cover?url=${encodeURIComponent(src)}` : src;
   const previewSrc = attachment.preview_url || "";
   const alt = attachment.description || "";
   const aspectRatio = getAspectRatio(attachment);
@@ -78,8 +101,8 @@ export function MediaAttachment({ attachment, sensitive = false, compact = false
             cursor: "pointer",
             zIndex: 1
           }}
-          onClick={() => setRevealed(true)}
-          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setRevealed(true); } }}
+          onClick={handleReveal}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleReveal(); } }}
           role="button"
           tabIndex={0}
           aria-label={t("media.revealSensitive")}
@@ -95,7 +118,6 @@ export function MediaAttachment({ attachment, sensitive = false, compact = false
             {t("media.sensitiveContent")}
           </span>
         </div>
-        {/* Blurred preview behind overlay */}
         {previewSrc && attachment.type !== "audio" ? (
           <img
             src={previewSrc}
@@ -114,12 +136,18 @@ export function MediaAttachment({ attachment, sensitive = false, compact = false
         <div style={containerStyle}>
           {!imageError ? (
             <img
-              src={src}
+              src={displaySrc}
               alt={alt}
               loading="lazy"
               decoding="async"
               referrerPolicy="no-referrer"
-              onError={() => setImageError(true)}
+              onError={() => {
+                if (!retryWithProxy && src) {
+                  setRetryWithProxy(true);
+                } else {
+                  setImageError(true);
+                }
+              }}
               style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
             />
           ) : (
@@ -194,7 +222,6 @@ function getAspectRatio(attachment: MediaAttachmentData): string {
   if (meta?.width && meta?.height && meta.width > 0 && meta.height > 0) {
     return `${meta.width} / ${meta.height}`;
   }
-  // Default aspect ratios by type
   if (attachment.type === "video" || attachment.type === "gifv") return "16 / 9";
   return "4 / 3";
 }

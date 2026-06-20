@@ -1784,7 +1784,7 @@ function ActivityStatusRow({
   const statusInstanceOrigin = useMemo(() => accountInstanceOrigin(status.account), [status.account]);
   const mediaAttachments = useMemo(() => statusMediaAttachments(status), [status]);
   const showGallery = useMemo(() => (
-    mediaAttachments.length > 1 || mediaAttachments.some((a) => a.type !== "image")
+    mediaAttachments.length > 0
   ), [mediaAttachments]);
   const inferredCoverSrc = useMemo(() => (
     resolveCoverProxySrc(card.image)

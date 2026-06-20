@@ -6,9 +6,11 @@
  * - 2 items: side-by-side (2 columns)
  * - 3 items: 1 large + 2 small (2-row layout)
  * - 4+ items: 2x2 grid
+ *
+ * Sensitive content reveal is gallery-wide: clicking one item reveals all.
  */
 
-import React from "react";
+import React, { useState } from "react";
 import { MediaAttachment, type MediaAttachmentData } from "./MediaAttachment";
 
 export interface MediaGalleryProps {
@@ -17,6 +19,8 @@ export interface MediaGalleryProps {
 }
 
 export function MediaGallery({ attachments, sensitive = false }: MediaGalleryProps) {
+  const [revealed, setRevealed] = useState(!sensitive);
+
   if (!attachments || attachments.length === 0) return null;
 
   // Filter out unknown/unsupported types
@@ -36,6 +40,8 @@ export function MediaGallery({ attachments, sensitive = false }: MediaGalleryPro
             key={attachment.id}
             attachment={attachment}
             sensitive={sensitive}
+            revealed={revealed}
+            onReveal={() => setRevealed(true)}
           />
         ))}
       </div>
@@ -48,6 +54,8 @@ export function MediaGallery({ attachments, sensitive = false }: MediaGalleryPro
       <MediaAttachment
         attachment={supported[0]}
         sensitive={sensitive}
+        revealed={revealed}
+        onReveal={() => setRevealed(true)}
       />
     );
   }
@@ -67,6 +75,8 @@ export function MediaGallery({ attachments, sensitive = false }: MediaGalleryPro
             sensitive={sensitive}
             compact={supported.length === 2}
             filled={supported.length >= 3}
+            revealed={revealed}
+            onReveal={() => setRevealed(true)}
           />
         </div>
       ))}
