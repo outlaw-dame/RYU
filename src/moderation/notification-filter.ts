@@ -96,7 +96,7 @@ export function evaluateNotification(
 
   // Check if account is locally muted with notification suppression
   const localMute = blockedAccounts.find(
-    (a: any) => a.accountId === input.accountId &&
+    (a) => a.accountId === input.accountId &&
            a.action === "mute" &&
            (!a.expiresAt || Date.now() < Date.parse(a.expiresAt))
   );

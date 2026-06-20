@@ -38,7 +38,7 @@ export interface RedactedLog {
   /** Redacted message with all PII stripped. */
   message: string;
   /** Optional structured metadata (all values already redacted). */
-  metadata?: Record<string, string | number | boolean>;
+  metadata?: Record<string, unknown>;
 }
 
 /** Aggregated health state for a single subsystem. */

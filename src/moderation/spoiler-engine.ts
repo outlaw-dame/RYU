@@ -93,6 +93,9 @@ const DEFAULT_PREFERENCES: SpoilerPreferences = {
  * Load spoiler preferences from localStorage.
  */
 export function loadSpoilerPreferences(): SpoilerPreferences {
+  if (typeof localStorage === 'undefined') {
+    return { ...DEFAULT_PREFERENCES };
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_PREFERENCES };
@@ -112,6 +115,9 @@ export function loadSpoilerPreferences(): SpoilerPreferences {
  * Save spoiler preferences to localStorage.
  */
 export function saveSpoilerPreferences(prefs: SpoilerPreferences): void {
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs));
   } catch {
@@ -296,6 +302,9 @@ const READING_STATUS_PREFIX = "ryu.reading-status.";
  */
 export function createLocalStorageReadingStatusLookup(): ReadingStatusLookup {
   return (bookTitle: string): ReadingStatus | undefined => {
+    if (typeof localStorage === 'undefined') {
+      return undefined;
+    }
     const normalizedTitle = bookTitle.trim().toLowerCase();
     if (!normalizedTitle) return undefined;
 

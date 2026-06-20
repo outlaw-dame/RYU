@@ -69,22 +69,39 @@ export function redactMessage(message: string): string {
 }
 
 /**
- * Redact sensitive fields from a metadata object.
+ * Recursively redact sensitive fields from a metadata value.
+ */
+function redactValue(key: string, value: unknown): unknown {
+  if (SENSITIVE_METADATA_KEYS.has(key.toLowerCase())) {
+    return '[REDACTED]';
+  }
+  if (typeof value === 'string') {
+    return redactMessage(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactValue(key, item));
+  }
+  if (value !== null && typeof value === 'object') {
+    const redacted: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      redacted[k] = redactValue(k, v);
+    }
+    return redacted;
+  }
+  return value;
+}
+
+/**
+ * Redact sensitive fields from a metadata object (recursively handles nested structures).
  */
 export function redactMetadata(
-  metadata: Record<string, string | number | boolean> | undefined
-): Record<string, string | number | boolean> | undefined {
+  metadata: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
 
-  const redacted: Record<string, string | number | boolean> = {};
+  const redacted: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    if (SENSITIVE_METADATA_KEYS.has(key.toLowerCase())) {
-      redacted[key] = '[REDACTED]';
-    } else if (typeof value === 'string') {
-      redacted[key] = redactMessage(value);
-    } else {
-      redacted[key] = value;
-    }
+    redacted[key] = redactValue(key, value);
   }
   return redacted;
 }
@@ -132,19 +149,19 @@ export class RedactedLogger {
     this.category = category;
   }
 
-  debug(message: string, metadata?: Record<string, string | number | boolean>): void {
+  debug(message: string, metadata?: Record<string, unknown>): void {
     this.log('debug', message, metadata);
   }
 
-  info(message: string, metadata?: Record<string, string | number | boolean>): void {
+  info(message: string, metadata?: Record<string, unknown>): void {
     this.log('info', message, metadata);
   }
 
-  warn(message: string, metadata?: Record<string, string | number | boolean>): void {
+  warn(message: string, metadata?: Record<string, unknown>): void {
     this.log('warn', message, metadata);
   }
 
-  error(message: string, metadata?: Record<string, string | number | boolean>): void {
+  error(message: string, metadata?: Record<string, unknown>): void {
     this.log('error', message, metadata);
   }
 
@@ -172,7 +189,7 @@ export class RedactedLogger {
   private log(
     level: LogLevel,
     message: string,
-    metadata?: Record<string, string | number | boolean>
+    metadata?: Record<string, unknown>
   ): void {
     const entry: RedactedLog = {
       id: generateId(),
