@@ -28,6 +28,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "check:icons": "tsx scripts/check-icon-imports.ts",
+    "search:quality-eval-v1": "tsx scripts/search-quality-eval.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui:smoke": "vitest run src/app/App.search-a11y.test.tsx",
