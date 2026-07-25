@@ -1,12 +1,16 @@
+import type {
+  UserRecommendationSignalDoc,
+  UserSignalType
+} from "./user-signal-schema";
 import {
   isUserSignalExpired,
-  type UserRecommendationSignalDoc,
-  type UserSignalType
+  type UserSignalInput
 } from "./user-signals";
 import {
   listUserSignals,
   removeUserSignal,
   upsertUserSignal,
+  type UserSignalQuery,
   type UserSignalScope
 } from "./user-signal-store";
 
@@ -29,10 +33,14 @@ const REVIEWER_SIGNAL_TYPES = [
 
 type ReviewerSignalType = (typeof REVIEWER_SIGNAL_TYPES)[number];
 
+type ReviewerSignalReader = (query: UserSignalQuery) => Promise<UserRecommendationSignalDoc[]>;
+type ReviewerSignalWriter = (input: UserSignalInput) => Promise<UserRecommendationSignalDoc>;
+type ReviewerSignalRemover = (id: string, scope: UserSignalScope) => Promise<boolean>;
+
 export type ReviewerTrustDependencies = {
-  listSignals?: typeof listUserSignals;
-  writeSignal?: typeof upsertUserSignal;
-  removeSignal?: typeof removeUserSignal;
+  listSignals?: ReviewerSignalReader;
+  writeSignal?: ReviewerSignalWriter;
+  removeSignal?: ReviewerSignalRemover;
 };
 
 export type ReviewerTrustEffect = {
@@ -66,7 +74,7 @@ export async function setReviewerTrustState(
   assertReviewerTrustState(state);
   const entityId = normalizeReviewerAccountId(reviewerAccountId);
   const listSignals = dependencies.listSignals ?? listUserSignals;
-  const writeSignal = dependencies.writeSignal ?? upsertUserSignal;
+  const writeSignal = dependencies.writeSignal ?? ((input) => upsertUserSignal(input));
   const removeSignal = dependencies.removeSignal ?? removeUserSignal;
 
   const existing = await listSignals({
