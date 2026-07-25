@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { CURRENT_SCHEMA_VERSION } from "../db/runtime-schema";
-import { collections } from "../db/runtime-schema";
+import { collections, CURRENT_SCHEMA_VERSION } from "../db/runtime-schema";
 import {
   USER_SIGNAL_ENTITY_TYPES,
   USER_SIGNAL_PROVENANCE,
   USER_SIGNAL_TYPES
 } from "./user-signal-schema";
 
-function getSignalSchema() {
-  return collections.userrecommendationsignals.schema;
+type SignalSchema = {
+  version: number;
+  required: readonly string[];
+  indexes: readonly string[];
+  additionalProperties: boolean;
+  properties: {
+    entityType: { enum: readonly string[] };
+    signalType: { enum: readonly string[] };
+    provenance: { enum: readonly string[] };
+    strength: { minimum: number; maximum: number };
+  };
+};
+
+function getSignalSchema(): SignalSchema {
+  return collections.userrecommendationsignals.schema as unknown as SignalSchema;
 }
 
 describe("user recommendation signal RxDB schema", () => {
