@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Recommendation } from "../discovery/types";
-import { evaluateRecommendationPolicy } from "./recommendation-score-trace";
+import {
+  evaluateRecommendationCandidates,
+  evaluateRecommendationPolicy
+} from "./recommendation-score-trace";
 
 const edition: Recommendation = {
   id: "shared-id",
@@ -40,6 +43,50 @@ describe("recommendation policy evaluation", () => {
     }
   });
 
+  it("routes candidate filtering through typed targets and preserves ID collisions", () => {
+    const visible = evaluateRecommendationCandidates([edition, author], {
+      stateByTarget: { "edition:shared-id": "suppress" }
+    });
+
+    expect(visible).toHaveLength(1);
+    expect(visible[0]).toMatchObject({ id: "shared-id", entityType: "author" });
+  });
+
+  it("deduplicates repeated candidates by typed target rather than bare ID", () => {
+    const visible = evaluateRecommendationCandidates([edition, edition, author, author], {
+      stateByTarget: {}
+    });
+
+    expect(visible.map(({ entityType, id }) => `${entityType}:${id}`)).toEqual([
+      "edition:shared-id",
+      "author:shared-id"
+    ]);
+  });
+
+  it("redacts source-derived reason metadata from hard-suppression traces", () => {
+    const sensitiveRecommendation: Recommendation = {
+      ...edition,
+      reasons: [{
+        type: "because_you_read",
+        confidence: 0.9,
+        sourceId: "private-reading-record-id",
+        sourceLabel: "Private Reading History Title"
+      }]
+    };
+
+    const result = evaluateRecommendationPolicy(sensitiveRecommendation, {
+      stateByTarget: { "edition:shared-id": "not_interested" }
+    });
+
+    expect(result.included).toBe(false);
+    if (!result.included) {
+      expect(result.scoreTrace.contributions).toEqual([]);
+      expect(JSON.stringify(result.scoreTrace)).not.toContain("private-reading-record-id");
+      expect(JSON.stringify(result.scoreTrace)).not.toContain("Private Reading History Title");
+      expect(Object.isFrozen(result.scoreTrace.contributions)).toBe(true);
+    }
+  });
+
   it("records not-interested as a hard suppression without inventing a score delta", () => {
     const result = evaluateRecommendationPolicy(edition, {
       stateByTarget: { "edition:shared-id": "not_interested" }
@@ -49,7 +96,7 @@ describe("recommendation policy evaluation", () => {
     if (!result.included) {
       expect(result.scoreTrace.baseScore).toBe(0.7);
       expect(result.scoreTrace.finalScore).toBe(0.7);
-      expect(result.scoreTrace.contributions.every((item) => item.kind === "reason")).toBe(true);
+      expect(result.scoreTrace.contributions).toEqual([]);
       expect(result.scoreTrace.hardSuppressions).toEqual(["user_signal:not_interested"]);
     }
   });
