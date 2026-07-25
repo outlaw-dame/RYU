@@ -70,3 +70,14 @@ export {
   type ReviewerTrustRankingDependencies,
   type ReviewerTrustStateMap
 } from "./reviewer-trust-ranking";
+
+export {
+  createReviewerTrustManager,
+  listReviewerTrustOptions,
+  reviewerTrustStateDescription,
+  reviewerTrustStateLabel,
+  type ReviewerTrustManagementDependencies,
+  type ReviewerTrustManagementSnapshot,
+  type ReviewerTrustManagementStatus,
+  type ReviewerTrustManager
+} from "./reviewer-trust-management";
