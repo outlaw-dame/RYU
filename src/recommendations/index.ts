@@ -20,3 +20,15 @@ export {
   selectEffectiveUserSignal,
   type UserSignalInput
 } from "./user-signals";
+
+export {
+  buildUserSignalSelector,
+  listUserSignals,
+  normalizeUserSignalScope,
+  removeUserSignal,
+  resetInferredUserSignals,
+  upsertUserSignal,
+  UserSignalStoreError,
+  type UserSignalQuery,
+  type UserSignalScope
+} from "./user-signal-store";
