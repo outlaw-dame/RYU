@@ -72,8 +72,8 @@ describe("user recommendation signals", () => {
   });
 
   it("uses the newest signal within the same provenance tier", () => {
-    const older = makeSignal({ updatedAt: "2026-07-25T17:00:00Z" });
-    const newer = makeSignal({ updatedAt: "2026-07-25T19:00:00Z" });
+    const older = makeSignal({ createdAt: "2026-07-25T16:00:00Z", updatedAt: "2026-07-25T17:00:00Z" });
+    const newer = makeSignal({ createdAt: "2026-07-25T16:00:00Z", updatedAt: "2026-07-25T19:00:00Z" });
     expect(selectEffectiveUserSignal([older, newer])?.updatedAt).toBe("2026-07-25T19:00:00.000Z");
   });
 
