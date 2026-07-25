@@ -2,6 +2,7 @@ import { addRxPlugin, createRxDatabase, type RxCollection, type RxDatabase } fro
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
+import type { UserRecommendationSignalDoc } from '../recommendations/user-signal-schema';
 import { collections } from './runtime-schema';
 import type {
   AuthorDoc,
@@ -31,6 +32,7 @@ export type RyuCollections = {
   searchindexdependencies: RxCollection<SearchIndexDependencyDoc>;
   fetchqueue: RxCollection<FetchQueueDoc>;
   writequeue: RxCollection<WriteQueueDoc>;
+  userrecommendationsignals: RxCollection<UserRecommendationSignalDoc>;
 };
 
 export type RyuDatabase = RxDatabase<RyuCollections>;
