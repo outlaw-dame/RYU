@@ -1,9 +1,9 @@
 /**
  * Phase 34 - useDiscovery hook.
  *
- * Combines all recommendation sources (related books, similar authors,
- * reading history) into a single discovery feed. Respects user controls
- * and feature flags.
+ * Combines recommendation sources into a local-first discovery feed while
+ * honoring both the established legacy controls and durable account-scoped
+ * user signals when an authenticated Mastodon session is available.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -17,7 +17,13 @@ import {
   excludeFromDiscovery as excludeFromDiscoveryFn,
   type Recommendation
 } from "../discovery";
+import {
+  buildUserSignalScopeFromSession,
+  loadDiscoveryExclusionIds,
+  recordDiscoveryNotInterested
+} from "../recommendations/discovery-signal-runtime";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
+import { useMastodonSession } from "../sync/use-mastodon-activity";
 
 export type DiscoveryState = {
   recommendations: Recommendation[];
@@ -27,16 +33,14 @@ export type DiscoveryState = {
 };
 
 export type UseDiscoveryOptions = {
-  /** Specific edition to find related books for (optional). */
   editionId?: string | null;
-  /** Maximum total recommendations to return. */
   limit?: number;
-  /** Auto-refresh interval in milliseconds (0 to disable). */
   refreshInterval?: number;
 };
 
 export function useDiscovery(options: UseDiscoveryOptions = {}) {
   const { editionId = null, limit = 20, refreshInterval = 0 } = options;
+  const sessionQuery = useMastodonSession();
 
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -44,17 +48,14 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   const [version, setVersion] = useState(0);
 
   const controls = useMemo(() => getDiscoveryControls(), [version]);
+  const userSignalScope = useMemo(
+    () => buildUserSignalScopeFromSession(sessionQuery.data),
+    [sessionQuery.data]
+  );
 
   const refresh = useCallback(async () => {
     const currentControls = getDiscoveryControls();
-
-    if (!currentControls.enabled) {
-      setRecommendations([]);
-      return;
-    }
-
-    // Check feature flag for personalization
-    if (!isSearchFeatureEnabled("personalization")) {
+    if (!currentControls.enabled || !isSearchFeatureEnabled("personalization")) {
       setRecommendations([]);
       return;
     }
@@ -63,10 +64,22 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     setError(null);
 
     try {
-      const excludeIds = currentControls.excludedIds;
-      const results: Recommendation[] = [];
+      let durableExcludedIds: string[] = [];
+      if (userSignalScope) {
+        try {
+          durableExcludedIds = await loadDiscoveryExclusionIds(userSignalScope);
+        } catch {
+          // Local persistence is additive at this stage. Continue with the
+          // established localStorage controls rather than breaking discovery.
+          durableExcludedIds = [];
+        }
+      }
 
-      // Gather recommendations from all sources in parallel
+      const excludeIds = [...new Set([
+        ...currentControls.excludedIds,
+        ...durableExcludedIds
+      ])];
+      const results: Recommendation[] = [];
       const settled = await Promise.allSettled([
         editionId
           ? findRelatedBooks(editionId, { limit: Math.ceil(limit / 3), excludeIds })
@@ -75,72 +88,68 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         findBecauseYouRead({ limit: Math.ceil(limit / 2), excludeIds })
       ]);
 
-      const relatedBooks = settled[0].status === "fulfilled" ? settled[0].value : [];
-      const similarAuthors = settled[1].status === "fulfilled" ? settled[1].value : [];
-      const becauseYouRead = settled[2].status === "fulfilled" ? settled[2].value : [];
+      results.push(
+        ...(settled[0].status === "fulfilled" ? settled[0].value : []),
+        ...(settled[1].status === "fulfilled" ? settled[1].value : []),
+        ...(settled[2].status === "fulfilled" ? settled[2].value : [])
+      );
 
-      // Log any failed discovery engines for debuggability.
-      const engineNames = ["Related Books", "Similar Authors", "Because You Read"];
-      for (let i = 0; i < settled.length; i++) {
-        const result = settled[i];
-        if (result.status === "rejected") {
-          console.warn(`[discovery] ${engineNames[i]} engine failed:`, result.reason);
-        }
-      }
-
-      results.push(...relatedBooks, ...similarAuthors, ...becauseYouRead);
-
-      // Deduplicate by ID
       const seen = new Set<string>();
-      const excludedSet = new Set(currentControls.excludedIds);
-      const unique = results.filter((rec) => {
-        if (seen.has(rec.id) || excludedSet.has(rec.id)) {
-          return false;
-        }
-        seen.add(rec.id);
+      const excludedSet = new Set(excludeIds);
+      const unique = results.filter((recommendation) => {
+        if (seen.has(recommendation.id) || excludedSet.has(recommendation.id)) return false;
+        seen.add(recommendation.id);
         return true;
       });
 
-      // Sort by score descending and limit
-      const sorted = unique
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
-
-      setRecommendations(sorted);
+      setRecommendations(
+        unique.sort((a, b) => b.score - a.score).slice(0, limit)
+      );
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       setLoading(false);
     }
-  }, [editionId, limit, version]);
+  }, [editionId, limit, userSignalScope, version]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  // Optional auto-refresh
   useEffect(() => {
     if (refreshInterval <= 0) return;
-    const timer = setInterval(() => {
-      void refresh();
-    }, refreshInterval);
+    const timer = setInterval(() => void refresh(), refreshInterval);
     return () => clearInterval(timer);
   }, [refresh, refreshInterval]);
 
   const setEnabled = useCallback((enabled: boolean) => {
     setDiscoveryControls({ enabled });
-    setVersion((v) => v + 1);
+    setVersion((value) => value + 1);
   }, []);
 
   const excludeItem = useCallback((entityId: string) => {
     excludeFromDiscoveryFn(entityId);
-    setRecommendations((prev) => prev.filter((r) => r.id !== entityId));
-    setVersion((v) => v + 1);
+    setRecommendations((previous) => previous.filter((item) => item.id !== entityId));
+    setVersion((value) => value + 1);
   }, []);
+
+  const excludeRecommendation = useCallback((recommendation: Recommendation) => {
+    // Preserve immediate UI response and the established local fallback.
+    excludeFromDiscoveryFn(recommendation.id);
+    setRecommendations((previous) => previous.filter((item) => item.id !== recommendation.id));
+    setVersion((value) => value + 1);
+
+    if (userSignalScope) {
+      void recordDiscoveryNotInterested(recommendation, userSignalScope).catch(() => {
+        // Legacy persistence already succeeded. A later refresh retries the
+        // migration/durable path without exposing private preference content.
+      });
+    }
+  }, [userSignalScope]);
 
   const reset = useCallback(() => {
     resetDiscoveryControls();
-    setVersion((v) => v + 1);
+    setVersion((value) => value + 1);
   }, []);
 
   return {
@@ -151,6 +160,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     refresh,
     setEnabled,
     excludeItem,
+    excludeRecommendation,
     reset
   };
 }
