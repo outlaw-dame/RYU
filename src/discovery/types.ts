@@ -2,7 +2,7 @@
  * Phase 34 - Discovery and recommendations types.
  *
  * Core types for the local-first recommendation engine including
- * recommendations, reasons, and discovery sources.
+ * recommendations, reasons, score traces, and discovery sources.
  */
 
 export type RecommendationReasonType =
@@ -22,6 +22,29 @@ export type RecommendationReason = {
   /** Confidence score 0.0 to 1.0. */
   confidence: number;
 };
+
+export type RecommendationScoreTraceContribution = Readonly<{
+  /** Stable identity for deterministic rendering and comparison. */
+  id: string;
+  kind: "reason" | "user_signal";
+  /** i18n key derived from the actual ranking input. */
+  labelKey: string;
+  labelParams?: Readonly<Record<string, string>>;
+  /** Signed score adjustment. Reasons may be explanatory with a zero direct delta. */
+  delta: number;
+  /** Optional bounded confidence for source reasons. */
+  confidence?: number;
+  /** User-editable signal represented by this contribution. */
+  editableSignal?: "show_more" | "show_less";
+}>;
+
+export type RecommendationScoreTrace = Readonly<{
+  baseScore: number;
+  finalScore: number;
+  contributions: readonly RecommendationScoreTraceContribution[];
+  /** Reserved for policy stages that remove a candidate before ranking. */
+  hardSuppressions: readonly string[];
+}>;
 
 export type DiscoverySource =
   | "local_library"
@@ -45,6 +68,8 @@ export type Recommendation = {
   source: DiscoverySource;
   /** Composite score for ranking recommendations. */
   score: number;
+  /** Immutable trace created by the ranking path; UI explanations must use this when present. */
+  scoreTrace?: RecommendationScoreTrace;
   /** ISO timestamp of when this recommendation was generated. */
   generatedAt: string;
 };

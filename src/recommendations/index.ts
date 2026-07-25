@@ -44,9 +44,15 @@ export {
 } from "./legacy-discovery-migration";
 
 export {
+  applyDiscoveryFeedbackScore,
+  buildRecommendationTargetKey,
   buildUserSignalScopeFromSession,
   loadDiscoveryExclusionIds,
+  loadDiscoveryFeedbackPolicy,
   recordDiscoveryNotInterested,
+  resetHiddenDiscoveryFeedback,
+  type DiscoveryFeedbackPolicy,
+  type DiscoveryFeedbackState,
   type DiscoverySignalRuntimeDependencies
 } from "./discovery-signal-runtime";
 
@@ -62,6 +68,11 @@ export {
   type RecommendationFeedbackState,
   type RecommendationFeedbackTarget
 } from "./recommendation-feedback";
+
+export {
+  attachRecommendationScoreTrace,
+  buildRecommendationScoreTrace
+} from "./recommendation-score-trace";
 
 export {
   getReviewerTrustState,
