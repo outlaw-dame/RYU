@@ -30,7 +30,12 @@ describe("discovery signal runtime", () => {
     const result = await loadDiscoveryExclusionIds(scope, {
       migrateLegacy: vi.fn(async () => {
         order.push("migrate");
-        return { status: "complete", migratedIds: [], unresolvedIds: [], invalidEntryCount: 0 };
+        return {
+          status: "complete" as const,
+          migratedIds: [],
+          unresolvedIds: [],
+          invalidEntryCount: 0
+        };
       }),
       resolveEntityType: vi.fn(async () => null),
       listSignals: vi.fn(async () => {
