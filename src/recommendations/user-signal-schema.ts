@@ -1,4 +1,4 @@
-export const USER_SIGNAL_SCHEMA_VERSION = 0;
+export const USER_SIGNAL_SCHEMA_VERSION = 1;
 
 export const USER_SIGNAL_ENTITY_TYPES = [
   "author",
@@ -22,7 +22,9 @@ export const USER_SIGNAL_TYPES = [
   "suppress",
   "prefer",
   "trusted",
-  "low_trust"
+  "low_trust",
+  "reviewer_muted",
+  "reviewer_blocked"
 ] as const;
 
 export const USER_SIGNAL_PROVENANCE = [
@@ -100,5 +102,10 @@ export const userRecommendationSignalsCollection = {
       "schemaVersion"
     ]
   },
-  migrationStrategies: {}
+  migrationStrategies: {
+    1: (document: UserRecommendationSignalDoc): UserRecommendationSignalDoc => ({
+      ...document,
+      schemaVersion: USER_SIGNAL_SCHEMA_VERSION
+    })
+  }
 } as const;
