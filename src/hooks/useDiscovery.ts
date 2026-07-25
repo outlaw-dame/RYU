@@ -1,11 +1,3 @@
-/**
- * Phase 34 - useDiscovery hook.
- *
- * Combines recommendation sources into a local-first discovery feed while
- * honoring both the established legacy controls and durable account-scoped
- * user signals when an authenticated Mastodon session is available.
- */
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   findBecauseYouRead,
@@ -18,9 +10,12 @@ import {
   type Recommendation
 } from "../discovery";
 import {
+  applyDiscoveryFeedbackScore,
   buildUserSignalScopeFromSession,
-  loadDiscoveryExclusionIds,
-  recordDiscoveryNotInterested
+  loadDiscoveryFeedbackPolicy,
+  recordDiscoveryNotInterested,
+  resetHiddenDiscoveryFeedback,
+  type DiscoveryFeedbackPolicy
 } from "../recommendations/discovery-signal-runtime";
 import {
   setRecommendationFeedbackState,
@@ -28,6 +23,11 @@ import {
 } from "../recommendations/recommendation-feedback";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
+
+const EMPTY_FEEDBACK_POLICY: DiscoveryFeedbackPolicy = Object.freeze({
+  excludedIds: Object.freeze([]),
+  stateByTarget: Object.freeze({})
+});
 
 export type DiscoveryState = {
   recommendations: Recommendation[];
@@ -54,6 +54,8 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     () => new Set()
   );
   const [feedbackErrors, setFeedbackErrors] = useState<Readonly<Record<string, string>>>(() => ({}));
+  const [resettingHidden, setResettingHidden] = useState(false);
+  const [hiddenResetError, setHiddenResetError] = useState<string | null>(null);
 
   const controls = useMemo(() => getDiscoveryControls(), [version]);
   const userSignalScope = useMemo(
@@ -72,20 +74,19 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     setError(null);
 
     try {
-      let durableExcludedIds: string[] = [];
+      let durablePolicy: DiscoveryFeedbackPolicy = EMPTY_FEEDBACK_POLICY;
       if (userSignalScope) {
         try {
-          durableExcludedIds = await loadDiscoveryExclusionIds(userSignalScope);
+          durablePolicy = await loadDiscoveryFeedbackPolicy(userSignalScope);
         } catch {
-          durableExcludedIds = [];
+          durablePolicy = EMPTY_FEEDBACK_POLICY;
         }
       }
 
       const excludeIds = [...new Set([
         ...currentControls.excludedIds,
-        ...durableExcludedIds
+        ...durablePolicy.excludedIds
       ])];
-      const results: Recommendation[] = [];
       const settled = await Promise.allSettled([
         editionId
           ? findRelatedBooks(editionId, { limit: Math.ceil(limit / 3), excludeIds })
@@ -93,12 +94,11 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         findSimilarAuthors({ limit: Math.ceil(limit / 4), excludeIds }),
         findBecauseYouRead({ limit: Math.ceil(limit / 2), excludeIds })
       ]);
-
-      results.push(
+      const results: Recommendation[] = [
         ...(settled[0].status === "fulfilled" ? settled[0].value : []),
         ...(settled[1].status === "fulfilled" ? settled[1].value : []),
         ...(settled[2].status === "fulfilled" ? settled[2].value : [])
-      );
+      ];
 
       const seen = new Set<string>();
       const excludedSet = new Set(excludeIds);
@@ -109,7 +109,13 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       });
 
       setRecommendations(
-        unique.sort((a, b) => b.score - a.score).slice(0, limit)
+        unique
+          .map((recommendation) => ({
+            ...recommendation,
+            score: applyDiscoveryFeedbackScore(recommendation, durablePolicy)
+          }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit)
       );
     } catch (err) {
       setError(err instanceof Error ? err : new Error(String(err)));
@@ -148,10 +154,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       return;
     }
 
-    void recordDiscoveryNotInterested(recommendation, userSignalScope).catch(() => {
-      // The runtime writes the legacy fallback before durable persistence, so
-      // this remains recoverable and a future refresh can retry migration.
-    });
+    void recordDiscoveryNotInterested(recommendation, userSignalScope).catch(() => undefined);
   }, [userSignalScope]);
 
   const setRecommendationFeedback = useCallback(async (
@@ -165,7 +168,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       }
       setFeedbackErrors((current) => ({
         ...current,
-        [recommendation.id]: "Sign in to save this recommendation preference."
+        [recommendation.id]: "discovery.feedback.signInError"
       }));
       return;
     }
@@ -187,7 +190,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     } catch {
       setFeedbackErrors((current) => ({
         ...current,
-        [recommendation.id]: "Could not save this preference. Try again."
+        [recommendation.id]: "discovery.feedback.saveError"
       }));
     } finally {
       setFeedbackPendingIds((current) => {
@@ -197,6 +200,20 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       });
     }
   }, [excludeRecommendation, userSignalScope]);
+
+  const resetHiddenRecommendations = useCallback(async (): Promise<void> => {
+    if (!userSignalScope || resettingHidden) return;
+    setResettingHidden(true);
+    setHiddenResetError(null);
+    try {
+      await resetHiddenDiscoveryFeedback(userSignalScope);
+      setVersion((value) => value + 1);
+    } catch {
+      setHiddenResetError("discovery.feedback.resetHiddenError");
+    } finally {
+      setResettingHidden(false);
+    }
+  }, [resettingHidden, userSignalScope]);
 
   const reset = useCallback(() => {
     resetDiscoveryControls();
@@ -211,11 +228,14 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     feedbackAvailable: Boolean(userSignalScope),
     feedbackPendingIds,
     feedbackErrors,
+    resettingHidden,
+    hiddenResetError,
     refresh,
     setEnabled,
     excludeItem,
     excludeRecommendation,
     setRecommendationFeedback,
+    resetHiddenRecommendations,
     reset
   };
 }

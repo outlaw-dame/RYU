@@ -25,9 +25,12 @@ export function DiscoveryFeed({
     feedbackAvailable,
     feedbackPendingIds,
     feedbackErrors,
+    resettingHidden,
+    hiddenResetError,
     setEnabled,
     excludeRecommendation,
     setRecommendationFeedback,
+    resetHiddenRecommendations,
     reset
   } = useDiscovery({ editionId, limit });
 
@@ -73,7 +76,27 @@ export function DiscoveryFeed({
           }}>
             {t("discovery.title")}
           </h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {feedbackAvailable && (
+              <button
+                type="button"
+                onClick={() => void resetHiddenRecommendations()}
+                disabled={resettingHidden}
+                aria-label={t("discovery.feedback.restoreHiddenAria")}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "var(--color-text-tertiary)",
+                  fontSize: "var(--text-caption2)",
+                  cursor: resettingHidden ? "wait" : "pointer",
+                  padding: "var(--space-1) var(--space-2)"
+                }}
+              >
+                {resettingHidden
+                  ? t("discovery.feedback.restoringHidden")
+                  : t("discovery.feedback.restoreHidden")}
+              </button>
+            )}
             <button
               type="button"
               onClick={reset}
@@ -106,6 +129,12 @@ export function DiscoveryFeed({
             </button>
           </div>
         </div>
+      )}
+
+      {hiddenResetError && (
+        <p role="status" style={{ margin: 0, padding: "0 var(--space-4)", color: "var(--color-danger, var(--color-text-secondary))", fontSize: "var(--text-caption2)" }}>
+          {t(hiddenResetError)}
+        </p>
       )}
 
       {loading && recommendations.length === 0 && (

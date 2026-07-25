@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import {
   listRecommendationFeedbackOptions,
   type RecommendationFeedbackState
@@ -17,6 +18,8 @@ export function RecommendationFeedbackMenu({
   error = null,
   onSelect
 }: RecommendationFeedbackMenuProps) {
+  const { t } = useTranslation();
+
   return (
     <div
       onClick={(event) => event.stopPropagation()}
@@ -24,7 +27,7 @@ export function RecommendationFeedbackMenu({
     >
       <details>
         <summary
-          aria-label="Tune this recommendation"
+          aria-label={t("discovery.feedback.tuneAria")}
           style={{
             cursor: pending ? "wait" : "pointer",
             color: "var(--color-text-tertiary)",
@@ -35,11 +38,11 @@ export function RecommendationFeedbackMenu({
             userSelect: "none"
           }}
         >
-          {pending ? "Saving…" : "Tune"}
+          {pending ? t("discovery.feedback.saving") : t("discovery.feedback.tune")}
         </summary>
         <div
           role="menu"
-          aria-label="Recommendation preferences"
+          aria-label={t("discovery.feedback.menuLabel")}
           style={{
             display: "grid",
             minWidth: 210,
@@ -60,7 +63,7 @@ export function RecommendationFeedbackMenu({
               type="button"
               role="menuitem"
               disabled={pending}
-              title={option.description}
+              title={t(`discovery.feedback.${option.state}Description`)}
               onClick={() => void onSelect(option.state)}
               style={{
                 border: "none",
@@ -75,14 +78,14 @@ export function RecommendationFeedbackMenu({
                 fontSize: "var(--text-caption1)"
               }}
             >
-              {option.label}
+              {t(`discovery.feedback.${option.state}`)}
             </button>
           ))}
         </div>
       </details>
       {error && (
         <span role="status" style={{ color: "var(--color-danger, var(--color-text-secondary))", fontSize: "var(--text-caption2)" }}>
-          {error}
+          {t(error)}
         </span>
       )}
     </div>
