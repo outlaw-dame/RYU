@@ -92,8 +92,15 @@ describe("discovery signal runtime", () => {
     )).toBeCloseTo(0.55);
   });
 
-  it("resets only hidden explicit targets in the authenticated scope", async () => {
-    const resetFeedback = vi.fn().mockResolvedValue(undefined);
+  it("resets hidden durable targets before clearing matching legacy exclusions", async () => {
+    const events: string[] = [];
+    const resetFeedback = vi.fn(async (target: { id: string }) => {
+      events.push(`durable:${target.id}`);
+    });
+    const removeLegacyExclusion = vi.fn((id: string) => {
+      events.push(`legacy:${id}`);
+    });
+
     await expect(resetHiddenDiscoveryFeedback(scope, {
       listSignals: vi.fn(async () => [
         signal("hidden", "not_interested"),
@@ -101,16 +108,24 @@ describe("discovery signal runtime", () => {
         signal("more", "show_more", { entityId: "edition-2" }),
         signal("foreign", "suppress", { ownerAccountId: "other", entityId: "edition-3" })
       ]),
-      resetFeedback
+      resetFeedback,
+      removeLegacyExclusion
     })).resolves.toBe(2);
 
     expect(resetFeedback).toHaveBeenCalledTimes(2);
-    expect(resetFeedback).toHaveBeenCalledWith(
-      { entityType: "edition", id: "edition-1" }, scope, "neutral"
-    );
-    expect(resetFeedback).toHaveBeenCalledWith(
-      { entityType: "author", id: "author-1" }, scope, "neutral"
-    );
+    expect(removeLegacyExclusion).toHaveBeenCalledTimes(2);
+    expect(events.slice(0, 2).every((event) => event.startsWith("durable:"))).toBe(true);
+    expect(events.slice(2).sort()).toEqual(["legacy:author-1", "legacy:edition-1"]);
+  });
+
+  it("keeps legacy exclusions when any durable reset fails", async () => {
+    const removeLegacyExclusion = vi.fn();
+    await expect(resetHiddenDiscoveryFeedback(scope, {
+      listSignals: vi.fn(async () => [signal("hidden", "not_interested")]),
+      resetFeedback: vi.fn(async () => { throw new Error("database unavailable"); }),
+      removeLegacyExclusion
+    })).rejects.toThrow("database unavailable");
+    expect(removeLegacyExclusion).not.toHaveBeenCalled();
   });
 
   it("preserves legacy fallback before attempting durable persistence", async () => {
