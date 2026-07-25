@@ -1,4 +1,4 @@
-import { excludeFromDiscovery } from "../discovery/user-controls";
+import { excludeFromDiscovery, removeExclusion } from "../discovery/user-controls";
 import { getDatabase } from "../db/client";
 import type { Recommendation } from "../discovery/types";
 import {
@@ -45,6 +45,7 @@ export type DiscoverySignalRuntimeDependencies = {
     options?: { now?: Date }
   ) => Promise<UserRecommendationSignalDoc>;
   writeLegacyExclusion?: (entityId: string) => unknown;
+  removeLegacyExclusion?: (entityId: string) => unknown;
   resolveEntityType?: (entityId: string) => Promise<"author" | "edition" | null>;
   resetFeedback?: (
     target: RecommendationFeedbackTarget,
@@ -125,10 +126,18 @@ export async function resetHiddenDiscoveryFeedback(
   }
 
   const resetFeedback = dependencies.resetFeedback ?? setRecommendationFeedbackState;
-  await Promise.all([...targets.values()].map((target) =>
+  const removeLegacy = dependencies.removeLegacyExclusion ?? removeExclusion;
+  const hiddenTargets = [...targets.values()];
+
+  // Reset durable state first. Legacy exclusions are cleared only after every
+  // durable reset succeeds so a partial failure cannot silently broaden results.
+  await Promise.all(hiddenTargets.map((target) =>
     resetFeedback(target, canonicalScope, "neutral")
   ));
-  return targets.size;
+  for (const target of hiddenTargets) {
+    removeLegacy(target.id);
+  }
+  return hiddenTargets.length;
 }
 
 export function applyDiscoveryFeedbackScore(
