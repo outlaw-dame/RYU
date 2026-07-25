@@ -20,7 +20,7 @@ import {
   setRecommendationFeedbackState,
   type RecommendationFeedbackState
 } from "../recommendations/recommendation-feedback";
-import { attachRecommendationScoreTrace } from "../recommendations/recommendation-score-trace";
+import { evaluateRecommendationCandidates } from "../recommendations/recommendation-score-trace";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
 
@@ -83,10 +83,9 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         }
       }
 
-      const excludeIds = [...new Set([
-        ...currentControls.excludedIds,
-        ...durablePolicy.excludedIds
-      ])];
+      // Legacy discovery controls are intentionally bare-ID exclusions. Durable
+      // feedback is typed and must be evaluated only after candidates exist.
+      const excludeIds = [...new Set(currentControls.excludedIds)];
       const settled = await Promise.allSettled([
         editionId
           ? findRelatedBooks(editionId, { limit: Math.ceil(limit / 3), excludeIds })
@@ -100,17 +99,11 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         ...(settled[2].status === "fulfilled" ? settled[2].value : [])
       ];
 
-      const seen = new Set<string>();
       const excludedSet = new Set(excludeIds);
-      const unique = results.filter((recommendation) => {
-        if (seen.has(recommendation.id) || excludedSet.has(recommendation.id)) return false;
-        seen.add(recommendation.id);
-        return true;
-      });
+      const eligible = results.filter((recommendation) => !excludedSet.has(recommendation.id));
 
       setRecommendations(
-        unique
-          .map((recommendation) => attachRecommendationScoreTrace(recommendation, durablePolicy))
+        evaluateRecommendationCandidates(eligible, durablePolicy)
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
       );
