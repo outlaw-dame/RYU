@@ -27,7 +27,7 @@ export function buildRecommendationScoreTrace(
     contributions.push(Object.freeze({
       id: `user_signal:${state}`,
       kind: "user_signal",
-      labelKey: `discovery.feedback.${state === "show_more" ? "showMore" : "showLess"}`,
+      labelKey: `discovery.feedback.${state}`,
       delta: state === "show_more" ? USER_SIGNAL_DELTA : -USER_SIGNAL_DELTA,
       editableSignal: state
     }));
