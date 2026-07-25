@@ -10,7 +10,6 @@ import {
   type Recommendation
 } from "../discovery";
 import {
-  applyDiscoveryFeedbackScore,
   buildUserSignalScopeFromSession,
   loadDiscoveryFeedbackPolicy,
   recordDiscoveryNotInterested,
@@ -21,6 +20,7 @@ import {
   setRecommendationFeedbackState,
   type RecommendationFeedbackState
 } from "../recommendations/recommendation-feedback";
+import { attachRecommendationScoreTrace } from "../recommendations/recommendation-score-trace";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
 
@@ -110,10 +110,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
       setRecommendations(
         unique
-          .map((recommendation) => ({
-            ...recommendation,
-            score: applyDiscoveryFeedbackScore(recommendation, durablePolicy)
-          }))
+          .map((recommendation) => attachRecommendationScoreTrace(recommendation, durablePolicy))
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
       );
