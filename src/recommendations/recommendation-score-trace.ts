@@ -7,21 +7,85 @@ import type {
 import {
   applyDiscoveryFeedbackScore,
   buildRecommendationTargetKey,
-  type DiscoveryFeedbackPolicy
+  type DiscoveryFeedbackPolicy,
+  type DiscoveryFeedbackState
 } from "./discovery-signal-runtime";
 
 const USER_SIGNAL_DELTA = 0.15;
+
+export type RecommendationPolicyEvaluation =
+  | Readonly<{ included: true; recommendation: Recommendation }>
+  | Readonly<{ included: false; scoreTrace: RecommendationScoreTrace }>;
 
 export function buildRecommendationScoreTrace(
   recommendation: Pick<Recommendation, "id" | "entityType" | "score" | "reasons">,
   policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
 ): RecommendationScoreTrace {
+  return buildTrace(recommendation, policy, false);
+}
+
+export function evaluateRecommendationPolicy(
+  recommendation: Recommendation,
+  policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
+): RecommendationPolicyEvaluation {
+  const state = getFeedbackState(recommendation, policy);
+  const suppressed = state === "not_interested" || state === "suppress";
+  const scoreTrace = buildTrace(recommendation, policy, suppressed);
+
+  if (suppressed) {
+    return Object.freeze({ included: false, scoreTrace });
+  }
+
+  return Object.freeze({
+    included: true,
+    recommendation: Object.freeze({
+      ...recommendation,
+      score: scoreTrace.finalScore,
+      scoreTrace
+    })
+  });
+}
+
+export function evaluateRecommendationCandidates(
+  recommendations: readonly Recommendation[],
+  policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
+): Recommendation[] {
+  const seenTargets = new Set<string>();
+  const included: Recommendation[] = [];
+
+  for (const recommendation of recommendations) {
+    const targetKey = buildRecommendationTargetKey(recommendation.entityType, recommendation.id);
+    if (seenTargets.has(targetKey)) continue;
+    seenTargets.add(targetKey);
+
+    const evaluation = evaluateRecommendationPolicy(recommendation, policy);
+    if (evaluation.included) included.push(evaluation.recommendation);
+  }
+
+  return included;
+}
+
+export function attachRecommendationScoreTrace(
+  recommendation: Recommendation,
+  policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
+): Recommendation {
+  const evaluation = evaluateRecommendationPolicy(recommendation, policy);
+  if (!evaluation.included) {
+    throw new Error("Cannot attach a visible score trace to a hard-suppressed recommendation");
+  }
+  return evaluation.recommendation;
+}
+
+function buildTrace(
+  recommendation: Pick<Recommendation, "id" | "entityType" | "score" | "reasons">,
+  policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">,
+  includeSuppression: boolean
+): RecommendationScoreTrace {
   const baseScore = normalizeFiniteScore(recommendation.score);
-  const reasonContributions = recommendation.reasons.map(buildReasonContribution);
-  const state = policy.stateByTarget[
-    buildRecommendationTargetKey(recommendation.entityType, recommendation.id)
-  ];
-  const contributions: RecommendationScoreTraceContribution[] = [...reasonContributions];
+  const state = getFeedbackState(recommendation, policy);
+  const contributions: RecommendationScoreTraceContribution[] = includeSuppression
+    ? []
+    : recommendation.reasons.map(buildReasonContribution);
 
   if (state === "show_more" || state === "show_less") {
     contributions.push(Object.freeze({
@@ -42,20 +106,19 @@ export function buildRecommendationScoreTrace(
     baseScore,
     finalScore,
     contributions: Object.freeze(contributions),
-    hardSuppressions: Object.freeze([])
+    hardSuppressions: Object.freeze(
+      includeSuppression && state ? [`user_signal:${state}`] : []
+    )
   });
 }
 
-export function attachRecommendationScoreTrace(
-  recommendation: Recommendation,
+function getFeedbackState(
+  recommendation: Pick<Recommendation, "id" | "entityType">,
   policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
-): Recommendation {
-  const scoreTrace = buildRecommendationScoreTrace(recommendation, policy);
-  return Object.freeze({
-    ...recommendation,
-    score: scoreTrace.finalScore,
-    scoreTrace
-  });
+): DiscoveryFeedbackState | undefined {
+  return policy.stateByTarget[
+    buildRecommendationTargetKey(recommendation.entityType, recommendation.id)
+  ];
 }
 
 function buildReasonContribution(
