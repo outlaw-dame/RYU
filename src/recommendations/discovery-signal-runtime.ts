@@ -1,19 +1,31 @@
 import { excludeFromDiscovery } from "../discovery/user-controls";
 import { getDatabase } from "../db/client";
 import type { Recommendation } from "../discovery/types";
-import { migrateLegacyDiscoveryExclusions } from "./legacy-discovery-migration";
+import {
+  migrateLegacyDiscoveryExclusions,
+  type LegacyDiscoveryMigrationOptions,
+  type LegacyDiscoveryMigrationResult
+} from "./legacy-discovery-migration";
+import type { UserRecommendationSignalDoc } from "./user-signal-schema";
 import {
   listUserSignals,
   normalizeUserSignalScope,
   upsertUserSignal,
+  type UserSignalQuery,
   type UserSignalScope
 } from "./user-signal-store";
+import type { UserSignalInput } from "./user-signals";
 
 export type DiscoverySignalRuntimeDependencies = {
-  migrateLegacy?: typeof migrateLegacyDiscoveryExclusions;
-  listSignals?: typeof listUserSignals;
-  writeSignal?: typeof upsertUserSignal;
-  writeLegacyExclusion?: typeof excludeFromDiscovery;
+  migrateLegacy?: (
+    options: LegacyDiscoveryMigrationOptions
+  ) => Promise<LegacyDiscoveryMigrationResult>;
+  listSignals?: (query: UserSignalQuery) => Promise<UserRecommendationSignalDoc[]>;
+  writeSignal?: (
+    input: UserSignalInput,
+    options?: { now?: Date }
+  ) => Promise<UserRecommendationSignalDoc>;
+  writeLegacyExclusion?: (entityId: string) => unknown;
   resolveEntityType?: (entityId: string) => Promise<"author" | "edition" | null>;
 };
 
@@ -39,11 +51,6 @@ export async function loadDiscoveryExclusionIds(
   return [...new Set(signals.map((signal) => signal.entityId))].sort();
 }
 
-/**
- * Immediately preserves the existing local fallback, then writes the durable,
- * account-scoped preference. The recommendation's entity type comes from the
- * generated recommendation object and is never inferred from an untrusted ID.
- */
 export async function recordDiscoveryNotInterested(
   recommendation: Pick<Recommendation, "id" | "entityType">,
   scope: UserSignalScope,
@@ -53,8 +60,6 @@ export async function recordDiscoveryNotInterested(
   const entityId = normalizeRecommendationId(recommendation.id);
   const writeLegacyExclusion = dependencies.writeLegacyExclusion ?? excludeFromDiscovery;
 
-  // Keep the established fallback until the durable path has shipped broadly
-  // and migration telemetry-free verification is complete.
   writeLegacyExclusion(entityId);
 
   await (dependencies.writeSignal ?? upsertUserSignal)({
