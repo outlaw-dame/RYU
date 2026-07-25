@@ -22,8 +22,12 @@ export function DiscoveryFeed({
     loading,
     error,
     enabled,
+    feedbackAvailable,
+    feedbackPendingIds,
+    feedbackErrors,
     setEnabled,
     excludeRecommendation,
+    setRecommendationFeedback,
     reset
   } = useDiscovery({ editionId, limit });
 
@@ -139,6 +143,9 @@ export function DiscoveryFeed({
               key={recommendation.id}
               recommendation={recommendation}
               onDismissRecommendation={excludeRecommendation}
+              onFeedback={feedbackAvailable ? setRecommendationFeedback : undefined}
+              feedbackPending={feedbackPendingIds.has(recommendation.id)}
+              feedbackError={feedbackErrors[recommendation.id] ?? null}
               onSelect={onSelect}
             />
           ))}
