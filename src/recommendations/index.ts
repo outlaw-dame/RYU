@@ -51,6 +51,19 @@ export {
 } from "./discovery-signal-runtime";
 
 export {
+  feedbackDescription,
+  feedbackLabel,
+  getRecommendationFeedbackState,
+  listRecommendationFeedbackOptions,
+  RECOMMENDATION_FEEDBACK_STATES,
+  setRecommendationFeedbackState,
+  type RecommendationFeedbackDependencies,
+  type RecommendationFeedbackResult,
+  type RecommendationFeedbackState,
+  type RecommendationFeedbackTarget
+} from "./recommendation-feedback";
+
+export {
   getReviewerTrustState,
   REVIEWER_TRUST_STATES,
   reviewerTrustEffect,
