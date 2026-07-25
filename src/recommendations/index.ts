@@ -20,3 +20,25 @@ export {
   selectEffectiveUserSignal,
   type UserSignalInput
 } from "./user-signals";
+
+export {
+  buildUserSignalSelector,
+  listUserSignals,
+  normalizeUserSignalScope,
+  removeUserSignal,
+  resetInferredUserSignals,
+  upsertUserSignal,
+  UserSignalStoreError,
+  type UserSignalPersistenceAdapter,
+  type UserSignalQuery,
+  type UserSignalScope
+} from "./user-signal-store";
+
+export {
+  buildMigrationMarkerKey,
+  LEGACY_DISCOVERY_CONTROLS_STORAGE_KEY,
+  migrateLegacyDiscoveryExclusions,
+  type LegacyDiscoveryEntityResolver,
+  type LegacyDiscoveryMigrationOptions,
+  type LegacyDiscoveryMigrationResult
+} from "./legacy-discovery-migration";
