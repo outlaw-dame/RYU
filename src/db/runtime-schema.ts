@@ -1,4 +1,4 @@
-import { userRecommendationSignalsCollection } from '../recommendations/user-signal-rxdb';
+import { userRecommendationSignalsCollection } from '../recommendations/user-signal-schema';
 import { collections as baseCollections } from './schema';
 import { CURRENT_SCHEMA_VERSION } from './runtime-schema-version';
 
@@ -30,9 +30,21 @@ function upgrade(collection: BaseCollection): RuntimeCollection {
 
 const entries = Object.entries(baseCollections).map(([name, collection]) => [name, upgrade(collection)]);
 
+const runtimeUserRecommendationSignalsCollection = {
+  ...userRecommendationSignalsCollection,
+  schema: {
+    ...userRecommendationSignalsCollection.schema,
+    version: CURRENT_SCHEMA_VERSION
+  },
+  migrationStrategies: {
+    1: passThrough,
+    [CURRENT_SCHEMA_VERSION]: passThrough
+  }
+} as const;
+
 export const collections = {
   ...Object.fromEntries(entries),
-  userrecommendationsignals: userRecommendationSignalsCollection
+  userrecommendationsignals: runtimeUserRecommendationSignalsCollection
 } as Record<keyof typeof baseCollections, RuntimeCollection> & {
-  userrecommendationsignals: typeof userRecommendationSignalsCollection;
+  userrecommendationsignals: typeof runtimeUserRecommendationSignalsCollection;
 };
