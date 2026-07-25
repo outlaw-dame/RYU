@@ -1,13 +1,15 @@
 /**
  * Phase 34 - RecommendationCard component.
  *
- * Renders a single recommendation with its explanation and dismiss action.
+ * Renders a single recommendation with its explanation and user controls.
  */
 
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { buildPrimaryExplanation } from "../../discovery/explanation-builder";
 import type { Recommendation } from "../../discovery/types";
+import type { RecommendationFeedbackState } from "../../recommendations";
+import { RecommendationFeedbackMenu } from "./RecommendationFeedbackMenu";
 
 export type RecommendationCardProps = {
   recommendation: Recommendation;
@@ -15,6 +17,12 @@ export type RecommendationCardProps = {
   onDismiss?: (id: string) => void;
   /** Preferred callback carrying the validated recommendation entity type. */
   onDismissRecommendation?: (recommendation: Recommendation) => void;
+  onFeedback?: (
+    recommendation: Recommendation,
+    state: RecommendationFeedbackState
+  ) => void | Promise<void>;
+  feedbackPending?: boolean;
+  feedbackError?: string | null;
   onSelect?: (id: string) => void;
 };
 
@@ -22,6 +30,9 @@ export function RecommendationCard({
   recommendation,
   onDismiss,
   onDismissRecommendation,
+  onFeedback,
+  feedbackPending = false,
+  feedbackError = null,
   onSelect
 }: RecommendationCardProps) {
   const { t } = useTranslation();
@@ -32,6 +43,7 @@ export function RecommendationCard({
     <div
       role="article"
       style={{
+        position: "relative",
         display: "grid",
         gridTemplateColumns: recommendation.coverUrl ? "56px 1fr auto" : "1fr auto",
         gap: "var(--space-3)",
@@ -99,31 +111,41 @@ export function RecommendationCard({
         </p>
       </div>
 
-      {canDismiss && (
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (onDismissRecommendation) {
-              onDismissRecommendation(recommendation);
-            } else {
-              onDismiss?.(recommendation.id);
-            }
-          }}
-          aria-label={t("discovery.dismiss")}
-          style={{
-            border: "none",
-            background: "none",
-            color: "var(--color-text-tertiary)",
-            fontSize: "var(--text-caption1)",
-            cursor: "pointer",
-            padding: "var(--space-1)",
-            borderRadius: "var(--radius-sm)"
-          }}
-        >
-          &times;
-        </button>
-      )}
+      <div style={{ display: "grid", justifyItems: "end", gap: "var(--space-1)" }}>
+        {onFeedback && (
+          <RecommendationFeedbackMenu
+            pending={feedbackPending}
+            error={feedbackError}
+            onSelect={(state) => onFeedback(recommendation, state)}
+          />
+        )}
+
+        {!onFeedback && canDismiss && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              if (onDismissRecommendation) {
+                onDismissRecommendation(recommendation);
+              } else {
+                onDismiss?.(recommendation.id);
+              }
+            }}
+            aria-label={t("discovery.dismiss")}
+            style={{
+              border: "none",
+              background: "none",
+              color: "var(--color-text-tertiary)",
+              fontSize: "var(--text-caption1)",
+              cursor: "pointer",
+              padding: "var(--space-1)",
+              borderRadius: "var(--radius-sm)"
+            }}
+          >
+            &times;
+          </button>
+        )}
+      </div>
     </div>
   );
 }
