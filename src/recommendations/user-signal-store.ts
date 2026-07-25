@@ -1,4 +1,3 @@
-import type { RxDocument } from "rxdb";
 import { getDatabase, type RyuDatabase } from "../db/client";
 import type {
   UserRecommendationSignalDoc,
@@ -34,8 +33,11 @@ export class UserSignalStoreError extends Error {
   }
 }
 
-type UserSignalDocument = RxDocument<UserRecommendationSignalDoc>;
 type UserSignalCollection = RyuDatabase["userrecommendationsignals"];
+type ScopedUserSignalDocument = {
+  ownerAccountId: string;
+  instanceOrigin: string;
+};
 
 export async function upsertUserSignal(
   input: UserSignalInput,
@@ -65,7 +67,7 @@ export async function listUserSignals(
   const collection = await getCollection(database);
 
   try {
-    const documents = await collection.find({ selector }).exec();
+    const documents = await collection.find({ selector: selector as never }).exec();
     return documents.map((document) => document.toJSON() as UserRecommendationSignalDoc);
   } catch (cause) {
     throw new UserSignalStoreError(
@@ -117,7 +119,7 @@ export async function resetInferredUserSignals(
   const collection = await getCollection(database);
 
   try {
-    const documents = await collection.find({ selector }).exec();
+    const documents = await collection.find({ selector: selector as never }).exec();
     await Promise.all(documents.map((document) => document.incrementalRemove()));
     return documents.length;
   } catch (cause) {
@@ -165,7 +167,7 @@ async function getCollection(database?: RyuDatabase): Promise<UserSignalCollecti
 }
 
 function documentMatchesScope(
-  document: UserSignalDocument,
+  document: ScopedUserSignalDocument,
   scope: UserSignalScope
 ): boolean {
   return document.ownerAccountId === scope.ownerAccountId
