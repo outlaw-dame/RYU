@@ -130,6 +130,48 @@ describe("recommendation feedback controls", () => {
     expect(result).toEqual({ state: "neutral", persistedSignal: null, removedSignalCount: 1 });
   });
 
+  it("serializes overlapping updates for the same scoped target", async () => {
+    const records = new Map<string, UserRecommendationSignalDoc>();
+    let releaseFirstWrite!: () => void;
+    const firstWriteGate = new Promise<void>((resolve) => { releaseFirstWrite = resolve; });
+    const events: string[] = [];
+
+    const dependencies = {
+      listSignals: vi.fn(async () => [...records.values()]),
+      writeSignal: vi.fn(async (input) => {
+        events.push(`write:${input.signalType}`);
+        if (input.signalType === "suppress") await firstWriteGate;
+        const record = signal(`signal-${input.signalType}`, input.signalType, {
+          strength: input.strength
+        });
+        records.set(record.id, record);
+        return record;
+      }),
+      removeSignal: vi.fn(async (id: string) => records.delete(id))
+    };
+
+    const suppressing = setRecommendationFeedbackState(
+      { id: "edition-1", entityType: "edition" },
+      scope,
+      "suppress",
+      dependencies
+    );
+    await Promise.resolve();
+    const showingMore = setRecommendationFeedbackState(
+      { id: "edition-1", entityType: "edition" },
+      scope,
+      "show_more",
+      dependencies
+    );
+
+    expect(events).toEqual(["write:suppress"]);
+    releaseFirstWrite();
+    await Promise.all([suppressing, showingMore]);
+
+    expect(events).toEqual(["write:suppress", "write:show_more"]);
+    expect([...records.values()].map((record) => record.signalType)).toEqual(["show_more"]);
+  });
+
   it("rejects invalid targets before persistence", async () => {
     const listSignals = vi.fn();
 
