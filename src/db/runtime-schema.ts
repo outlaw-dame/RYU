@@ -28,7 +28,9 @@ function upgrade(collection: BaseCollection): RuntimeCollection {
   };
 }
 
-const entries = Object.entries(baseCollections).map(([name, collection]) => [name, upgrade(collection)]);
+const upgradedBaseCollections = Object.fromEntries(
+  Object.entries(baseCollections).map(([name, collection]) => [name, upgrade(collection)])
+) as Record<keyof typeof baseCollections, RuntimeCollection>;
 
 const runtimeUserRecommendationSignalsCollection = {
   ...userRecommendationSignalsCollection,
@@ -43,8 +45,6 @@ const runtimeUserRecommendationSignalsCollection = {
 } as const;
 
 export const collections = {
-  ...Object.fromEntries(entries),
+  ...upgradedBaseCollections,
   userrecommendationsignals: runtimeUserRecommendationSignalsCollection
-} as Record<keyof typeof baseCollections, RuntimeCollection> & {
-  userrecommendationsignals: typeof runtimeUserRecommendationSignalsCollection;
 };
