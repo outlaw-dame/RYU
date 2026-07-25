@@ -22,6 +22,10 @@ import {
   loadDiscoveryExclusionIds,
   recordDiscoveryNotInterested
 } from "../recommendations/discovery-signal-runtime";
+import {
+  setRecommendationFeedbackState,
+  type RecommendationFeedbackState
+} from "../recommendations/recommendation-feedback";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
 
@@ -46,6 +50,10 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [version, setVersion] = useState(0);
+  const [feedbackPendingIds, setFeedbackPendingIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [feedbackErrors, setFeedbackErrors] = useState<Readonly<Record<string, string>>>(() => ({}));
 
   const controls = useMemo(() => getDiscoveryControls(), [version]);
   const userSignalScope = useMemo(
@@ -69,8 +77,6 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         try {
           durableExcludedIds = await loadDiscoveryExclusionIds(userSignalScope);
         } catch {
-          // Local persistence is additive at this stage. Continue with the
-          // established localStorage controls rather than breaking discovery.
           durableExcludedIds = [];
         }
       }
@@ -148,6 +154,50 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     });
   }, [userSignalScope]);
 
+  const setRecommendationFeedback = useCallback(async (
+    recommendation: Recommendation,
+    state: RecommendationFeedbackState
+  ): Promise<void> => {
+    if (!userSignalScope) {
+      if (state === "not_interested") {
+        excludeRecommendation(recommendation);
+        return;
+      }
+      setFeedbackErrors((current) => ({
+        ...current,
+        [recommendation.id]: "Sign in to save this recommendation preference."
+      }));
+      return;
+    }
+
+    setFeedbackPendingIds((current) => new Set(current).add(recommendation.id));
+    setFeedbackErrors((current) => {
+      const next = { ...current };
+      delete next[recommendation.id];
+      return next;
+    });
+
+    try {
+      await setRecommendationFeedbackState(recommendation, userSignalScope, state);
+      if (state === "not_interested" || state === "suppress") {
+        setRecommendations((current) => current.filter((item) => item.id !== recommendation.id));
+      } else {
+        setVersion((value) => value + 1);
+      }
+    } catch {
+      setFeedbackErrors((current) => ({
+        ...current,
+        [recommendation.id]: "Could not save this preference. Try again."
+      }));
+    } finally {
+      setFeedbackPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(recommendation.id);
+        return next;
+      });
+    }
+  }, [excludeRecommendation, userSignalScope]);
+
   const reset = useCallback(() => {
     resetDiscoveryControls();
     setVersion((value) => value + 1);
@@ -158,10 +208,14 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     loading,
     error,
     enabled: controls.enabled,
+    feedbackAvailable: Boolean(userSignalScope),
+    feedbackPendingIds,
+    feedbackErrors,
     refresh,
     setEnabled,
     excludeItem,
     excludeRecommendation,
+    setRecommendationFeedback,
     reset
   };
 }
