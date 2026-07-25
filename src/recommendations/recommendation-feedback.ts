@@ -69,7 +69,7 @@ export async function getRecommendationFeedbackState(
 
   const activeTypes = new Set(
     signals
-      .filter((signal) => FEEDBACK_SIGNAL_TYPES.includes(signal.signalType as typeof FEEDBACK_SIGNAL_TYPES[number]))
+      .filter((signal) => signalMatchesFeedbackTarget(signal, canonicalScope, canonicalTarget))
       .filter((signal) => !signal.expiresAt || Date.parse(signal.expiresAt) > Date.now())
       .map((signal) => signal.signalType)
   );
@@ -99,7 +99,7 @@ export async function setRecommendationFeedbackState(
     provenance: "user_explicit"
   });
   const feedbackSignals = existing.filter((signal) =>
-    FEEDBACK_SIGNAL_TYPES.includes(signal.signalType as typeof FEEDBACK_SIGNAL_TYPES[number])
+    signalMatchesFeedbackTarget(signal, canonicalScope, canonicalTarget)
   );
 
   if (state === "neutral") {
@@ -177,6 +177,21 @@ export function feedbackDescription(state: RecommendationFeedbackState): string 
     case "neutral":
       return "Remove explicit recommendation feedback for this entity.";
   }
+}
+
+function signalMatchesFeedbackTarget(
+  signal: UserRecommendationSignalDoc,
+  scope: UserSignalScope,
+  target: RecommendationFeedbackTarget
+): boolean {
+  return signal.ownerAccountId === scope.ownerAccountId
+    && signal.instanceOrigin === scope.instanceOrigin
+    && signal.entityType === target.entityType
+    && signal.entityId === target.id
+    && signal.provenance === "user_explicit"
+    && FEEDBACK_SIGNAL_TYPES.includes(
+      signal.signalType as typeof FEEDBACK_SIGNAL_TYPES[number]
+    );
 }
 
 function normalizeTarget(target: RecommendationFeedbackTarget): RecommendationFeedbackTarget {
