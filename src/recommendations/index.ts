@@ -60,3 +60,13 @@ export {
   type ReviewerTrustEffect,
   type ReviewerTrustState
 } from "./reviewer-trust";
+
+export {
+  applyReviewerTrustRanking,
+  loadReviewerTrustStateMap,
+  type ReviewerAttributedCandidate,
+  type ReviewerTrustExplanation,
+  type ReviewerTrustRankedCandidate,
+  type ReviewerTrustRankingDependencies,
+  type ReviewerTrustStateMap
+} from "./reviewer-trust-ranking";
