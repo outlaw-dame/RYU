@@ -156,15 +156,17 @@ describe("recommendation feedback controls", () => {
       "suppress",
       dependencies
     );
-    await Promise.resolve();
+    await vi.waitFor(() => expect(events).toEqual(["write:suppress"]));
+
     const showingMore = setRecommendationFeedbackState(
       { id: "edition-1", entityType: "edition" },
       scope,
       "show_more",
       dependencies
     );
-
+    await Promise.resolve();
     expect(events).toEqual(["write:suppress"]);
+
     releaseFirstWrite();
     await Promise.all([suppressing, showingMore]);
 
