@@ -1,5 +1,6 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { recommendationFeedbackResources } from "./recommendation-feedback-resources";
 import { resources, supportedLanguages, type SupportedLanguage } from "./resources";
 
 const STORAGE_KEY = "ryu.language";
@@ -32,6 +33,17 @@ void i18n
     fallbackLng: "en",
     interpolation: {
       escapeValue: false
+    }
+  })
+  .then(() => {
+    for (const language of supportedLanguages) {
+      i18n.addResourceBundle(
+        language,
+        "translation",
+        recommendationFeedbackResources[language].translation,
+        true,
+        true
+      );
     }
   });
 
