@@ -72,6 +72,7 @@ export {
 export {
   attachRecommendationScoreTrace,
   buildRecommendationScoreTrace,
+  evaluateRecommendationCandidates,
   evaluateRecommendationPolicy,
   type RecommendationPolicyEvaluation
 } from "./recommendation-score-trace";
