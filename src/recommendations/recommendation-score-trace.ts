@@ -46,6 +46,25 @@ export function evaluateRecommendationPolicy(
   });
 }
 
+export function evaluateRecommendationCandidates(
+  recommendations: readonly Recommendation[],
+  policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
+): Recommendation[] {
+  const seenTargets = new Set<string>();
+  const included: Recommendation[] = [];
+
+  for (const recommendation of recommendations) {
+    const targetKey = buildRecommendationTargetKey(recommendation.entityType, recommendation.id);
+    if (seenTargets.has(targetKey)) continue;
+    seenTargets.add(targetKey);
+
+    const evaluation = evaluateRecommendationPolicy(recommendation, policy);
+    if (evaluation.included) included.push(evaluation.recommendation);
+  }
+
+  return included;
+}
+
 export function attachRecommendationScoreTrace(
   recommendation: Recommendation,
   policy: Pick<DiscoveryFeedbackPolicy, "stateByTarget">
@@ -63,9 +82,10 @@ function buildTrace(
   includeSuppression: boolean
 ): RecommendationScoreTrace {
   const baseScore = normalizeFiniteScore(recommendation.score);
-  const reasonContributions = recommendation.reasons.map(buildReasonContribution);
   const state = getFeedbackState(recommendation, policy);
-  const contributions: RecommendationScoreTraceContribution[] = [...reasonContributions];
+  const contributions: RecommendationScoreTraceContribution[] = includeSuppression
+    ? []
+    : recommendation.reasons.map(buildReasonContribution);
 
   if (state === "show_more" || state === "show_less") {
     contributions.push(Object.freeze({
