@@ -52,6 +52,7 @@ export function createReviewerTrustManager(
 
   let disposed = false;
   let operationRevision = 0;
+  let queuedMutationCount = 0;
   let mutationQueue: Promise<void> = Promise.resolve();
   let snapshot: ReviewerTrustManagementSnapshot = Object.freeze({
     reviewerAccountId: normalizedReviewerAccountId,
@@ -72,10 +73,12 @@ export function createReviewerTrustManager(
   async function load(): Promise<ReviewerTrustManagementSnapshot> {
     assertActive(disposed);
 
-    // A load requested while a mutation is in flight must observe the mutation's
-    // persisted result rather than invalidating or overwriting that write.
-    await mutationQueue;
-    assertActive(disposed);
+    // Preserve the original synchronous start when no mutation is queued, while
+    // ensuring a load requested during a write observes the persisted result.
+    if (queuedMutationCount > 0) {
+      await mutationQueue;
+      assertActive(disposed);
+    }
 
     const revision = ++operationRevision;
     publish({ ...snapshot, status: "loading", error: null, revision });
@@ -108,6 +111,7 @@ export function createReviewerTrustManager(
 
     const requestedState = nextState;
     let result: ReviewerTrustManagementSnapshot = snapshot;
+    queuedMutationCount += 1;
     const queued = mutationQueue.then(async () => {
       assertActive(disposed);
       const revision = ++operationRevision;
@@ -150,10 +154,14 @@ export function createReviewerTrustManager(
           error: toError(cause),
           revision
         });
+      } finally {
+        queuedMutationCount -= 1;
       }
     });
 
-    mutationQueue = queued.catch(() => undefined);
+    mutationQueue = queued.catch(() => {
+      queuedMutationCount = Math.max(0, queuedMutationCount - 1);
+    });
     await queued;
     return result;
   }
