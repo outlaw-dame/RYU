@@ -1,8 +1,6 @@
-import { userRecommendationSignalsCollection } from '../recommendations/user-signal-schema';
 import { collections as baseCollections } from './schema';
-import { CURRENT_SCHEMA_VERSION } from './runtime-schema-version';
 
-export { CURRENT_SCHEMA_VERSION } from './runtime-schema-version';
+export const CURRENT_SCHEMA_VERSION = 2;
 
 type BaseCollection = (typeof baseCollections)[keyof typeof baseCollections];
 type RuntimeCollection = Omit<BaseCollection, 'schema' | 'migrationStrategies'> & {
@@ -28,23 +26,6 @@ function upgrade(collection: BaseCollection): RuntimeCollection {
   };
 }
 
-const upgradedBaseCollections = Object.fromEntries(
-  Object.entries(baseCollections).map(([name, collection]) => [name, upgrade(collection)])
-) as Record<keyof typeof baseCollections, RuntimeCollection>;
+const entries = Object.entries(baseCollections).map(([name, collection]) => [name, upgrade(collection)]);
 
-const runtimeUserRecommendationSignalsCollection = {
-  ...userRecommendationSignalsCollection,
-  schema: {
-    ...userRecommendationSignalsCollection.schema,
-    version: CURRENT_SCHEMA_VERSION
-  },
-  migrationStrategies: {
-    1: passThrough,
-    [CURRENT_SCHEMA_VERSION]: passThrough
-  }
-} as const;
-
-export const collections = {
-  ...upgradedBaseCollections,
-  userrecommendationsignals: runtimeUserRecommendationSignalsCollection
-};
+export const collections = Object.fromEntries(entries) as Record<keyof typeof baseCollections, RuntimeCollection>;
