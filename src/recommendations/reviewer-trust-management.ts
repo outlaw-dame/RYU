@@ -8,14 +8,14 @@ import type { UserSignalScope } from "./user-signal-store";
 
 export type ReviewerTrustManagementStatus = "idle" | "loading" | "ready" | "saving" | "error";
 
-export type ReviewerTrustManagementSnapshot = {
+export type ReviewerTrustManagementSnapshot = Readonly<{
   reviewerAccountId: string;
   state: ReviewerTrustState;
   persistedState: ReviewerTrustState;
   status: ReviewerTrustManagementStatus;
   error: Error | null;
   revision: number;
-};
+}>;
 
 export type ReviewerTrustManagementDependencies = {
   readState?: (
@@ -53,14 +53,14 @@ export function createReviewerTrustManager(
   let disposed = false;
   let operationRevision = 0;
   let mutationQueue: Promise<void> = Promise.resolve();
-  let snapshot: ReviewerTrustManagementSnapshot = {
+  let snapshot: ReviewerTrustManagementSnapshot = Object.freeze({
     reviewerAccountId: normalizedReviewerAccountId,
     state: "neutral",
     persistedState: "neutral",
     status: "idle",
     error: null,
     revision: 0
-  };
+  });
 
   function publish(next: ReviewerTrustManagementSnapshot): ReviewerTrustManagementSnapshot {
     if (disposed) return snapshot;
@@ -71,6 +71,12 @@ export function createReviewerTrustManager(
 
   async function load(): Promise<ReviewerTrustManagementSnapshot> {
     assertActive(disposed);
+
+    // A load requested while a mutation is in flight must observe the mutation's
+    // persisted result rather than invalidating or overwriting that write.
+    await mutationQueue;
+    assertActive(disposed);
+
     const revision = ++operationRevision;
     publish({ ...snapshot, status: "loading", error: null, revision });
 
