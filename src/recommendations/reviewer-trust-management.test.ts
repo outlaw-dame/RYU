@@ -33,6 +33,21 @@ describe("reviewer trust management", () => {
     expect(listener).toHaveBeenLastCalledWith(expect.objectContaining({ state: "trusted" }));
   });
 
+  it("freezes the initial snapshot exposed before the first operation", () => {
+    const manager = createReviewerTrustManager(scope, "reviewer-initial");
+    const initial = manager.getSnapshot();
+    const listener = vi.fn();
+
+    manager.subscribe(listener);
+
+    expect(Object.isFrozen(initial)).toBe(true);
+    expect(listener).toHaveBeenCalledWith(initial);
+    expect(() => {
+      (initial as { persistedState: string }).persistedState = "blocked";
+    }).toThrow();
+    expect(manager.getSnapshot().persistedState).toBe("neutral");
+  });
+
   it("optimistically publishes and rolls back failed writes", async () => {
     let rejectWrite!: (error: Error) => void;
     const writeState = vi.fn(() => new Promise<"blocked">((_, reject) => {
@@ -100,6 +115,41 @@ describe("reviewer trust management", () => {
     await loading;
 
     expect(manager.getSnapshot()).toMatchObject({ state: "blocked", persistedState: "blocked" });
+  });
+
+  it("waits for an in-flight write before loading persisted state", async () => {
+    let resolveWrite!: (state: "trusted") => void;
+    let persistedState: "neutral" | "trusted" = "neutral";
+    const readState = vi.fn(async () => persistedState);
+    const writeState = vi.fn(() => new Promise<"trusted">((resolve) => {
+      resolveWrite = (state) => {
+        persistedState = state;
+        resolve(state);
+      };
+    }));
+    const manager = createReviewerTrustManager(scope, "reviewer-overlap", {
+      readState,
+      writeState
+    });
+
+    const saving = manager.setState("trusted");
+    await Promise.resolve();
+    const loading = manager.load();
+
+    expect(readState).not.toHaveBeenCalled();
+    resolveWrite("trusted");
+
+    await expect(saving).resolves.toMatchObject({
+      status: "ready",
+      state: "trusted",
+      persistedState: "trusted"
+    });
+    await expect(loading).resolves.toMatchObject({
+      status: "ready",
+      state: "trusted",
+      persistedState: "trusted"
+    });
+    expect(readState).toHaveBeenCalledTimes(1);
   });
 
   it("does not notify after disposal and rejects further actions", async () => {
