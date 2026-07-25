@@ -42,3 +42,10 @@ export {
   type LegacyDiscoveryMigrationOptions,
   type LegacyDiscoveryMigrationResult
 } from "./legacy-discovery-migration";
+
+export {
+  buildUserSignalScopeFromSession,
+  loadDiscoveryExclusionIds,
+  recordDiscoveryNotInterested,
+  type DiscoverySignalRuntimeDependencies
+} from "./discovery-signal-runtime";

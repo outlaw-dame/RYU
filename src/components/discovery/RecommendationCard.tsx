@@ -11,17 +11,22 @@ import type { Recommendation } from "../../discovery/types";
 
 export type RecommendationCardProps = {
   recommendation: Recommendation;
+  /** Legacy ID-only callback retained for compatibility. */
   onDismiss?: (id: string) => void;
+  /** Preferred callback carrying the validated recommendation entity type. */
+  onDismissRecommendation?: (recommendation: Recommendation) => void;
   onSelect?: (id: string) => void;
 };
 
 export function RecommendationCard({
   recommendation,
   onDismiss,
+  onDismissRecommendation,
   onSelect
 }: RecommendationCardProps) {
   const { t } = useTranslation();
   const explanation = buildPrimaryExplanation(recommendation.reasons);
+  const canDismiss = Boolean(onDismissRecommendation || onDismiss);
 
   return (
     <div
@@ -38,7 +43,6 @@ export function RecommendationCard({
       }}
       onClick={() => onSelect?.(recommendation.id)}
     >
-      {/* Cover image */}
       {recommendation.coverUrl && (
         <img
           src={recommendation.coverUrl}
@@ -52,7 +56,6 @@ export function RecommendationCard({
         />
       )}
 
-      {/* Content */}
       <div style={{ minWidth: 0 }}>
         <p
           style={{
@@ -96,13 +99,16 @@ export function RecommendationCard({
         </p>
       </div>
 
-      {/* Dismiss button */}
-      {onDismiss && (
+      {canDismiss && (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(recommendation.id);
+          onClick={(event) => {
+            event.stopPropagation();
+            if (onDismissRecommendation) {
+              onDismissRecommendation(recommendation);
+            } else {
+              onDismiss?.(recommendation.id);
+            }
           }}
           aria-label={t("discovery.dismiss")}
           style={{
