@@ -14,7 +14,8 @@ import {
   buildUserSignalScopeFromSession,
   loadDiscoveryFeedbackPolicy,
   recordDiscoveryNotInterested,
-  resetHiddenDiscoveryFeedback
+  resetHiddenDiscoveryFeedback,
+  type DiscoveryFeedbackPolicy
 } from "../recommendations/discovery-signal-runtime";
 import {
   setRecommendationFeedbackState,
@@ -22,6 +23,11 @@ import {
 } from "../recommendations/recommendation-feedback";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
+
+const EMPTY_FEEDBACK_POLICY: DiscoveryFeedbackPolicy = Object.freeze({
+  excludedIds: Object.freeze([]),
+  stateByTarget: Object.freeze({})
+});
 
 export type DiscoveryState = {
   recommendations: Recommendation[];
@@ -68,18 +74,12 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     setError(null);
 
     try {
-      let durablePolicy = Object.freeze({
-        excludedIds: Object.freeze([] as string[]),
-        stateByTarget: Object.freeze({} as Record<string, never>)
-      });
+      let durablePolicy: DiscoveryFeedbackPolicy = EMPTY_FEEDBACK_POLICY;
       if (userSignalScope) {
         try {
           durablePolicy = await loadDiscoveryFeedbackPolicy(userSignalScope);
         } catch {
-          durablePolicy = Object.freeze({
-            excludedIds: Object.freeze([] as string[]),
-            stateByTarget: Object.freeze({} as Record<string, never>)
-          });
+          durablePolicy = EMPTY_FEEDBACK_POLICY;
         }
       }
 
