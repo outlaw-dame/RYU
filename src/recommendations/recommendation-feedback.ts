@@ -53,6 +53,8 @@ const FEEDBACK_PRECEDENCE: readonly RecommendationFeedbackState[] = [
   "neutral"
 ];
 
+const feedbackMutationQueues = new Map<string, Promise<void>>();
+
 export async function getRecommendationFeedbackState(
   target: RecommendationFeedbackTarget,
   scope: UserSignalScope,
@@ -88,23 +90,51 @@ export async function setRecommendationFeedbackState(
   const canonicalTarget = normalizeTarget(target);
   assertFeedbackState(state);
 
+  const queueKey = buildFeedbackQueueKey(canonicalScope, canonicalTarget);
+  const previous = feedbackMutationQueues.get(queueKey) ?? Promise.resolve();
+  const operation = previous
+    .catch(() => undefined)
+    .then(() => performFeedbackMutation(
+      canonicalTarget,
+      canonicalScope,
+      state,
+      dependencies
+    ));
+  const tail = operation.then(() => undefined, () => undefined);
+  feedbackMutationQueues.set(queueKey, tail);
+
+  try {
+    return await operation;
+  } finally {
+    if (feedbackMutationQueues.get(queueKey) === tail) {
+      feedbackMutationQueues.delete(queueKey);
+    }
+  }
+}
+
+async function performFeedbackMutation(
+  target: RecommendationFeedbackTarget,
+  scope: UserSignalScope,
+  state: RecommendationFeedbackState,
+  dependencies: RecommendationFeedbackDependencies
+): Promise<RecommendationFeedbackResult> {
   const listSignals = dependencies.listSignals ?? listUserSignals;
   const writeSignal = dependencies.writeSignal ?? ((input) => upsertUserSignal(input));
   const removeSignal = dependencies.removeSignal ?? removeUserSignal;
 
   const existing = await listSignals({
-    ...canonicalScope,
-    entityType: canonicalTarget.entityType,
-    entityId: canonicalTarget.id,
+    ...scope,
+    entityType: target.entityType,
+    entityId: target.id,
     provenance: "user_explicit"
   });
   const feedbackSignals = existing.filter((signal) =>
-    signalMatchesFeedbackTarget(signal, canonicalScope, canonicalTarget)
+    signalMatchesFeedbackTarget(signal, scope, target)
   );
 
   if (state === "neutral") {
     const removals = await Promise.all(
-      feedbackSignals.map((signal) => removeSignal(signal.id, canonicalScope))
+      feedbackSignals.map((signal) => removeSignal(signal.id, scope))
     );
     return Object.freeze({
       state,
@@ -117,9 +147,9 @@ export async function setRecommendationFeedbackState(
   // older suppressive records remain effective rather than silently relaxing
   // a user's previous protection.
   const persistedSignal = await writeSignal({
-    ...canonicalScope,
-    entityType: canonicalTarget.entityType,
-    entityId: canonicalTarget.id,
+    ...scope,
+    entityType: target.entityType,
+    entityId: target.id,
     signalType: state,
     strength: feedbackStrength(state),
     provenance: "user_explicit",
@@ -130,7 +160,7 @@ export async function setRecommendationFeedbackState(
     signal.signalType !== state && signal.id !== persistedSignal.id
   );
   const removals = await Promise.all(
-    conflictingSignals.map((signal) => removeSignal(signal.id, canonicalScope))
+    conflictingSignals.map((signal) => removeSignal(signal.id, scope))
   );
 
   return Object.freeze({
@@ -192,6 +222,18 @@ function signalMatchesFeedbackTarget(
     && FEEDBACK_SIGNAL_TYPES.includes(
       signal.signalType as typeof FEEDBACK_SIGNAL_TYPES[number]
     );
+}
+
+function buildFeedbackQueueKey(
+  scope: UserSignalScope,
+  target: RecommendationFeedbackTarget
+): string {
+  return JSON.stringify([
+    scope.ownerAccountId,
+    scope.instanceOrigin,
+    target.entityType,
+    target.id
+  ]);
 }
 
 function normalizeTarget(target: RecommendationFeedbackTarget): RecommendationFeedbackTarget {
