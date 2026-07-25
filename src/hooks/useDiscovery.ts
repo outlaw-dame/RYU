@@ -134,17 +134,18 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   }, []);
 
   const excludeRecommendation = useCallback((recommendation: Recommendation) => {
-    // Preserve immediate UI response and the established local fallback.
-    excludeFromDiscoveryFn(recommendation.id);
     setRecommendations((previous) => previous.filter((item) => item.id !== recommendation.id));
     setVersion((value) => value + 1);
 
-    if (userSignalScope) {
-      void recordDiscoveryNotInterested(recommendation, userSignalScope).catch(() => {
-        // Legacy persistence already succeeded. A later refresh retries the
-        // migration/durable path without exposing private preference content.
-      });
+    if (!userSignalScope) {
+      excludeFromDiscoveryFn(recommendation.id);
+      return;
     }
+
+    void recordDiscoveryNotInterested(recommendation, userSignalScope).catch(() => {
+      // The runtime writes the legacy fallback before durable persistence, so
+      // this remains recoverable and a future refresh can retry migration.
+    });
   }, [userSignalScope]);
 
   const reset = useCallback(() => {
