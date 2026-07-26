@@ -5,7 +5,7 @@ import type { PolicyDecision } from "../../moderation/policy-types";
 export type ModerationInterventionGateProps = {
   decision: PolicyDecision;
   children: ReactNode;
-  /** Stable identity for the moderated content version, such as status.updated_at. */
+  /** Stable identity for the moderated content version, when the caller has one. */
   contentIdentity?: string;
 };
 
@@ -30,11 +30,13 @@ export function ModerationInterventionGate({
     contentIdentity
   }), [contentIdentity, decision]);
 
-  // A reveal grants access only to the exact moderated version the user chose.
-  // Edited content or a newly applicable policy must require a fresh reveal.
+  // A reveal grants access only to the exact rendered content and policy result.
+  // Parent refreshes, edits, or reclassification create a new child/identity and
+  // therefore require a fresh explicit reveal. Resetting conservatively is safer
+  // than carrying permission across content versions.
   useEffect(() => {
     setRevealed(false);
-  }, [decisionIdentity]);
+  }, [children, decisionIdentity]);
 
   if (decision.action === "show") return <>{children}</>;
   if (decision.action === "hide") return null;
