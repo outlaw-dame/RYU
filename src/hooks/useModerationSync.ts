@@ -7,11 +7,14 @@ import { startModerationReplayCoordinator } from "../moderation/sync-service";
 
 export type ModerationSyncStatus = "disconnected" | "ready";
 
+type MuteSnapshot = { notifications: boolean; durationSeconds?: number };
+type FilterSnapshot = { phrase: string; wholeWord: boolean; action: "hide" | "warn" | "blur"; durationSeconds?: number };
+
 type Snapshot = {
-  mutes: Map<string, { notifications: boolean; durationSeconds?: number }>;
+  mutes: Map<string, MuteSnapshot>;
   blocks: Set<string>;
   domains: Set<string>;
-  filters: Map<string, { phrase: string; wholeWord: boolean; action: "hide" | "warn" | "blur"; durationSeconds?: number }>;
+  filters: Map<string, FilterSnapshot>;
 };
 
 function secondsUntil(expiresAt?: string): number | undefined {
@@ -30,20 +33,25 @@ export function useModerationSync(): ModerationSyncStatus {
   const moderation = useModeration();
   const previous = useRef<Snapshot | null>(null);
 
-  const snapshot = useMemo<Snapshot>(() => ({
-    mutes: new Map(moderation.muteList.map((entry) => [entry.accountId, {
+  const snapshot = useMemo<Snapshot>(() => {
+    const mutes = new Map<string, MuteSnapshot>(moderation.muteList.map((entry) => [entry.accountId, {
       notifications: entry.hideNotifications ?? true,
       durationSeconds: secondsUntil(entry.expiresAt)
-    }])),
-    blocks: new Set(moderation.blockList.map((entry) => entry.accountId)),
-    domains: new Set(moderation.domainBlockList.map((entry) => entry.domain)),
-    filters: new Map(moderation.contentFilters.map((entry) => [entry.id, {
+    }] as const));
+    const filters = new Map<string, FilterSnapshot>(moderation.contentFilters.map((entry) => [entry.id, {
       phrase: entry.phrase,
       wholeWord: entry.wholeWord,
       action: entry.action,
       durationSeconds: secondsUntil(entry.expiresAt)
-    }]))
-  }), [moderation.blockList, moderation.contentFilters, moderation.domainBlockList, moderation.muteList]);
+    }] as const));
+
+    return {
+      mutes,
+      blocks: new Set(moderation.blockList.map((entry) => entry.accountId)),
+      domains: new Set(moderation.domainBlockList.map((entry) => entry.domain)),
+      filters
+    };
+  }, [moderation.blockList, moderation.contentFilters, moderation.domainBlockList, moderation.muteList]);
 
   useEffect(() => {
     previous.current = null;
