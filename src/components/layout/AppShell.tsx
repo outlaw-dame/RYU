@@ -10,6 +10,7 @@
  * - Offline indicator
  * - Main content area (flex: 1, overflow hidden)
  * - Tab bar positioned at the bottom
+ * - App-wide local-first moderation queue coordination
  *
  * Does NOT own individual page state or navigation logic — those are
  * handled by the tab router or parent App component.
@@ -17,6 +18,7 @@
 
 import type { ReactNode } from "react";
 import { MotionConfig } from "framer-motion";
+import { useModerationSync } from "../../hooks/useModerationSync";
 import { ErrorBoundary } from "../common/ErrorBoundary";
 import { OfflineIndicator } from "../common/OfflineIndicator";
 import { AppTabBar, type TabId } from "./AppTabBar";
@@ -31,6 +33,8 @@ export interface AppShellProps {
 }
 
 export function AppShell({ activeTab, onTabChange, children }: AppShellProps) {
+  useModerationSync();
+
   return (
     <MotionConfig reducedMotion="user">
       <ErrorBoundary>
