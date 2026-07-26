@@ -79,11 +79,17 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     [userSignalScope]
   );
   const refreshGuardRef = useRef<AsyncScopeGuard | null>(null);
+  const publishedRecommendationScopeRef = useRef(discoveryScopeKey);
   if (!refreshGuardRef.current) {
     refreshGuardRef.current = createAsyncScopeGuard(discoveryScopeKey);
   } else {
     refreshGuardRef.current.setScope(discoveryScopeKey);
   }
+
+  const publishRecommendations = useCallback((items: Recommendation[]) => {
+    publishedRecommendationScopeRef.current = discoveryScopeKey;
+    setRecommendations(items);
+  }, [discoveryScopeKey]);
 
   const refresh = useCallback(async () => {
     const guard = refreshGuardRef.current;
@@ -93,7 +99,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     const currentControls = getDiscoveryControls();
     if (!currentControls.enabled || !isSearchFeatureEnabled("personalization")) {
       if (guard.isCurrent(request)) {
-        setRecommendations([]);
+        publishRecommendations([]);
         setLoading(false);
         setError(null);
       }
@@ -135,7 +141,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         : feedbackRanked;
 
       if (!guard.isCurrent(request)) return;
-      setRecommendations(
+      publishRecommendations(
         [...trustRanked]
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
@@ -147,17 +153,17 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     } finally {
       if (guard.isCurrent(request)) setLoading(false);
     }
-  }, [discoveryScopeKey, editionId, limit, userSignalScope, version]);
+  }, [discoveryScopeKey, editionId, limit, publishRecommendations, userSignalScope, version]);
 
   useEffect(() => {
-    setRecommendations([]);
+    publishRecommendations([]);
     setLoading(false);
     setError(null);
     setFeedbackPendingIds(new Set());
     setFeedbackErrors({});
     setResettingHidden(false);
     setHiddenResetError(null);
-  }, [discoveryScopeKey]);
+  }, [discoveryScopeKey, publishRecommendations]);
 
   useEffect(() => {
     void refresh();
@@ -174,7 +180,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   }, [refresh, refreshInterval]);
 
   useEffect(() => () => {
-    refreshGuardRef.current?.dispose();
+    refreshGuardRef.current?.invalidate();
   }, []);
 
   const setEnabled = useCallback((enabled: boolean) => {
@@ -276,8 +282,12 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     setVersion((value) => value + 1);
   }, []);
 
+  const visibleRecommendations = publishedRecommendationScopeRef.current === discoveryScopeKey
+    ? recommendations
+    : [];
+
   return {
-    recommendations,
+    recommendations: visibleRecommendations,
     loading,
     error,
     enabled: controls.enabled,
