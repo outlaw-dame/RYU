@@ -13,6 +13,7 @@ import { EmptyState } from "../../components/common/EmptyState";
 import { Skeleton } from "../../components/common/Skeleton";
 import { ComposeSheet } from "../../components/activity/ComposeSheet";
 import { useActivityTab, hasWriteScope } from "../useActivityTab";
+import { usePolicySurface } from "../../hooks/usePolicySurface";
 import type { MastodonStatus, MastodonNotification } from "../../sync/mastodon-client";
 
 export type StatusRowProps = {
@@ -143,6 +144,21 @@ export function ActivityPage({
   } = activity;
 
   const canCompose = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:statuses");
+
+  // Apply moderation policy to filter blocked/muted content from the timeline
+  const { filterItems } = usePolicySurface("home");
+  const filteredTimeline = useMemo(() => {
+    if (timeline.length === 0) return timeline;
+    const results = filterItems(timeline);
+    return results.filter((r) => !r.hidden).map((r) => r.item);
+  }, [timeline, filterItems]);
+  const filteredNotifications = useMemo(() => {
+    if (notifications.length === 0) return notifications;
+    // Notifications have account on the notification itself
+    const asStatuses = notifications.map((n) => ({ ...n, account: n.account, content: n.status?.content }));
+    const results = filterItems(asStatuses as any);
+    return results.filter((r) => !r.hidden).map((r) => r.item as unknown as MastodonNotification);
+  }, [notifications, filterItems]);
   const canFavourite = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:favourites");
   const canBookmark = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks");
 
@@ -297,8 +313,8 @@ export function ActivityPage({
                 <Skeleton style={{ height: 92 }} />
                 <Skeleton style={{ height: 92 }} />
               </>
-            ) : notifications.length > 0 ? (
-              notifications.map((notification) => (
+            ) : filteredNotifications.length > 0 ? (
+              filteredNotifications.map((notification) => (
                 renderNotificationRow
                   ? <React.Fragment key={notification.id}>{renderNotificationRow({ notification })}</React.Fragment>
                   : <DefaultNotificationRow key={notification.id} notification={notification} />
@@ -321,8 +337,8 @@ export function ActivityPage({
                 <Skeleton style={{ height: 120 }} />
                 <Skeleton style={{ height: 120 }} />
               </>
-            ) : timeline.length > 0 ? (
-              timeline.map((status) => {
+            ) : filteredTimeline.length > 0 ? (
+              filteredTimeline.map((status) => {
                 const interaction = statusInteractions.get(status.id);
                 return renderStatusRow
                   ? <React.Fragment key={status.id}>{renderStatusRow({
