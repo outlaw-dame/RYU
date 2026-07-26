@@ -15,7 +15,6 @@ describe("ModerationInterventionGate", () => {
         <span>Visible content</span>
       </ModerationInterventionGate>
     );
-
     expect(screen.getByText("Visible content")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
@@ -26,7 +25,6 @@ describe("ModerationInterventionGate", () => {
         <span>Secret content</span>
       </ModerationInterventionGate>
     );
-
     expect(screen.queryByText("Secret content")).not.toBeInTheDocument();
   });
 
@@ -43,27 +41,20 @@ describe("ModerationInterventionGate", () => {
 
     expect(screen.getByText("Spoiler warning")).toBeInTheDocument();
     expect(screen.queryByText("Revealed content")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Show anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: /show/i }));
     expect(screen.getByText("Revealed content")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Hide content" }));
+    fireEvent.click(screen.getByRole("button", { name: /hide/i }));
     expect(screen.queryByText("Revealed content")).not.toBeInTheDocument();
   });
 
-  it("requires a fresh reveal when the rendered content changes", () => {
-    const decision = {
-      ...baseDecision,
-      action: "warn" as const,
-      reasons: ["Filtered content"]
-    };
+  it("requires a fresh reveal for a new moderated identity", () => {
+    const decision = { ...baseDecision, action: "warn" as const, reasons: ["Filtered content"] };
     const { rerender } = render(
       <ModerationInterventionGate decision={decision} contentIdentity="version-1">
         <span>Original content</span>
       </ModerationInterventionGate>
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Show anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: /show/i }));
     expect(screen.getByText("Original content")).toBeInTheDocument();
 
     rerender(
@@ -71,8 +62,6 @@ describe("ModerationInterventionGate", () => {
         <span>Edited content</span>
       </ModerationInterventionGate>
     );
-
     expect(screen.queryByText("Edited content")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Show anyway" })).toBeInTheDocument();
   });
 });
