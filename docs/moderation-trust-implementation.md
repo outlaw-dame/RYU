@@ -45,6 +45,12 @@
 
 ## Phase 5: Signal Integration + Explanation + UI ✅ COMPLETE (PR #150)
 
+### Phase 6: Policy Surface Wiring ✅ COMPLETE (commit 189d023)
+- Created usePolicySurface hook mapping useModeration → PolicyStoreState
+- ActivityPage filters timeline + notifications through policy engine
+- Blocked/muted/domain-blocked/keyword-filtered content now hidden
+- Closes Codex P1 from PR #102
+
 ### Item 1: Wire signals into discovery recommendation engines
 
 **Goal**: The discovery engines (`src/discovery/`) should consult active signals before/during scoring so that "show_more", "show_less", "suppress", etc. actually affect what users see.
