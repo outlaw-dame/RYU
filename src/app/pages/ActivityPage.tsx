@@ -12,8 +12,14 @@ import { SectionHeader } from "../../components/common/SectionHeader";
 import { EmptyState } from "../../components/common/EmptyState";
 import { Skeleton } from "../../components/common/Skeleton";
 import { ComposeSheet } from "../../components/activity/ComposeSheet";
+import { ModerationInterventionGate } from "../../components/moderation/ModerationInterventionGate";
 import { useActivityTab, hasWriteScope } from "../useActivityTab";
 import { usePolicySurface } from "../../hooks/usePolicySurface";
+import {
+  notificationToModeratableStatus,
+  visibleNotifications,
+  visibleStatuses
+} from "../../moderation/activity-policy-adapter";
 import type { MastodonStatus, MastodonNotification } from "../../sync/mastodon-client";
 
 export type StatusRowProps = {
@@ -34,9 +40,6 @@ export interface ActivityPageProps {
   renderNotificationRow?: (props: NotificationRowProps) => React.ReactNode;
 }
 
-/**
- * Default inline status row used when no external renderer is provided.
- */
 function DefaultStatusRow({ status }: StatusRowProps) {
   const text = useMemo(() => {
     const raw = status.content ?? "";
@@ -45,7 +48,6 @@ function DefaultStatusRow({ status }: StatusRowProps) {
 
   return (
     <article
-      key={status.id}
       style={{
         borderRadius: "var(--radius-md)",
         background: "var(--color-bg-secondary)",
@@ -66,9 +68,6 @@ function DefaultStatusRow({ status }: StatusRowProps) {
   );
 }
 
-/**
- * Default inline notification row.
- */
 function DefaultNotificationRow({ notification }: NotificationRowProps) {
   const text = useMemo(() => {
     if (!notification.status?.content) return null;
@@ -79,7 +78,6 @@ function DefaultNotificationRow({ notification }: NotificationRowProps) {
 
   return (
     <article
-      key={notification.id}
       style={{
         borderRadius: "var(--radius-md)",
         background: "var(--color-bg-elevated)",
@@ -115,7 +113,6 @@ function notificationVerb(type: string): string {
   }
 }
 
-
 export function ActivityPage({
   renderStatusRow,
   renderNotificationRow
@@ -143,26 +140,24 @@ export function ActivityPage({
     reconnectRequired
   } = activity;
 
-  const canCompose = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:statuses");
+  const { filterItems: filterTimelineItems } = usePolicySurface("home");
+  const { filterItems: filterNotificationItems } = usePolicySurface("notifications");
 
-  // Apply moderation policy to filter blocked/muted content from the timeline
-  const { filterItems } = usePolicySurface("home");
-  const filteredTimeline = useMemo(() => {
-    if (timeline.length === 0) return timeline;
-    const results = filterItems(timeline);
-    return results.filter((r) => !r.hidden).map((r) => r.item);
-  }, [timeline, filterItems]);
-  const filteredNotifications = useMemo(() => {
-    if (notifications.length === 0) return notifications;
-    // Notifications have account on the notification itself
-    const asStatuses = notifications.map((n) => ({ ...n, account: n.account, content: n.status?.content }));
-    const results = filterItems(asStatuses as any);
-    return results.filter((r) => !r.hidden).map((r) => r.item as unknown as MastodonNotification);
-  }, [notifications, filterItems]);
+  const moderatedTimeline = useMemo(() => {
+    if (timeline.length === 0) return [];
+    return visibleStatuses(filterTimelineItems(timeline));
+  }, [timeline, filterTimelineItems]);
+
+  const moderatedNotifications = useMemo(() => {
+    if (notifications.length === 0) return [];
+    const policyInputs = notifications.map(notificationToModeratableStatus);
+    return visibleNotifications(filterNotificationItems(policyInputs));
+  }, [notifications, filterNotificationItems]);
+
+  const canCompose = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:statuses");
   const canFavourite = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:favourites");
   const canBookmark = connectedAccount !== null && hasWriteScope(connectedAccount.grantedScopes, "write:bookmarks");
 
-  // Loading session skeleton
   if (isLoadingSession && !connectedAccount) {
     return (
       <div style={{ padding: "0 var(--space-4)", display: "grid", gap: "var(--space-3)" }} aria-label="Loading activity">
@@ -173,7 +168,6 @@ export function ActivityPage({
     );
   }
 
-  // Signed-out state
   if (!connectedAccount) {
     return (
       <EmptyState title={t("activity.signInTitle")} description={t("activity.signInDescription")} />
@@ -183,7 +177,6 @@ export function ActivityPage({
   return (
     <>
       <div style={{ display: "grid", gap: "var(--space-6)" }}>
-        {/* Compose prompt or scope-upgrade notice */}
         {canCompose ? (
           <div style={{ padding: "0 var(--space-4)" }}>
             <button
@@ -222,7 +215,6 @@ export function ActivityPage({
           </div>
         )}
 
-        {/* Reconnect notice */}
         {reconnectRequired ? (
           <div
             role="status"
@@ -261,7 +253,6 @@ export function ActivityPage({
           </div>
         ) : null}
 
-        {/* Rate-limit notice */}
         {!reconnectRequired && activityErrorState?.kind === "rate-limited" ? (
           <div
             role="status"
@@ -300,7 +291,6 @@ export function ActivityPage({
           </div>
         ) : null}
 
-        {/* Notifications section */}
         <section style={{ display: "grid", gap: "var(--space-3)" }}>
           <SectionHeader
             title={t("activity.notifications")}
@@ -313,11 +303,13 @@ export function ActivityPage({
                 <Skeleton style={{ height: 92 }} />
                 <Skeleton style={{ height: 92 }} />
               </>
-            ) : filteredNotifications.length > 0 ? (
-              filteredNotifications.map((notification) => (
-                renderNotificationRow
-                  ? <React.Fragment key={notification.id}>{renderNotificationRow({ notification })}</React.Fragment>
-                  : <DefaultNotificationRow key={notification.id} notification={notification} />
+            ) : moderatedNotifications.length > 0 ? (
+              moderatedNotifications.map((result) => (
+                <ModerationInterventionGate key={result.notification.id} decision={result.decision}>
+                  {renderNotificationRow
+                    ? renderNotificationRow({ notification: result.notification })
+                    : <DefaultNotificationRow notification={result.notification} />}
+                </ModerationInterventionGate>
               ))
             ) : (
               <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -327,7 +319,6 @@ export function ActivityPage({
           </div>
         </section>
 
-        {/* Home Timeline section */}
         <section style={{ display: "grid", gap: "var(--space-3)" }}>
           <SectionHeader title={t("activity.homeTimeline")} />
           <div style={{ display: "grid", gap: "var(--space-3)", padding: "0 var(--space-4)" }}>
@@ -337,23 +328,27 @@ export function ActivityPage({
                 <Skeleton style={{ height: 120 }} />
                 <Skeleton style={{ height: 120 }} />
               </>
-            ) : filteredTimeline.length > 0 ? (
-              filteredTimeline.map((status) => {
+            ) : moderatedTimeline.length > 0 ? (
+              moderatedTimeline.map((result) => {
+                const status = result.item;
                 const interaction = statusInteractions.get(status.id);
-                return renderStatusRow
-                  ? <React.Fragment key={status.id}>{renderStatusRow({
-                      status,
-                      interaction,
-                      onFavourite: canFavourite ? handleFavourite : undefined,
-                      onBookmark: canBookmark ? handleBookmark : undefined
-                    })}</React.Fragment>
-                  : <DefaultStatusRow
-                      key={status.id}
-                      status={status}
-                      interaction={interaction}
-                      onFavourite={canFavourite ? handleFavourite : undefined}
-                      onBookmark={canBookmark ? handleBookmark : undefined}
-                    />;
+                return (
+                  <ModerationInterventionGate key={status.id} decision={result.decision}>
+                    {renderStatusRow
+                      ? renderStatusRow({
+                          status,
+                          interaction,
+                          onFavourite: canFavourite ? handleFavourite : undefined,
+                          onBookmark: canBookmark ? handleBookmark : undefined
+                        })
+                      : <DefaultStatusRow
+                          status={status}
+                          interaction={interaction}
+                          onFavourite={canFavourite ? handleFavourite : undefined}
+                          onBookmark={canBookmark ? handleBookmark : undefined}
+                        />}
+                  </ModerationInterventionGate>
+                );
               })
             ) : (
               <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
@@ -363,7 +358,6 @@ export function ActivityPage({
           </div>
         </section>
 
-        {/* Error / last-updated footer */}
         {activityError && !reconnectRequired && activityErrorState?.kind !== "rate-limited" ? (
           <p style={{ margin: "0 var(--space-4)", color: "#c23b3b", fontSize: "var(--text-footnote)" }}>
             {activityError}
@@ -375,7 +369,6 @@ export function ActivityPage({
         ) : null}
       </div>
 
-      {/* Compose sheet */}
       {composeOpen && connectedAccount ? (
         <ComposeSheet
           onClose={closeCompose}
