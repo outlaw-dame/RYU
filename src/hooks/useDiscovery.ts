@@ -18,6 +18,7 @@ import {
   type Recommendation
 } from "../discovery";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
+import { scoreAndFilterRecommendations } from "../recommendations/unified-scorer";
 
 export type DiscoveryState = {
   recommendations: Recommendation[];
@@ -101,10 +102,9 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         return true;
       });
 
-      // Sort by score descending and limit
-      const sorted = unique
-        .sort((a, b) => b.score - a.score)
-        .slice(0, limit);
+      // Apply signal scoring: filter suppressed entities and re-sort by adjusted scores
+      const scored = scoreAndFilterRecommendations(unique);
+      const sorted = scored.slice(0, limit);
 
       setRecommendations(sorted);
     } catch (err) {
