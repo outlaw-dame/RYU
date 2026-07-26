@@ -1,18 +1,27 @@
 import { createServer } from "node:http";
 import { createMastodonAuthMiddleware } from "./mastodon-auth-middleware";
+import { createModerationProxyMiddleware } from "./moderation-proxy-middleware";
 
 const DEFAULT_PORT = 8787;
 
 export function startMastodonAuthServer(port = DEFAULT_PORT) {
-  const middleware = createMastodonAuthMiddleware();
+  const moderationMiddleware = createModerationProxyMiddleware();
+  const authMiddleware = createMastodonAuthMiddleware();
 
   const server = createServer((req, res) => {
-    middleware(req, res, () => {
-      if (!res.writableEnded) {
-        res.statusCode = 404;
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.end(JSON.stringify({ error: "not_found" }));
+    moderationMiddleware(req, res, (moderationError) => {
+      if (moderationError) {
+        res.statusCode = 500;
+        res.end(JSON.stringify({ error: "moderation_proxy_error" }));
+        return;
       }
+      authMiddleware(req, res, () => {
+        if (!res.writableEnded) {
+          res.statusCode = 404;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.end(JSON.stringify({ error: "not_found" }));
+        }
+      });
     });
   });
 
@@ -24,16 +33,14 @@ export function startMastodonAuthServer(port = DEFAULT_PORT) {
         reject(new Error("Failed to bind auth server"));
         return;
       }
-
       resolve({
         port: address.port,
-        close: () =>
-          new Promise<void>((resolveClose, rejectClose) => {
-            server.close((error) => {
-              if (error) { rejectClose(error); return; }
-              resolveClose();
-            });
-          })
+        close: () => new Promise<void>((resolveClose, rejectClose) => {
+          server.close((error) => {
+            if (error) { rejectClose(error); return; }
+            resolveClose();
+          });
+        })
       });
     });
   });
@@ -42,18 +49,13 @@ export function startMastodonAuthServer(port = DEFAULT_PORT) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const envPort = Number(process.env.MASTODON_AUTH_PORT ?? "");
   const port = Number.isFinite(envPort) && envPort > 0 ? envPort : DEFAULT_PORT;
-
   void startMastodonAuthServer(port)
     .then(({ port: boundPort, close }) => {
       console.log(`[ryu:auth] Server listening on http://127.0.0.1:${boundPort}`);
-
       const shutdown = () => {
         console.log("\n[ryu:auth] Shutting down gracefully...");
-        void close()
-          .then(() => process.exit(0))
-          .catch(() => process.exit(1));
+        void close().then(() => process.exit(0)).catch(() => process.exit(1));
       };
-
       process.once("SIGTERM", shutdown);
       process.once("SIGINT", shutdown);
     })
