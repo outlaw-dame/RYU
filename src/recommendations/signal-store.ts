@@ -1,15 +1,4 @@
-/**
- * Recommendation signal store.
- *
- * Persists user preference signals to localStorage. Each signal represents
- * an explicit or inferred preference about an entity (author, work, genre, etc).
- *
- * Key behaviors:
- * - Explicit signals override inferred signals for the same entity+kind
- * - Expired signals stop applying but remain for audit/undo
- * - Reset removes inferred signals by default; explicit requires explicit call
- * - Input validation prevents injection/corruption
- */
+/** Recommendation signal store with authenticated-owner partitioning. */
 
 import type {
   CreateSignalParams,
@@ -20,27 +9,33 @@ import type {
 } from "./signal-types";
 import { buildSignalId, isSignalActive, isSignalExpired } from "./signal-types";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STORAGE_KEY = "ryu:recommendation-signals";
+const STORAGE_KEY_PREFIX = "ryu:recommendation-signals";
 const MAX_SIGNALS = 2000;
 const MAX_ENTITY_ID_LENGTH = 1024;
-
-// ─── Validation ───────────────────────────────────────────────────────────────
+const MAX_OWNER_ID_LENGTH = 512;
 
 const VALID_ENTITY_TYPES: Set<string> = new Set([
   "author", "work", "edition", "series", "publisher",
   "genre", "tag", "trope", "account", "domain", "source"
 ]);
-
 const VALID_KINDS: Set<string> = new Set([
   "show_more", "show_less", "not_interested", "suppress",
   "prefer", "trusted", "low_trust"
 ]);
-
 const VALID_PROVENANCES: Set<string> = new Set([
   "user_explicit", "local_inference", "imported"
 ]);
+
+function storageKey(ownerAccountId?: string): string | null {
+  if (ownerAccountId === undefined) return STORAGE_KEY_PREFIX; // legacy/test compatibility only
+  const owner = ownerAccountId.trim();
+  if (!owner || owner.length > MAX_OWNER_ID_LENGTH) return null;
+  return `${STORAGE_KEY_PREFIX}:${encodeURIComponent(owner)}`;
+}
+
+export function recommendationSignalStorageKey(ownerAccountId: string): string | null {
+  return storageKey(ownerAccountId);
+}
 
 function isValidSignal(s: unknown): s is RecommendationSignal {
   if (!s || typeof s !== "object") return false;
@@ -50,7 +45,7 @@ function isValidSignal(s: unknown): s is RecommendationSignal {
     typeof sig.entityType === "string" && VALID_ENTITY_TYPES.has(sig.entityType) &&
     typeof sig.entityId === "string" && sig.entityId.length > 0 &&
     typeof sig.kind === "string" && VALID_KINDS.has(sig.kind) &&
-    typeof sig.strength === "number" &&
+    typeof sig.strength === "number" && Number.isFinite(sig.strength) &&
     typeof sig.provenance === "string" && VALID_PROVENANCES.has(sig.provenance) &&
     typeof sig.createdAt === "string" &&
     typeof sig.updatedAt === "string"
@@ -58,84 +53,83 @@ function isValidSignal(s: unknown): s is RecommendationSignal {
 }
 
 function validateParams(params: CreateSignalParams): string | null {
-  if (!params.entityId || params.entityId.length > MAX_ENTITY_ID_LENGTH) {
-    return "Invalid entityId";
-  }
-  if (!VALID_ENTITY_TYPES.has(params.entityType)) {
-    return "Invalid entityType";
-  }
-  if (!VALID_KINDS.has(params.kind)) {
-    return "Invalid signal kind";
-  }
-  if (params.provenance && !VALID_PROVENANCES.has(params.provenance)) {
-    return "Invalid provenance";
-  }
+  if (!params.entityId || params.entityId.length > MAX_ENTITY_ID_LENGTH) return "Invalid entityId";
+  if (!VALID_ENTITY_TYPES.has(params.entityType)) return "Invalid entityType";
+  if (!VALID_KINDS.has(params.kind)) return "Invalid signal kind";
+  if (params.provenance && !VALID_PROVENANCES.has(params.provenance)) return "Invalid provenance";
   return null;
 }
 
-// ─── Persistence ──────────────────────────────────────────────────────────────
-
-/**
- * Load all signals from localStorage.
- */
-export function loadSignals(): RecommendationSignal[] {
+export function loadSignals(ownerAccountId?: string): RecommendationSignal[] {
   if (typeof localStorage === "undefined") return [];
+  const key = storageKey(ownerAccountId);
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(isValidSignal);
+    return Array.isArray(parsed) ? parsed.filter(isValidSignal) : [];
   } catch {
     return [];
   }
 }
 
-function saveSignals(signals: RecommendationSignal[]): void {
+function saveSignals(signals: RecommendationSignal[], ownerAccountId?: string): void {
   if (typeof localStorage === "undefined") return;
+  const key = storageKey(ownerAccountId);
+  if (!key) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(signals));
+    localStorage.setItem(key, JSON.stringify(signals.slice(0, MAX_SIGNALS)));
   } catch {
-    // Storage full — non-fatal
+    // Preference persistence is best-effort; callers retain in-memory state.
   }
 }
 
-// ─── CRUD Operations ──────────────────────────────────────────────────────────
+function removeOpposingExplicitSignals(
+  signals: RecommendationSignal[],
+  params: CreateSignalParams,
+  provenance: SignalProvenance
+): RecommendationSignal[] {
+  if (provenance !== "user_explicit") return signals;
+  const opposite = params.kind === "show_more"
+    ? "show_less"
+    : params.kind === "show_less"
+      ? "show_more"
+      : null;
+  if (!opposite) return signals;
+  return signals.filter((signal) => !(
+    signal.entityType === params.entityType &&
+    signal.entityId === params.entityId &&
+    signal.kind === opposite &&
+    signal.provenance === "user_explicit"
+  ));
+}
 
-/**
- * Add or update a recommendation signal.
- *
- * If an explicit signal already exists for the same entity+kind, it is updated.
- * If an inferred signal exists and a new explicit one is added, the explicit
- * one takes precedence (inferred is kept for audit but won't be active).
- */
-export function addSignal(params: CreateSignalParams): RecommendationSignal[] {
+export function addSignal(
+  params: CreateSignalParams,
+  ownerAccountId?: string
+): RecommendationSignal[] {
   const validationError = validateParams(params);
-  if (validationError) {
-    console.warn("[signal-store] Rejected signal:", validationError, params);
-    return loadSignals();
-  }
+  if (validationError) return loadSignals(ownerAccountId);
 
   const provenance: SignalProvenance = params.provenance ?? "user_explicit";
-  const strength = Math.max(0, Math.min(1, params.strength ?? 1.0));
+  const strength = Math.max(0, Math.min(1, params.strength ?? 1));
   const now = new Date().toISOString();
   const id = buildSignalId(params.entityType, params.entityId, params.kind, provenance);
+  let signals = removeOpposingExplicitSignals(loadSignals(ownerAccountId), params, provenance);
+  let existingIdx = signals.findIndex((signal) => signal.id === id);
 
-  const signals = loadSignals();
-
-  // Check capacity
-  if (signals.length >= MAX_SIGNALS && !signals.some((s) => s.id === id)) {
-    // Evict the oldest expired signal, or the oldest inferred signal
+  if (signals.length >= MAX_SIGNALS && existingIdx < 0) {
     const expiredIdx = signals.findIndex(isSignalExpired);
-    if (expiredIdx >= 0) {
-      signals.splice(expiredIdx, 1);
-    } else {
-      const inferredIdx = signals.findIndex((s) => s.provenance === "local_inference");
-      if (inferredIdx >= 0) signals.splice(inferredIdx, 1);
-    }
+    const inferredIdx = expiredIdx < 0
+      ? signals.findIndex((signal) => signal.provenance === "local_inference")
+      : -1;
+    const evictionIdx = expiredIdx >= 0 ? expiredIdx : inferredIdx;
+    if (evictionIdx < 0) return signals;
+    signals.splice(evictionIdx, 1);
+    existingIdx = signals.findIndex((signal) => signal.id === id);
   }
 
-  const existingIdx = signals.findIndex((s) => s.id === id);
   const newSignal: RecommendationSignal = {
     id,
     entityType: params.entityType,
@@ -151,118 +145,91 @@ export function addSignal(params: CreateSignalParams): RecommendationSignal[] {
     updatedAt: now
   };
 
-  if (existingIdx >= 0) {
-    signals[existingIdx] = newSignal;
-  } else {
-    signals.push(newSignal);
-  }
-
-  saveSignals(signals);
+  if (existingIdx >= 0) signals[existingIdx] = newSignal;
+  else signals.push(newSignal);
+  saveSignals(signals, ownerAccountId);
   return signals;
 }
 
-/**
- * Remove a signal by its ID.
- */
-export function removeSignal(signalId: string): RecommendationSignal[] {
-  const signals = loadSignals().filter((s) => s.id !== signalId);
-  saveSignals(signals);
+export function removeSignal(signalId: string, ownerAccountId?: string): RecommendationSignal[] {
+  const signals = loadSignals(ownerAccountId).filter((signal) => signal.id !== signalId);
+  saveSignals(signals, ownerAccountId);
   return signals;
 }
 
-/**
- * Remove all signals for a specific entity.
- */
 export function removeSignalsForEntity(
   entityType: SignalEntityType,
-  entityId: string
+  entityId: string,
+  ownerAccountId?: string
 ): RecommendationSignal[] {
-  const signals = loadSignals().filter(
-    (s) => !(s.entityType === entityType && s.entityId === entityId)
+  const signals = loadSignals(ownerAccountId).filter(
+    (signal) => !(signal.entityType === entityType && signal.entityId === entityId)
   );
-  saveSignals(signals);
+  saveSignals(signals, ownerAccountId);
   return signals;
 }
 
-/**
- * Get all active (non-expired) signals for a specific entity.
- */
 export function getActiveSignalsForEntity(
   entityType: SignalEntityType,
-  entityId: string
+  entityId: string,
+  ownerAccountId?: string
 ): RecommendationSignal[] {
-  return loadSignals().filter(
-    (s) => s.entityType === entityType && s.entityId === entityId && isSignalActive(s)
+  return loadSignals(ownerAccountId).filter(
+    (signal) => signal.entityType === entityType && signal.entityId === entityId && isSignalActive(signal)
   );
 }
 
-/**
- * Get all active signals of a specific kind.
- */
-export function getActiveSignalsByKind(kind: SignalKind): RecommendationSignal[] {
-  return loadSignals().filter((s) => s.kind === kind && isSignalActive(s));
+export function getActiveSignalsByKind(
+  kind: SignalKind,
+  ownerAccountId?: string
+): RecommendationSignal[] {
+  return loadSignals(ownerAccountId).filter((signal) => signal.kind === kind && isSignalActive(signal));
 }
 
-/**
- * Get the effective signal for an entity+kind combination.
- * If both explicit and inferred exist, explicit wins.
- */
 export function getEffectiveSignal(
   entityType: SignalEntityType,
   entityId: string,
-  kind: SignalKind
+  kind: SignalKind,
+  ownerAccountId?: string
 ): RecommendationSignal | undefined {
-  const matching = loadSignals().filter(
-    (s) => s.entityType === entityType && s.entityId === entityId && s.kind === kind && isSignalActive(s)
+  const matching = loadSignals(ownerAccountId).filter(
+    (signal) => signal.entityType === entityType && signal.entityId === entityId && signal.kind === kind && isSignalActive(signal)
   );
-  // Explicit wins over inferred
-  return matching.find((s) => s.provenance === "user_explicit")
-    ?? matching.find((s) => s.provenance === "imported")
-    ?? matching.find((s) => s.provenance === "local_inference");
+  return matching.find((signal) => signal.provenance === "user_explicit")
+    ?? matching.find((signal) => signal.provenance === "imported")
+    ?? matching.find((signal) => signal.provenance === "local_inference");
 }
 
-/**
- * Check if an entity is suppressed (has an active "suppress" or "not_interested" signal).
- */
-export function isEntitySuppressed(entityType: SignalEntityType, entityId: string): boolean {
-  const signals = getActiveSignalsForEntity(entityType, entityId);
-  return signals.some((s) => s.kind === "suppress" || s.kind === "not_interested");
+export function isEntitySuppressed(
+  entityType: SignalEntityType,
+  entityId: string,
+  ownerAccountId?: string
+): boolean {
+  return getActiveSignalsForEntity(entityType, entityId, ownerAccountId)
+    .some((signal) => signal.kind === "suppress" || signal.kind === "not_interested");
 }
 
-/**
- * Reset inferred signals only (preserves explicit user decisions).
- */
-export function resetInferredSignals(): RecommendationSignal[] {
-  const signals = loadSignals().filter((s) => s.provenance !== "local_inference");
-  saveSignals(signals);
+export function resetInferredSignals(ownerAccountId?: string): RecommendationSignal[] {
+  const signals = loadSignals(ownerAccountId).filter((signal) => signal.provenance !== "local_inference");
+  saveSignals(signals, ownerAccountId);
   return signals;
 }
 
-/**
- * Reset ALL signals (including explicit). Use with confirmation.
- */
-export function resetAllSignals(): RecommendationSignal[] {
-  saveSignals([]);
+export function resetAllSignals(ownerAccountId?: string): RecommendationSignal[] {
+  saveSignals([], ownerAccountId);
   return [];
 }
 
-/**
- * Purge expired signals (cleanup).
- */
-export function purgeExpiredSignals(): RecommendationSignal[] {
-  const signals = loadSignals().filter(isSignalActive);
-  saveSignals(signals);
+export function purgeExpiredSignals(ownerAccountId?: string): RecommendationSignal[] {
+  const signals = loadSignals(ownerAccountId).filter(isSignalActive);
+  saveSignals(signals, ownerAccountId);
   return signals;
 }
 
-/**
- * Get signal counts by kind (for diagnostics/debug panel).
- */
-export function getSignalCounts(): Record<string, number> {
-  const signals = loadSignals().filter(isSignalActive);
+export function getSignalCounts(ownerAccountId?: string): Record<string, number> {
   const counts: Record<string, number> = {};
-  for (const s of signals) {
-    counts[s.kind] = (counts[s.kind] ?? 0) + 1;
+  for (const signal of loadSignals(ownerAccountId).filter(isSignalActive)) {
+    counts[signal.kind] = (counts[signal.kind] ?? 0) + 1;
   }
   return counts;
 }
