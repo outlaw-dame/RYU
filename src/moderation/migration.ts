@@ -1,8 +1,9 @@
 /**
  * One-way, owner-scoped localStorage → RxDB moderation migration.
  *
- * Completion is recorded only after every eligible write succeeds. A partial
- * failure therefore remains retryable; successful upserts are idempotent.
+ * Completion is recorded only after every eligible write succeeds. Legacy
+ * records are normalized to schema bounds before upsert so permanently invalid
+ * local data cannot poison every retry.
  */
 import type { RyuDatabase } from "../db/client";
 import type { ModerationFilterKeyword, ModerationPolicyDoc } from "../db/schema";
@@ -10,6 +11,9 @@ import { normalizeDomain } from "./domain-block-store";
 
 const MIGRATION_KEY = "ryu:moderation-migration-v1";
 const MAX_OWNER_ID_LENGTH = 512;
+const MAX_ID_LENGTH = 2048;
+const MAX_SHORT_TEXT_LENGTH = 512;
+const MAX_TEXT_LENGTH = 4096;
 
 type MigrationCounts = {
   mutes: number;
@@ -45,7 +49,7 @@ function markMigrationComplete(ownerAccountId: string, counts: MigrationCounts):
       counts
     } satisfies MigrationState));
   } catch {
-    // A missing marker is safe: the idempotent migration runs again.
+    // A missing marker is safe because upserts are idempotent.
   }
 }
 
@@ -59,12 +63,30 @@ function readLocalStorageJson<T>(key: string): T[] {
   }
 }
 
+function bounded(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  return normalized.slice(0, maxLength);
+}
+
+function timestamp(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+
+function policyId(...parts: string[]): string | null {
+  const id = parts.join(":");
+  return id.length <= MAX_ID_LENGTH ? id : null;
+}
+
 export async function migrateModerationToRxDB(
   db: RyuDatabase,
   ownerAccountId: string
 ): Promise<MigrationCounts | null> {
-  const owner = ownerAccountId.trim();
-  if (!owner || owner.length > MAX_OWNER_ID_LENGTH) return null;
+  const owner = bounded(ownerAccountId, MAX_OWNER_ID_LENGTH);
+  if (!owner) return null;
   if (isMigrationComplete(owner)) return null;
   if (!db.moderationpolicies) return null;
 
@@ -88,19 +110,21 @@ export async function migrateModerationToRxDB(
     expiresAt?: string | null;
     hideNotifications?: boolean;
   }>("ryu:mute-list")) {
-    const accountId = entry.accountId?.trim();
+    const accountId = bounded(entry.accountId, MAX_ID_LENGTH);
     if (!accountId) continue;
+    const id = policyId("local", "mute", owner, accountId);
+    if (!id) continue;
     await upsert({
-      id: `local:mute:${owner}:${accountId}`,
+      id,
       policyType: "account_mute",
       ownerAccountId: owner,
       source: "local",
-      createdAt: entry.createdAt ?? now,
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
       accountId,
-      acct: entry.acct,
+      acct: bounded(entry.acct, MAX_SHORT_TEXT_LENGTH),
       hideNotifications: entry.hideNotifications ?? true,
-      expiresAt: entry.expiresAt ?? undefined
+      expiresAt: entry.expiresAt ? timestamp(entry.expiresAt, now) : undefined
     }, "mutes");
   }
 
@@ -109,17 +133,19 @@ export async function migrateModerationToRxDB(
     acct?: string;
     createdAt?: string;
   }>("ryu:block-list")) {
-    const accountId = entry.accountId?.trim();
+    const accountId = bounded(entry.accountId, MAX_ID_LENGTH);
     if (!accountId) continue;
+    const id = policyId("local", "block", owner, accountId);
+    if (!id) continue;
     await upsert({
-      id: `local:block:${owner}:${accountId}`,
+      id,
       policyType: "account_block",
       ownerAccountId: owner,
       source: "local",
-      createdAt: entry.createdAt ?? now,
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
       accountId,
-      acct: entry.acct,
+      acct: bounded(entry.acct, MAX_SHORT_TEXT_LENGTH),
       hideNotifications: true
     }, "blocks");
   }
@@ -129,18 +155,20 @@ export async function migrateModerationToRxDB(
     createdAt?: string;
     reason?: string;
   }>("ryu:domain-block-list")) {
-    const domain = normalizeDomain(entry.domain ?? "");
+    const domain = bounded(normalizeDomain(entry.domain ?? ""), MAX_SHORT_TEXT_LENGTH);
     if (!domain) continue;
+    const id = policyId("local", "domain", owner, domain);
+    if (!id) continue;
     await upsert({
-      id: `local:domain:${owner}:${domain}`,
+      id,
       policyType: "domain_block",
       ownerAccountId: owner,
       source: "local",
-      createdAt: entry.createdAt ?? now,
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
       domain,
       severity: "block",
-      reason: entry.reason
+      reason: bounded(entry.reason, MAX_TEXT_LENGTH)
     }, "domains");
   }
 
@@ -152,11 +180,15 @@ export async function migrateModerationToRxDB(
     createdAt?: string;
     expiresAt?: string | null;
   }>("ryu:content-filters")) {
-    const id = entry.id?.trim();
-    const phrase = entry.phrase?.trim();
-    if (!id || !phrase) continue;
+    const legacyId = bounded(entry.id, MAX_SHORT_TEXT_LENGTH);
+    const phrase = bounded(entry.phrase, MAX_TEXT_LENGTH);
+    if (!legacyId || !phrase) continue;
+    const id = policyId("local", "filter", owner, legacyId);
+    if (!id) continue;
+    const keywordId = bounded(`kw-${legacyId}`, MAX_ID_LENGTH);
+    if (!keywordId) continue;
     const keyword: ModerationFilterKeyword = {
-      id: `kw-${id}`,
+      id: keywordId,
       keyword: phrase,
       wholeWord: entry.wholeWord ?? false
     };
@@ -164,17 +196,17 @@ export async function migrateModerationToRxDB(
       ? entry.action
       : "hide") as ModerationPolicyDoc["filterAction"];
     await upsert({
-      id: `local:filter:${owner}:${id}`,
+      id,
       policyType: "filter",
       ownerAccountId: owner,
       source: "local",
-      createdAt: entry.createdAt ?? now,
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
       title: phrase.slice(0, 100),
       keywords: [keyword],
       contexts: ["home", "notifications", "public", "thread", "account"],
       filterAction,
-      expiresAt: entry.expiresAt ?? undefined
+      expiresAt: entry.expiresAt ? timestamp(entry.expiresAt, now) : undefined
     }, "filters");
   }
 
