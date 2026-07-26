@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 
-// Mock heavy dependencies so tests stay isolated.
 vi.mock("../../embedding-provider", () => ({
   getEmbeddingProvider: vi.fn(() => ({
     id: "deterministic-v1",
@@ -12,7 +11,10 @@ vi.mock("../../embedding-provider", () => ({
 
 vi.mock("../../runtime-status", () => ({
   getSearchRuntimeStatus: vi.fn(() => ({
+    configuredEmbeddingRuntime: "auto",
+    configuredRerankerRuntime: "off",
     activeEmbeddingProvider: "deterministic",
+    activeRerankerProvider: "off",
     lastFallbackReason: undefined,
     lastError: undefined,
     deviceTier: "standard",
@@ -68,43 +70,36 @@ describe("captureSearchDiagnosticsSnapshot", () => {
     const snapshot = await captureSearchDiagnosticsSnapshot({} as any);
 
     expect(snapshot.capturedAt).toBeTruthy();
-
-    // Engine
     expect(snapshot.engine.providerId).toBe("deterministic-v1");
     expect(snapshot.engine.providerDimensions).toBe(128);
     expect(snapshot.engine.providerGeneration).toBe(3);
     expect(snapshot.engine.runtimeStatus.activeEmbeddingProvider).toBe("deterministic");
-
-    // Index health
     expect(snapshot.index.health).not.toBeNull();
     expect(snapshot.index.health!.searchableDocuments).toBe(42);
     expect(snapshot.index.health!.missingVectors).toBe(2);
     expect(snapshot.index.health!.healthy).toBe(false);
-
-    // Queue
     expect(snapshot.queue.writeThroughPending).toBe(5);
     expect(snapshot.queue.writeThroughActive).toBe(1);
-
-    // Model
     expect(snapshot.model.models.length).toBe(1);
     expect(snapshot.model.models[0].id).toBe("minilm");
     expect(snapshot.model.models[0].state).toBe("ready");
-
-    // Storage
     expect(snapshot.storage.storage.usageBytes).toBe(50_000_000);
     expect(snapshot.storage.storage.availableBytes).toBe(450_000_000);
     expect(snapshot.storage.storage.isPersistent).toBe(true);
   });
 
-  it("never throws even when index health check fails", async () => {
+  it("never throws or exports exception text when index health fails", async () => {
     const { inspectSearchIndexHealth } = await import("../../index-lifecycle");
-    vi.mocked(inspectSearchIndexHealth).mockRejectedValueOnce(new Error("DB is gone"));
+    const secret = "owner-123 trusted reviewer alice@example.com query=dune";
+    vi.mocked(inspectSearchIndexHealth).mockRejectedValueOnce(new Error(secret));
 
     const snapshot = await captureSearchDiagnosticsSnapshot({} as any);
+    const serialized = JSON.stringify(snapshot);
 
     expect(snapshot.index.health).toBeNull();
-    expect(snapshot.index.healthError).toContain("DB is gone");
-    // Other sections still captured.
+    expect(snapshot.index.healthError).toBe("index_health_check_failed");
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("alice@example.com");
     expect(snapshot.engine.providerId).toBe("deterministic-v1");
     expect(snapshot.storage.storage.reason).toBe("ok");
   });
@@ -113,12 +108,9 @@ describe("captureSearchDiagnosticsSnapshot", () => {
     const snapshot = await captureSearchDiagnosticsSnapshot({} as any);
     const serialized = JSON.stringify(snapshot);
 
-    // Verify no query text, document bodies, or user content leaked.
-    // The snapshot should only contain well-known identifiers and numbers.
     expect(serialized).not.toContain("private");
     expect(serialized).not.toContain("local-only");
     expect(serialized).not.toContain("My secret");
-    // But well-known ids/enums are fine.
     expect(serialized).toContain("deterministic-v1");
     expect(serialized).toContain("minilm");
   });
