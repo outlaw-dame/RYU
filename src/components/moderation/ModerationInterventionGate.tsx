@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { PolicyDecision } from "../../moderation/policy-types";
 
@@ -8,6 +8,22 @@ export type ModerationInterventionGateProps = {
   /** Stable identity for the moderated content version, when the caller has one. */
   contentIdentity?: string;
 };
+
+const nodeIds = new WeakMap<object, number>();
+let nextNodeId = 1;
+
+function getNodeIdentity(node: ReactNode): string {
+  if (node !== null && typeof node === "object") {
+    const objectNode = node as object;
+    let id = nodeIds.get(objectNode);
+    if (!id) {
+      id = nextNodeId++;
+      nodeIds.set(objectNode, id);
+    }
+    return `object:${id}`;
+  }
+  return `${typeof node}:${String(node)}`;
+}
 
 /**
  * Requires an explicit reveal for non-hide moderation decisions. Hidden items
@@ -19,24 +35,18 @@ export function ModerationInterventionGate({
   contentIdentity = ""
 }: ModerationInterventionGateProps) {
   const { t } = useTranslation();
-  const [revealed, setRevealed] = useState(false);
+  const [revealedIdentity, setRevealedIdentity] = useState<string | null>(null);
   const detailsId = useId();
-  const decisionIdentity = useMemo(() => JSON.stringify({
+  const gateIdentity = useMemo(() => JSON.stringify({
     action: decision.action,
     collapseSummary: decision.collapseSummary ?? "",
     reasons: decision.reasons,
     matchedFilterIds: decision.matchedFilters.map((filter) => filter.id),
     safetyLabels: decision.safetyLabels.map((label) => `${label.label}:${label.severity}`),
-    contentIdentity
-  }), [contentIdentity, decision]);
-
-  // A reveal grants access only to the exact rendered content and policy result.
-  // Parent refreshes, edits, or reclassification create a new child/identity and
-  // therefore require a fresh explicit reveal. Resetting conservatively is safer
-  // than carrying permission across content versions.
-  useEffect(() => {
-    setRevealed(false);
-  }, [children, decisionIdentity]);
+    contentIdentity,
+    renderedNode: getNodeIdentity(children)
+  }), [children, contentIdentity, decision]);
+  const revealed = revealedIdentity === gateIdentity;
 
   if (decision.action === "show") return <>{children}</>;
   if (decision.action === "hide") return null;
@@ -51,7 +61,7 @@ export function ModerationInterventionGate({
         <div id={detailsId}>{children}</div>
         <button
           type="button"
-          onClick={() => setRevealed(false)}
+          onClick={() => setRevealedIdentity(null)}
           aria-controls={detailsId}
           aria-expanded="true"
           style={buttonStyle}
@@ -80,7 +90,7 @@ export function ModerationInterventionGate({
       </p>
       <button
         type="button"
-        onClick={() => setRevealed(true)}
+        onClick={() => setRevealedIdentity(gateIdentity)}
         aria-controls={detailsId}
         aria-expanded="false"
         style={buttonStyle}
