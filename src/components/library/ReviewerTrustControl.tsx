@@ -3,11 +3,14 @@ import { useTranslation } from "react-i18next";
 import type { ReviewDoc } from "../../db/schema";
 import {
   buildUserSignalScopeFromSession,
-  createReviewerTrustManager,
   listReviewerTrustOptions,
   type ReviewerTrustManagementSnapshot,
   type ReviewerTrustState
 } from "../../recommendations";
+import {
+  setSharedReviewerTrustState,
+  subscribeSharedReviewerTrust
+} from "../../recommendations/reviewer-trust-manager-registry";
 import { getVerifiedReviewerAttribution } from "../../reviews/reviewer-attribution";
 import { useMastodonSession } from "../../sync/use-mastodon-activity";
 
@@ -34,30 +37,21 @@ export function ReviewerTrustControl({ review }: { review: ReviewDoc }) {
     }),
     [connected, instanceOrigin, ownerAccountId]
   );
-  const manager = useMemo(() => {
-    if (!attribution || !scope) return null;
-    return createReviewerTrustManager(scope, attribution.accountId);
-  }, [attribution?.accountId, scope?.instanceOrigin, scope?.ownerAccountId]);
   const [snapshot, setSnapshot] = useState<ReviewerTrustManagementSnapshot | null>(null);
 
   useEffect(() => {
-    if (!manager) {
+    if (!attribution || !scope) {
       setSnapshot(null);
       return;
     }
-    const unsubscribe = manager.subscribe(setSnapshot);
-    void manager.load();
-    return () => {
-      unsubscribe();
-      manager.dispose();
-    };
-  }, [manager]);
+    return subscribeSharedReviewerTrust(scope, attribution.accountId, setSnapshot);
+  }, [attribution?.accountId, scope?.instanceOrigin, scope?.ownerAccountId]);
 
-  if (!manager || !snapshot) return null;
+  if (!attribution || !scope || !snapshot) return null;
   const pending = snapshot.status === "loading" || snapshot.status === "saving";
 
   const selectState = async (state: ReviewerTrustState) => {
-    await manager.setState(state);
+    await setSharedReviewerTrustState(scope, attribution.accountId, state);
   };
 
   return (
