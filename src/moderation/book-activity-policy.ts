@@ -32,6 +32,15 @@ export function projectBookActivityPolicy(
 }
 
 /**
+ * React reconciliation key scoped by actor and creation time instead of the
+ * server-local status ID alone. This prevents cross-instance or malformed-feed
+ * collisions from reusing moderation gate state for another item.
+ */
+export function buildBookActivityRenderKey(status: MastodonStatus): string {
+  return `${status.account?.id ?? ""}\u001f${status.id}\u001f${status.created_at ?? ""}`;
+}
+
+/**
  * Produces a bounded identity for reveal-state invalidation. The status ID is
  * insufficient because edits and policy-relevant metadata may change while the
  * federated ID remains stable.
