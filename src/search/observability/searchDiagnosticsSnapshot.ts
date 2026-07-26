@@ -18,6 +18,7 @@ import { getAllModelStatuses, type ModelStatus } from "../model-lifecycle";
 import { probeStorageQuota, type StorageQuoteEstimate } from "../model-lifecycle/storageQuota";
 import {
   diagnosticErrorCode,
+  sanitizeModelStatus,
   sanitizeSearchRuntimeStatus
 } from "./diagnosticPrivacy";
 
@@ -28,24 +29,10 @@ export type SearchEngineDiagnostics = {
   runtimeStatus: ReturnType<typeof getSearchRuntimeStatus>;
 };
 
-export type SearchIndexDiagnostics = {
-  health: SearchIndexHealth | null;
-  healthError?: string;
-};
-
-export type SearchQueueDiagnostics = {
-  writeThroughPending: number;
-  writeThroughActive: number;
-};
-
-export type SearchModelDiagnostics = {
-  models: readonly ModelStatus[];
-};
-
-export type SearchStorageDiagnostics = {
-  storage: StorageQuoteEstimate;
-};
-
+export type SearchIndexDiagnostics = { health: SearchIndexHealth | null; healthError?: string };
+export type SearchQueueDiagnostics = { writeThroughPending: number; writeThroughActive: number };
+export type SearchModelDiagnostics = { models: readonly ModelStatus[] };
+export type SearchStorageDiagnostics = { storage: StorageQuoteEstimate };
 export type SearchDiagnosticsSnapshot = {
   engine: SearchEngineDiagnostics;
   index: SearchIndexDiagnostics;
@@ -55,18 +42,10 @@ export type SearchDiagnosticsSnapshot = {
   capturedAt: string;
 };
 
-/** Capture a privacy-bounded diagnostics snapshot. Never throws. */
-export async function captureSearchDiagnosticsSnapshot(
-  db?: RyuDatabase
-): Promise<SearchDiagnosticsSnapshot> {
+export async function captureSearchDiagnosticsSnapshot(db?: RyuDatabase): Promise<SearchDiagnosticsSnapshot> {
   let database: RyuDatabase | null = null;
   let databaseInitializationFailed = false;
-
-  try {
-    database = db ?? await initializeDatabase();
-  } catch {
-    databaseInitializationFailed = true;
-  }
+  try { database = db ?? await initializeDatabase(); } catch { databaseInitializationFailed = true; }
 
   const provider = getEmbeddingProvider();
   const engine: SearchEngineDiagnostics = {
@@ -80,48 +59,25 @@ export async function captureSearchDiagnosticsSnapshot(
   if (!database) {
     index = {
       health: null,
-      healthError: diagnosticErrorCode(
-        databaseInitializationFailed
-          ? "database_initialization_failed"
-          : "database_unavailable"
-      )
+      healthError: diagnosticErrorCode(databaseInitializationFailed
+        ? "database_initialization_failed"
+        : "database_unavailable")
     };
   } else {
-    try {
-      index = { health: await inspectSearchIndexHealth(database) };
-    } catch {
-      index = {
-        health: null,
-        healthError: diagnosticErrorCode("index_health_check_failed")
-      };
-    }
+    try { index = { health: await inspectSearchIndexHealth(database) }; }
+    catch { index = { health: null, healthError: diagnosticErrorCode("index_health_check_failed") }; }
   }
 
   let queue: SearchQueueDiagnostics;
   try {
     const { importedSearchIndexQueue } = await import("../write-through-indexing");
-    queue = {
-      writeThroughPending: importedSearchIndexQueue.pending(),
-      writeThroughActive: importedSearchIndexQueue.active()
-    };
-  } catch {
-    queue = { writeThroughPending: 0, writeThroughActive: 0 };
-  }
+    queue = { writeThroughPending: importedSearchIndexQueue.pending(), writeThroughActive: importedSearchIndexQueue.active() };
+  } catch { queue = { writeThroughPending: 0, writeThroughActive: 0 }; }
 
   const model: SearchModelDiagnostics = {
-    models: getAllModelStatuses()
+    models: getAllModelStatuses().map(sanitizeModelStatus)
   };
+  const storage: SearchStorageDiagnostics = { storage: await probeStorageQuota() };
 
-  const storage: SearchStorageDiagnostics = {
-    storage: await probeStorageQuota()
-  };
-
-  return {
-    engine,
-    index,
-    queue,
-    model,
-    storage,
-    capturedAt: new Date().toISOString()
-  };
+  return { engine, index, queue, model, storage, capturedAt: new Date().toISOString() };
 }
