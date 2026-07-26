@@ -48,7 +48,7 @@ describe("verified reviewer trust discovery", () => {
     expect(result[0].scoreTrace?.finalScore).toBe(result[0].score);
     expect(result[0].scoreTrace?.contributions).toContainEqual(expect.objectContaining({
       kind: "reviewer_trust",
-      delta: 0.2
+      delta: expect.closeTo(0.2, 10)
     }));
     expect(JSON.stringify(result)).not.toContain("reviewer-a");
   });
