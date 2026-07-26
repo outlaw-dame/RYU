@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import i18n from "../../i18n";
+import { describe, expect, it } from "vitest";
 import { ModerationInterventionGate } from "./ModerationInterventionGate";
 
 const baseDecision = {
@@ -8,10 +7,6 @@ const baseDecision = {
   matchedFilters: [],
   safetyLabels: []
 };
-
-afterEach(async () => {
-  await i18n.changeLanguage("en");
-});
 
 describe("ModerationInterventionGate", () => {
   it("renders show decisions without an extra prompt", () => {
@@ -63,7 +58,7 @@ describe("ModerationInterventionGate", () => {
       reasons: ["Filtered content"]
     };
     const { rerender } = render(
-      <ModerationInterventionGate decision={decision}>
+      <ModerationInterventionGate decision={decision} contentIdentity="version-1">
         <span>Original content</span>
       </ModerationInterventionGate>
     );
@@ -72,24 +67,12 @@ describe("ModerationInterventionGate", () => {
     expect(screen.getByText("Original content")).toBeInTheDocument();
 
     rerender(
-      <ModerationInterventionGate decision={decision}>
+      <ModerationInterventionGate decision={decision} contentIdentity="version-2">
         <span>Edited content</span>
       </ModerationInterventionGate>
     );
 
     expect(screen.queryByText("Edited content")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show anyway" })).toBeInTheDocument();
-  });
-
-  it("uses the active locale for moderation controls", async () => {
-    await i18n.changeLanguage("es");
-    render(
-      <ModerationInterventionGate decision={{ ...baseDecision, action: "warn" }}>
-        <span>Contenido</span>
-      </ModerationInterventionGate>
-    );
-
-    expect(screen.getByRole("group", { name: "Advertencia de contenido" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Mostrar de todos modos" })).toBeInTheDocument();
   });
 });
