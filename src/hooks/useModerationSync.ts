@@ -17,7 +17,7 @@ type Snapshot = {
   filters: Map<string, FilterSnapshot>;
 };
 
-function secondsUntil(expiresAt?: string): number | undefined {
+function secondsUntil(expiresAt?: string | null): number | undefined {
   if (!expiresAt) return undefined;
   const duration = Math.ceil((Date.parse(expiresAt) - Date.now()) / 1_000);
   return Number.isFinite(duration) && duration > 0 ? duration : undefined;
