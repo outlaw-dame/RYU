@@ -1,12 +1,6 @@
-/**
- * useRecommendationSignals — React hook for managing recommendation signals.
- *
- * Provides reactive state and actions for the recommendation signal store.
- * Keeps all instances in sync via custom events (same-tab) and storage
- * events (cross-tab).
- */
+/** Reactive, authenticated-owner-scoped recommendation signal state. */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   CreateSignalParams,
   RecommendationSignal,
@@ -22,104 +16,121 @@ import {
   isEntitySuppressed,
   loadSignals,
   purgeExpiredSignals,
+  recommendationSignalStorageKey,
   removeSignal,
   removeSignalsForEntity,
   resetAllSignals,
   resetInferredSignals
 } from "../recommendations/signal-store";
 import { isSignalActive } from "../recommendations/signal-types";
+import { buildModerationOwnerIdentity } from "../moderation/owner-identity";
+import { useMastodonSession } from "../sync/use-mastodon-activity";
 
 const SYNC_EVENT = "ryu:recommendation-signals-sync";
 
 export interface UseRecommendationSignalsResult {
-  /** All active (non-expired) signals. */
   activeSignals: RecommendationSignal[];
-  /** Total signal count (including expired, for diagnostics). */
   totalCount: number;
-  /** Add or update a signal. */
   add: (params: CreateSignalParams) => void;
-  /** Remove a signal by ID. */
   remove: (signalId: string) => void;
-  /** Remove all signals for a specific entity. */
   removeForEntity: (entityType: SignalEntityType, entityId: string) => void;
-  /** Check if an entity is suppressed. */
   isSuppressed: (entityType: SignalEntityType, entityId: string) => boolean;
-  /** Get the effective signal for an entity+kind. */
   getEffective: (entityType: SignalEntityType, entityId: string, kind: SignalKind) => RecommendationSignal | undefined;
-  /** Get all active signals for an entity. */
   getForEntity: (entityType: SignalEntityType, entityId: string) => RecommendationSignal[];
-  /** Get all active signals of a kind. */
   getByKind: (kind: SignalKind) => RecommendationSignal[];
-  /** Reset only inferred signals (preserves explicit). */
   resetInferred: () => void;
-  /** Reset ALL signals (requires explicit intent). */
   resetAll: () => void;
-  /** Purge expired signals. */
   purgeExpired: () => void;
-  /** Signal counts by kind (for diagnostics). */
   counts: Record<string, number>;
+  ownerAccountId: string | null;
 }
 
 export function useRecommendationSignals(): UseRecommendationSignalsResult {
-  const [allSignals, setAllSignals] = useState<RecommendationSignal[]>(() => loadSignals());
+  const sessionQuery = useMastodonSession();
+  const ownerAccountId = useMemo(
+    () => buildModerationOwnerIdentity(sessionQuery.data),
+    [sessionQuery.data]
+  );
+  const [allSignals, setAllSignals] = useState<RecommendationSignal[]>([]);
 
-  // Sync across tabs and same-tab instances
+  const reload = useCallback(() => {
+    setAllSignals(ownerAccountId ? loadSignals(ownerAccountId) : []);
+  }, [ownerAccountId]);
+
   useEffect(() => {
-    const reload = () => setAllSignals(loadSignals());
+    reload();
+    const expectedKey = ownerAccountId
+      ? recommendationSignalStorageKey(ownerAccountId)
+      : null;
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === "ryu:recommendation-signals") reload();
+      if (event.key === null || (expectedKey !== null && event.key === expectedKey)) reload();
     };
-    const handleSync = () => reload();
     window.addEventListener("storage", handleStorage);
-    window.addEventListener(SYNC_EVENT, handleSync);
+    window.addEventListener(SYNC_EVENT, reload);
     return () => {
       window.removeEventListener("storage", handleStorage);
-      window.removeEventListener(SYNC_EVENT, handleSync);
+      window.removeEventListener(SYNC_EVENT, reload);
     };
-  }, []);
+  }, [ownerAccountId, reload]);
+
+  // Expiry is time-driven state. Schedule exactly one refresh for the nearest
+  // active expiry so suppression and ranking cannot remain stale indefinitely.
+  useEffect(() => {
+    const now = Date.now();
+    const nextExpiry = allSignals.reduce<number | null>((nearest, signal) => {
+      if (!signal.expiresAt) return nearest;
+      const expiry = Date.parse(signal.expiresAt);
+      if (!Number.isFinite(expiry) || expiry <= now) return nearest;
+      return nearest === null || expiry < nearest ? expiry : nearest;
+    }, null);
+    if (nextExpiry === null) return;
+    const delay = Math.min(Math.max(nextExpiry - now + 25, 25), 2_147_483_647);
+    const timer = window.setTimeout(reload, delay);
+    return () => window.clearTimeout(timer);
+  }, [allSignals, reload]);
 
   const notifySync = useCallback(() => {
     window.dispatchEvent(new Event(SYNC_EVENT));
   }, []);
 
   const add = useCallback((params: CreateSignalParams) => {
-    const updated = addSignal(params);
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(addSignal(params, ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const remove = useCallback((signalId: string) => {
-    const updated = removeSignal(signalId);
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(removeSignal(signalId, ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const removeForEntity = useCallback((entityType: SignalEntityType, entityId: string) => {
-    const updated = removeSignalsForEntity(entityType, entityId);
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(removeSignalsForEntity(entityType, entityId, ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const resetInferred = useCallback(() => {
-    const updated = resetInferredSignals();
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(resetInferredSignals(ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const resetAll = useCallback(() => {
-    const updated = resetAllSignals();
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(resetAllSignals(ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const purgeExpired = useCallback(() => {
-    const updated = purgeExpiredSignals();
-    setAllSignals(updated);
+    if (!ownerAccountId) return;
+    setAllSignals(purgeExpiredSignals(ownerAccountId));
     notifySync();
-  }, [notifySync]);
+  }, [notifySync, ownerAccountId]);
 
   const activeSignals = allSignals.filter(isSignalActive);
-  const counts = getSignalCounts();
+  const counts = ownerAccountId ? getSignalCounts(ownerAccountId) : {};
 
   return {
     activeSignals,
@@ -127,13 +138,30 @@ export function useRecommendationSignals(): UseRecommendationSignalsResult {
     add,
     remove,
     removeForEntity,
-    isSuppressed: isEntitySuppressed,
-    getEffective: getEffectiveSignal,
-    getForEntity: getActiveSignalsForEntity,
-    getByKind: getActiveSignalsByKind,
+    isSuppressed: useCallback(
+      (entityType, entityId) => Boolean(ownerAccountId) && isEntitySuppressed(entityType, entityId, ownerAccountId ?? undefined),
+      [ownerAccountId]
+    ),
+    getEffective: useCallback(
+      (entityType, entityId, kind) => ownerAccountId
+        ? getEffectiveSignal(entityType, entityId, kind, ownerAccountId)
+        : undefined,
+      [ownerAccountId]
+    ),
+    getForEntity: useCallback(
+      (entityType, entityId) => ownerAccountId
+        ? getActiveSignalsForEntity(entityType, entityId, ownerAccountId)
+        : [],
+      [ownerAccountId]
+    ),
+    getByKind: useCallback(
+      (kind) => ownerAccountId ? getActiveSignalsByKind(kind, ownerAccountId) : [],
+      [ownerAccountId]
+    ),
     counts,
     resetInferred,
     resetAll,
-    purgeExpired
+    purgeExpired,
+    ownerAccountId
   };
 }

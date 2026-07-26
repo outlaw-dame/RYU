@@ -1,23 +1,16 @@
-/**
- * Phase 34 - DiscoveryFeed component.
- *
- * Renders the discovery feed with recommendations, user controls,
- * and empty/loading states.
- */
+/** Discovery feed with reachable recommendation controls. */
 
-import React from "react";
+import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDiscovery } from "../../hooks/useDiscovery";
+import type { ScoredRecommendation } from "../../recommendations/unified-scorer";
 import { RecommendationCard } from "./RecommendationCard";
+import { RecommendationControlSheet } from "./RecommendationControlSheet";
 
 export type DiscoveryFeedProps = {
-  /** Specific edition to find related books for. */
   editionId?: string | null;
-  /** Maximum recommendations to display. */
   limit?: number;
-  /** Called when the user selects a recommendation. */
   onSelect?: (id: string) => void;
-  /** Whether to show the controls section. */
   showControls?: boolean;
 };
 
@@ -34,18 +27,14 @@ export function DiscoveryFeed({
     error,
     enabled,
     setEnabled,
-    excludeItem,
     reset
   } = useDiscovery({ editionId, limit });
+  const [controlledRecommendation, setControlledRecommendation] = useState<ScoredRecommendation | null>(null);
 
   if (!enabled) {
     return (
       <div style={{ padding: "var(--space-6) var(--space-4)", textAlign: "center" }}>
-        <p style={{
-          margin: 0,
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
+        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
           {t("discovery.disabled")}
         </p>
         <button
@@ -69,7 +58,6 @@ export function DiscoveryFeed({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-3)" }}>
-      {/* Header with controls */}
       {showControls && (
         <div style={{
           display: "flex",
@@ -77,102 +65,51 @@ export function DiscoveryFeed({
           alignItems: "center",
           padding: "0 var(--space-4)"
         }}>
-          <h3 style={{
-            margin: 0,
-            fontSize: "var(--text-headline)",
-            fontWeight: 600,
-            color: "var(--color-text)"
-          }}>
+          <h3 style={{ margin: 0, fontSize: "var(--text-headline)", fontWeight: 600, color: "var(--color-text)" }}>
             {t("discovery.title")}
           </h3>
           <div style={{ display: "flex", gap: "var(--space-2)" }}>
-            <button
-              type="button"
-              onClick={reset}
-              aria-label={t("discovery.reset")}
-              style={{
-                border: "none",
-                background: "none",
-                color: "var(--color-text-tertiary)",
-                fontSize: "var(--text-caption2)",
-                cursor: "pointer",
-                padding: "var(--space-1) var(--space-2)"
-              }}
-            >
+            <button type="button" onClick={reset} aria-label={t("discovery.reset")}>
               {t("discovery.reset")}
             </button>
-            <button
-              type="button"
-              onClick={() => setEnabled(false)}
-              aria-label={t("discovery.disable")}
-              style={{
-                border: "none",
-                background: "none",
-                color: "var(--color-text-tertiary)",
-                fontSize: "var(--text-caption2)",
-                cursor: "pointer",
-                padding: "var(--space-1) var(--space-2)"
-              }}
-            >
+            <button type="button" onClick={() => setEnabled(false)} aria-label={t("discovery.disable")}>
               {t("discovery.disable")}
             </button>
           </div>
         </div>
       )}
 
-      {/* Loading state */}
-      {loading && recommendations.length === 0 && (
-        <p style={{
-          margin: 0,
-          padding: "var(--space-4)",
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
-          {t("discovery.loading")}
-        </p>
-      )}
-
-      {/* Error state */}
-      {error && (
-        <p style={{
-          margin: 0,
-          padding: "var(--space-4)",
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
-          {t("discovery.error")}
-        </p>
-      )}
-
-      {/* Empty state */}
+      {loading && recommendations.length === 0 && <p style={{ padding: "var(--space-4)" }}>{t("discovery.loading")}</p>}
+      {error && <p style={{ padding: "var(--space-4)" }}>{t("discovery.error")}</p>}
       {!loading && !error && recommendations.length === 0 && (
-        <p style={{
-          margin: 0,
-          padding: "var(--space-6) var(--space-4)",
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)",
-          textAlign: "center"
-        }}>
+        <p style={{ padding: "var(--space-6) var(--space-4)", textAlign: "center" }}>
           {t("discovery.empty")}
         </p>
       )}
 
-      {/* Recommendations list */}
       {recommendations.length > 0 && (
         <div
           role="feed"
           aria-label={t("discovery.feedLabel")}
           style={{ display: "grid", gap: "var(--space-2)", padding: "0 var(--space-4)" }}
         >
-          {recommendations.map((rec) => (
+          {recommendations.map((recommendation) => (
             <RecommendationCard
-              key={rec.id}
-              recommendation={rec}
-              onDismiss={excludeItem}
+              key={recommendation.id}
+              recommendation={recommendation}
+              onControls={setControlledRecommendation}
               onSelect={onSelect}
             />
           ))}
         </div>
+      )}
+
+      {controlledRecommendation && (
+        <RecommendationControlSheet
+          recommendation={controlledRecommendation}
+          open
+          onClose={() => setControlledRecommendation(null)}
+        />
       )}
     </div>
   );

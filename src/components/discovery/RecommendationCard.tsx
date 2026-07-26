@@ -1,23 +1,19 @@
-/**
- * Phase 34 - RecommendationCard component.
- *
- * Renders a single recommendation with its explanation and dismiss action.
- */
+/** Discovery recommendation card with an accessible control-menu trigger. */
 
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { buildPrimaryExplanation } from "../../discovery/explanation-builder";
-import type { Recommendation } from "../../discovery/types";
+import type { ScoredRecommendation } from "../../recommendations/unified-scorer";
 
 export type RecommendationCardProps = {
-  recommendation: Recommendation;
-  onDismiss?: (id: string) => void;
+  recommendation: ScoredRecommendation;
+  onControls?: (recommendation: ScoredRecommendation) => void;
   onSelect?: (id: string) => void;
 };
 
 export function RecommendationCard({
   recommendation,
-  onDismiss,
+  onControls,
   onSelect
 }: RecommendationCardProps) {
   const { t } = useTranslation();
@@ -38,84 +34,71 @@ export function RecommendationCard({
       }}
       onClick={() => onSelect?.(recommendation.id)}
     >
-      {/* Cover image */}
       {recommendation.coverUrl && (
         <img
           src={recommendation.coverUrl}
           alt={t("discovery.coverAlt", { title: recommendation.title })}
-          style={{
-            width: 56,
-            height: 80,
-            objectFit: "cover",
-            borderRadius: "var(--radius-sm)"
-          }}
+          style={{ width: 56, height: 80, objectFit: "cover", borderRadius: "var(--radius-sm)" }}
         />
       )}
 
-      {/* Content */}
       <div style={{ minWidth: 0 }}>
-        <p
-          style={{
-            margin: 0,
-            fontWeight: 600,
-            fontSize: "var(--text-subhead)",
-            lineHeight: "var(--leading-subhead)",
-            color: "var(--color-text)",
+        <p style={{
+          margin: 0,
+          fontWeight: 600,
+          fontSize: "var(--text-subhead)",
+          lineHeight: "var(--leading-subhead)",
+          color: "var(--color-text)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
+        }}>
+          {recommendation.title}
+        </p>
+        {recommendation.author && (
+          <p style={{
+            margin: "var(--space-0-5) 0 0",
+            fontSize: "var(--text-caption1)",
+            color: "var(--color-text-secondary)",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap"
-          }}
-        >
-          {recommendation.title}
-        </p>
-
-        {recommendation.author && (
-          <p
-            style={{
-              margin: "var(--space-0-5) 0 0",
-              fontSize: "var(--text-caption1)",
-              color: "var(--color-text-secondary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap"
-            }}
-          >
+          }}>
             {recommendation.author}
           </p>
         )}
-
-        <p
-          style={{
-            margin: "var(--space-1) 0 0",
-            fontSize: "var(--text-caption2)",
-            color: "var(--color-text-tertiary)",
-            fontStyle: "italic"
-          }}
-        >
+        <p style={{
+          margin: "var(--space-1) 0 0",
+          fontSize: "var(--text-caption2)",
+          color: "var(--color-text-tertiary)",
+          fontStyle: "italic"
+        }}>
           {t(explanation.key, explanation.params)}
         </p>
       </div>
 
-      {/* Dismiss button */}
-      {onDismiss && (
+      {onControls && (
         <button
           type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onDismiss(recommendation.id);
+          onClick={(event) => {
+            event.stopPropagation();
+            onControls(recommendation);
           }}
-          aria-label={t("discovery.dismiss")}
+          aria-label={t("discovery.whyThis")}
+          aria-haspopup="dialog"
           style={{
             border: "none",
             background: "none",
             color: "var(--color-text-tertiary)",
-            fontSize: "var(--text-caption1)",
+            fontSize: "1.25rem",
+            lineHeight: 1,
             cursor: "pointer",
-            padding: "var(--space-1)",
+            minWidth: 44,
+            minHeight: 44,
             borderRadius: "var(--radius-sm)"
           }}
         >
-          &times;
+          •••
         </button>
       )}
     </div>
