@@ -5,6 +5,7 @@ export type AsyncScopeRequestToken = Readonly<{
 
 export type AsyncScopeGuard = {
   setScope(scopeKey: string): boolean;
+  isScopeActive(scopeKey: string): boolean;
   begin(scopeKey: string): AsyncScopeRequestToken | null;
   isCurrent(token: AsyncScopeRequestToken): boolean;
   invalidate(): void;
@@ -29,6 +30,11 @@ export function createAsyncScopeGuard(initialScopeKey: string): AsyncScopeGuard 
       activeScopeKey = normalized;
       generation += 1;
       return true;
+    },
+
+    isScopeActive(scopeKey: string): boolean {
+      if (disposed) return false;
+      return normalizeScopeKey(scopeKey) === activeScopeKey;
     },
 
     begin(scopeKey: string): AsyncScopeRequestToken | null {
