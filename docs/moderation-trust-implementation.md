@@ -262,3 +262,78 @@ RxDB moderationpolicies collection (durable, cross-tab, queryable)
 ### Owner isolation:
 
 Every moderation/trust document includes `ownerAccountId`. Queries MUST filter by owner. Document IDs include the owner to prevent collisions: `local:{type}:{owner}:{targetId}`.
+
+---
+
+## Phase 7: Bidirectional Moderation Sync + Offline Queue
+
+### Status: NEXT (Milestone #3 open on GitHub)
+
+### What this phase must deliver:
+
+1. **Server proxy routes** for moderation write operations:
+   - `POST /api/auth/mastodon/mutes` — mute an account
+   - `DELETE /api/auth/mastodon/mutes/:id` — unmute
+   - `POST /api/auth/mastodon/blocks` — block an account
+   - `DELETE /api/auth/mastodon/blocks/:id` — unblock
+   - `POST /api/auth/mastodon/domain_blocks` — block a domain
+   - `DELETE /api/auth/mastodon/domain_blocks/:domain` — unblock domain
+   - `POST /api/v2/filters` — create a filter (form-encoded per Mastodon spec)
+   - `DELETE /api/v2/filters/:id` — remove a filter
+   - `GET /api/v1/mutes` — fetch current mutes from server
+   - `GET /api/v1/blocks` — fetch current blocks from server
+   - `GET /api/v1/domain_blocks` — fetch domain blocks
+   - `GET /api/v2/filters` — fetch server-side filters
+
+2. **Moderation sync service** (`src/moderation/sync-service.ts`):
+   - `syncModerationState()` — full bidirectional sync on login/reconnect
+   - `pushLocalAction(action)` — push a single local action to remote
+   - `pullRemoteState()` — fetch server-side state and merge locally
+   - Local-first conflict resolution: local wins for recent actions
+   - Exponential backoff with jitter on failures (base 1s, cap 60s)
+   - Deduplication: don't re-push actions that came from the server
+   - Idempotent: safe to run multiple times
+
+3. **Offline queue** (`src/moderation/sync-queue.ts`):
+   - Queue moderation actions when offline
+   - Persist queue to localStorage (survive reload)
+   - Drain queue on reconnect with ordered execution
+   - Max queue size (100) with FIFO eviction of oldest
+   - Retry failed items with backoff (max 3 attempts)
+
+4. **useModeration update** — when user mutes/blocks/filters:
+   - Write locally immediately (existing behavior)
+   - Enqueue a sync job to push to server
+   - If online, execute immediately; if offline, queue
+
+5. **Session integration**:
+   - On successful login: trigger `pullRemoteState()` to hydrate
+   - On reconnect after offline: drain queue + pull remote state
+   - On disconnect: clear sync state (don't leak between accounts)
+
+### Key files to modify/create:
+- `server/mastodon-auth-middleware.ts` — add proxy routes (existing pattern)
+- `src/moderation/sync-service.ts` — NEW: core sync logic
+- `src/moderation/sync-queue.ts` — NEW: offline action queue
+- `src/moderation/sync-service.test.ts` — NEW: tests
+- `src/hooks/useModeration.ts` — wire sync into mutations
+- `src/hooks/useModerationMigration.ts` — trigger pull on login
+
+### Security requirements:
+- Server routes MUST validate session before proxying (existing auth middleware)
+- No token exposure to client (proxy-only architecture)
+- Rate limiting on write operations (defer to Mastodon's rate limits)
+- Account ID in requests MUST match the authenticated session
+- Domain block input MUST be sanitized through normalizeDomain()
+- Filter creation MUST validate contexts and action enum values
+- Queue MUST NOT persist tokens or secrets
+- Queue MUST be cleared on account switch
+
+### Integration with existing code:
+- `server/mastodon-auth-middleware.ts` already has `fetchWithRetry` + decompression
+- `src/sync-queue/` already has queue-engine, crash-recovery, multi-tab-lock patterns to reference
+- `src/moderation/moderation-schema.ts` has `moderationsyncstate` collection for tracking
+- `src/hooks/useModerationMigration.ts` already fires on login — good integration point
+
+### Pickup prompt for next session:
+> Implement Phase 7: Bidirectional Moderation Sync. Read `docs/moderation-trust-implementation.md` section "Phase 7" for full spec. Key context: `server/mastodon-auth-middleware.ts` (proxy routes pattern), `src/sync-queue/queue-engine.ts` (queue pattern to follow), `src/moderation/sync-service.ts` (new file). Same quality standards.
