@@ -1,5 +1,7 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
+import { recommendationFeedbackResources } from "./recommendation-feedback-resources";
+import { reviewerTrustResources } from "./reviewer-trust-resources";
 import { resources, supportedLanguages, type SupportedLanguage } from "./resources";
 
 const STORAGE_KEY = "ryu.language";
@@ -17,10 +19,7 @@ function resolveInitialLanguage(): SupportedLanguage {
   }
 
   const browserLanguage = typeof navigator !== "undefined" ? navigator.language.toLowerCase() : "en";
-  if (browserLanguage.startsWith("es")) {
-    return "es";
-  }
-
+  if (browserLanguage.startsWith("es")) return "es";
   return "en";
 }
 
@@ -30,8 +29,16 @@ void i18n
     resources,
     lng: resolveInitialLanguage(),
     fallbackLng: "en",
-    interpolation: {
-      escapeValue: false
+    interpolation: { escapeValue: false }
+  })
+  .then(() => {
+    for (const language of supportedLanguages) {
+      for (const bundle of [
+        recommendationFeedbackResources[language].translation,
+        reviewerTrustResources[language].translation
+      ]) {
+        i18n.addResourceBundle(language, "translation", bundle, true, true);
+      }
     }
   });
 

@@ -1,23 +1,12 @@
-/**
- * Phase 34 - DiscoveryFeed component.
- *
- * Renders the discovery feed with recommendations, user controls,
- * and empty/loading states.
- */
-
 import React from "react";
 import { useTranslation } from "react-i18next";
 import { useDiscovery } from "../../hooks/useDiscovery";
 import { RecommendationCard } from "./RecommendationCard";
 
 export type DiscoveryFeedProps = {
-  /** Specific edition to find related books for. */
   editionId?: string | null;
-  /** Maximum recommendations to display. */
   limit?: number;
-  /** Called when the user selects a recommendation. */
   onSelect?: (id: string) => void;
-  /** Whether to show the controls section. */
   showControls?: boolean;
 };
 
@@ -33,19 +22,22 @@ export function DiscoveryFeed({
     loading,
     error,
     enabled,
+    feedbackAvailable,
+    feedbackPendingIds,
+    feedbackErrors,
+    resettingHidden,
+    hiddenResetError,
     setEnabled,
-    excludeItem,
+    excludeRecommendation,
+    setRecommendationFeedback,
+    resetHiddenRecommendations,
     reset
   } = useDiscovery({ editionId, limit });
 
   if (!enabled) {
     return (
       <div style={{ padding: "var(--space-6) var(--space-4)", textAlign: "center" }}>
-        <p style={{
-          margin: 0,
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
+        <p style={{ margin: 0, color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
           {t("discovery.disabled")}
         </p>
         <button
@@ -69,7 +61,6 @@ export function DiscoveryFeed({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-3)" }}>
-      {/* Header with controls */}
       {showControls && (
         <div style={{
           display: "flex",
@@ -85,7 +76,27 @@ export function DiscoveryFeed({
           }}>
             {t("discovery.title")}
           </h3>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <div style={{ display: "flex", gap: "var(--space-2)", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {feedbackAvailable && (
+              <button
+                type="button"
+                onClick={() => void resetHiddenRecommendations()}
+                disabled={resettingHidden}
+                aria-label={t("discovery.feedback.restoreHiddenAria")}
+                style={{
+                  border: "none",
+                  background: "none",
+                  color: "var(--color-text-tertiary)",
+                  fontSize: "var(--text-caption2)",
+                  cursor: resettingHidden ? "wait" : "pointer",
+                  padding: "var(--space-1) var(--space-2)"
+                }}
+              >
+                {resettingHidden
+                  ? t("discovery.feedback.restoringHidden")
+                  : t("discovery.feedback.restoreHidden")}
+              </button>
+            )}
             <button
               type="button"
               onClick={reset}
@@ -120,31 +131,24 @@ export function DiscoveryFeed({
         </div>
       )}
 
-      {/* Loading state */}
+      {hiddenResetError && (
+        <p role="status" style={{ margin: 0, padding: "0 var(--space-4)", color: "var(--color-danger, var(--color-text-secondary))", fontSize: "var(--text-caption2)" }}>
+          {t(hiddenResetError)}
+        </p>
+      )}
+
       {loading && recommendations.length === 0 && (
-        <p style={{
-          margin: 0,
-          padding: "var(--space-4)",
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
+        <p style={{ margin: 0, padding: "var(--space-4)", color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
           {t("discovery.loading")}
         </p>
       )}
 
-      {/* Error state */}
       {error && (
-        <p style={{
-          margin: 0,
-          padding: "var(--space-4)",
-          color: "var(--color-text-secondary)",
-          fontSize: "var(--text-footnote)"
-        }}>
+        <p style={{ margin: 0, padding: "var(--space-4)", color: "var(--color-text-secondary)", fontSize: "var(--text-footnote)" }}>
           {t("discovery.error")}
         </p>
       )}
 
-      {/* Empty state */}
       {!loading && !error && recommendations.length === 0 && (
         <p style={{
           margin: 0,
@@ -157,18 +161,20 @@ export function DiscoveryFeed({
         </p>
       )}
 
-      {/* Recommendations list */}
       {recommendations.length > 0 && (
         <div
           role="feed"
           aria-label={t("discovery.feedLabel")}
           style={{ display: "grid", gap: "var(--space-2)", padding: "0 var(--space-4)" }}
         >
-          {recommendations.map((rec) => (
+          {recommendations.map((recommendation) => (
             <RecommendationCard
-              key={rec.id}
-              recommendation={rec}
-              onDismiss={excludeItem}
+              key={recommendation.id}
+              recommendation={recommendation}
+              onDismissRecommendation={excludeRecommendation}
+              onFeedback={feedbackAvailable ? setRecommendationFeedback : undefined}
+              feedbackPending={feedbackPendingIds.has(recommendation.id)}
+              feedbackError={feedbackErrors[recommendation.id] ?? null}
               onSelect={onSelect}
             />
           ))}
