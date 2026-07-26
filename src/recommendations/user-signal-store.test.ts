@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserRecommendationSignalDoc } from "./user-signal-schema";
+
+const mocks = vi.hoisted(() => ({
+  publishInvalidation: vi.fn()
+}));
+
+vi.mock("./user-signal-invalidation", () => ({
+  publishUserSignalInvalidation: mocks.publishInvalidation
+}));
+
 import {
   buildUserSignalSelector,
   listUserSignals,
@@ -53,6 +62,10 @@ async function insert(
     ...overrides
   }, { adapter, now: new Date("2026-07-25T20:00:00.000Z") });
 }
+
+beforeEach(() => {
+  mocks.publishInvalidation.mockClear();
+});
 
 describe("user signal repository", () => {
   it("normalizes every selector to an account and instance scope", () => {
@@ -111,10 +124,37 @@ describe("user signal repository", () => {
       entityId: "work-foreign",
       provenance: "local_inference"
     });
+    mocks.publishInvalidation.mockClear();
 
     await expect(resetInferredUserSignals(scope, adapter)).resolves.toBe(1);
     expect(records.has(inferred.id)).toBe(false);
     expect(records.has(explicit.id)).toBe(true);
     expect(records.has(foreign.id)).toBe(true);
+    expect(mocks.publishInvalidation).toHaveBeenCalledWith(scope);
+  });
+
+  it("invalidates after a partial inferred reset before reporting failure", async () => {
+    const { adapter, records } = createMemoryAdapter();
+    const first = await insert(adapter, {
+      entityId: "work-first",
+      provenance: "local_inference"
+    });
+    const second = await insert(adapter, {
+      entityId: "work-second",
+      provenance: "local_inference"
+    });
+    mocks.publishInvalidation.mockClear();
+    adapter.remove = vi.fn(async (id: string) => {
+      if (id === second.id) throw new Error("simulated removal failure");
+      records.delete(id);
+    });
+
+    await expect(resetInferredUserSignals(scope, adapter)).rejects.toMatchObject({
+      code: "database_failure"
+    });
+    expect(records.has(first.id)).toBe(false);
+    expect(records.has(second.id)).toBe(true);
+    expect(mocks.publishInvalidation).toHaveBeenCalledTimes(1);
+    expect(mocks.publishInvalidation).toHaveBeenCalledWith(scope);
   });
 });
