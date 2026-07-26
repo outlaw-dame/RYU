@@ -7,8 +7,7 @@ import { ReviewerTrustControl } from "./ReviewerTrustControl";
 
 const mocks = vi.hoisted(() => ({
   setState: vi.fn(),
-  load: vi.fn(),
-  dispose: vi.fn(),
+  subscribe: vi.fn(),
   listener: null as ((snapshot: any) => void) | null
 }));
 
@@ -33,26 +32,24 @@ vi.mock("../../recommendations", () => ({
     { state: "low_trust", label: "Show less influence", description: "Low", destructive: false },
     { state: "muted", label: "Hide reviewed recommendations", description: "Muted", destructive: true },
     { state: "blocked", label: "Block reviewed recommendations", description: "Blocked", destructive: true }
-  ],
-  createReviewerTrustManager: () => ({
-    subscribe: (next: (snapshot: any) => void) => {
-      mocks.listener = next;
-      next({
-        reviewerAccountId: "https://books.example/users/alice",
-        state: "neutral",
-        persistedState: "neutral",
-        status: "ready",
-        error: null,
-        revision: 1
-      });
-      return () => { mocks.listener = null; };
-    },
-    load: mocks.load,
-    setState: mocks.setState,
-    retry: vi.fn(),
-    getSnapshot: vi.fn(),
-    dispose: mocks.dispose
-  })
+  ]
+}));
+
+vi.mock("../../recommendations/reviewer-trust-manager-registry", () => ({
+  subscribeSharedReviewerTrust: (_scope: unknown, _reviewerId: string, next: (snapshot: any) => void) => {
+    mocks.subscribe(_scope, _reviewerId);
+    mocks.listener = next;
+    next({
+      reviewerAccountId: "https://books.example/users/alice",
+      state: "neutral",
+      persistedState: "neutral",
+      status: "ready",
+      error: null,
+      revision: 1
+    });
+    return () => { mocks.listener = null; };
+  },
+  setSharedReviewerTrustState: mocks.setState
 }));
 
 vi.mock("react-i18next", () => ({
@@ -89,7 +86,6 @@ afterEach(() => cleanup());
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.listener = null;
-  mocks.load.mockResolvedValue(undefined);
   mocks.setState.mockResolvedValue(undefined);
 });
 
@@ -97,10 +93,10 @@ describe("ReviewerTrustControl", () => {
   it("renders nothing for an unverified review", () => {
     const { container } = render(<ReviewerTrustControl review={baseReview} />);
     expect(container).toBeEmptyDOMElement();
-    expect(mocks.load).not.toHaveBeenCalled();
+    expect(mocks.subscribe).not.toHaveBeenCalled();
   });
 
-  it("loads and changes trust only for authenticated verified attribution", async () => {
+  it("subscribes and changes trust only for authenticated verified attribution", async () => {
     render(
       <ReviewerTrustControl
         review={{
@@ -111,11 +107,15 @@ describe("ReviewerTrustControl", () => {
       />
     );
 
-    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByLabelText("Change reviewer influence"));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Prioritize reviews" }));
 
-    expect(mocks.setState).toHaveBeenCalledWith("trusted");
+    expect(mocks.setState).toHaveBeenCalledWith(
+      { ownerAccountId: "owner-1", instanceOrigin: "https://books.example" },
+      "https://books.example/users/alice",
+      "trusted"
+    );
   });
 
   it("shows a generic error and never exposes reviewer IDs", async () => {
@@ -129,7 +129,7 @@ describe("ReviewerTrustControl", () => {
       />
     );
 
-    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
     act(() => {
       mocks.listener?.({
         reviewerAccountId: "https://books.example/users/alice",
