@@ -59,6 +59,20 @@ describe("user signal invalidation bus", () => {
     second.bus.dispose();
   });
 
+  it("delivers canonical scope to global subscribers", () => {
+    const first = createHarness("tab-a");
+    const second = createHarness("tab-b");
+    const listener = vi.fn();
+    second.bus.subscribeAll(listener);
+
+    first.bus.publish({ ownerAccountId: " owner-a ", instanceOrigin: "https://books.example/" });
+    first.flush();
+
+    expect(listener).toHaveBeenCalledWith(scopeA);
+    first.bus.dispose();
+    second.bus.dispose();
+  });
+
   it("coalesces repeated writes for one scope into one invalidation", () => {
     const first = createHarness("tab-a");
     const second = createHarness("tab-b");
