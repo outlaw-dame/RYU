@@ -8,7 +8,7 @@ describe("reviewer attribution schema", () => {
     expect(schema.version).toBe(2);
     expect(schema.required).not.toContain("reviewerAccountId");
     expect(schema.required).not.toContain("reviewerAttributionSource");
-    expect(schema.indexes).toContain("reviewerAccountId");
+    expect(schema.indexes).not.toContain("reviewerAccountId");
     expect(schema.properties.reviewerAttributionSource).toEqual({
       type: "string",
       enum: ["activitypub_attributed_to"]
