@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
+import { CURRENT_SCHEMA_VERSION } from "./runtime-schema-version";
 import { collections } from "./schema";
 
 describe("reviewer attribution schema", () => {
-  it("adds verified attribution fields without promoting legacy reviews", () => {
+  it("advances the schema and adds attribution without promoting legacy reviews", () => {
     const schema = collections.reviews.schema;
 
-    expect(schema.version).toBe(2);
+    expect(CURRENT_SCHEMA_VERSION).toBe(3);
+    expect(schema.version).toBe(3);
     expect(schema.required).not.toContain("reviewerAccountId");
     expect(schema.required).not.toContain("reviewerAttributionSource");
     expect(schema.indexes).not.toContain("reviewerAccountId");
     expect(schema.properties.reviewerAttributionSource).toEqual({
       type: "string",
-      enum: ["activitypub_attributed_to"]
+      enum: ["authenticated_activitypub_actor"]
     });
   });
 
@@ -27,5 +29,6 @@ describe("reviewer attribution schema", () => {
     });
 
     expect(collections.reviews.migrationStrategies[2](legacy)).toBe(legacy);
+    expect(collections.reviews.migrationStrategies[3](legacy)).toBe(legacy);
   });
 });
