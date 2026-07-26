@@ -18,7 +18,8 @@ export type ModeratableStatus = {
   content?: string;
   sensitive?: boolean;
   spoiler_text?: string;
-  reblog?: ModeratableStatus | null;
+  /** Mastodon schemas intentionally retain nested boosts as unknown. */
+  reblog?: unknown;
 };
 
 export type PolicySurfaceResult<T> = {
@@ -50,6 +51,14 @@ function normalizedText(value: unknown, maxLength: number): string | undefined |
   return text.length <= maxLength ? text : null;
 }
 
+function isModeratableStatus(value: unknown): value is ModeratableStatus {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  if (!candidate.account || typeof candidate.account !== "object") return false;
+  const account = candidate.account as Record<string, unknown>;
+  return typeof account.id === "string";
+}
+
 export function statusToPolicyInput(status: ModeratableStatus): PolicyInput | null {
   const accountId = status.account?.id?.trim();
   if (!accountId || accountId.length > MAX_ACCOUNT_ID_LENGTH) return null;
@@ -62,8 +71,6 @@ export function statusToPolicyInput(status: ModeratableStatus): PolicyInput | nu
   const content = normalizedText(status.content, MAX_CONTENT_LENGTH);
   const spoilerText = normalizedText(status.spoiler_text, MAX_SPOILER_LENGTH);
 
-  // Oversized federated content must not be partially moderated. A null value
-  // means normalization rejected the field, while undefined means it was absent.
   if (acct === null || authorName === null || content === null || spoilerText === null) {
     return null;
   }
@@ -96,7 +103,8 @@ function mergeDecisions(decisions: readonly PolicyDecision[]): PolicyDecision {
     action: strongest.action,
     reasons: [...new Set(decisions.flatMap((decision) => decision.reasons))],
     matchedFilters: [...new Set(decisions.flatMap((decision) => decision.matchedFilters))],
-    safetyLabels: [...new Set(decisions.flatMap((decision) => decision.safetyLabels))]
+    safetyLabels: [...new Set(decisions.flatMap((decision) => decision.safetyLabels))],
+    collapseSummary: strongest.collapseSummary
   };
 }
 
@@ -116,11 +124,10 @@ export function evaluateStatusForSurface<T extends ModeratableStatus>(
   state: PolicyStoreState,
   context: PolicyEvaluationContext
 ): PolicySurfaceResult<T> {
-  // A boost has two independently moderatable actors: the booster and the
-  // original author. Evaluate both and apply the strongest decision so neither
-  // wrapper metadata nor nested content can bypass policy.
   const decisions = [evaluateOne(status, state, context)];
-  if (status.reblog) decisions.push(evaluateOne(status.reblog, state, context));
+  if (isModeratableStatus(status.reblog)) {
+    decisions.push(evaluateOne(status.reblog, state, context));
+  }
   const decision = mergeDecisions(decisions);
 
   return Object.freeze({
