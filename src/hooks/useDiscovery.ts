@@ -15,12 +15,15 @@ import {
   type Recommendation
 } from "../discovery";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
-import { scoreAndFilterRecommendations } from "../recommendations/unified-scorer";
+import {
+  scoreAndFilterRecommendations,
+  type ScoredRecommendation
+} from "../recommendations/unified-scorer";
 import { buildModerationOwnerIdentity } from "../moderation/owner-identity";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
 
 export type DiscoveryState = {
-  recommendations: Recommendation[];
+  recommendations: ScoredRecommendation[];
   loading: boolean;
   error: Error | null;
   enabled: boolean;
@@ -40,7 +43,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     [sessionQuery.data]
   );
 
-  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [recommendations, setRecommendations] = useState<ScoredRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [version, setVersion] = useState(0);
@@ -89,9 +92,9 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
       const seen = new Set<string>();
       const excludedSet = new Set(currentControls.excludedIds);
-      const unique = results.filter((rec) => {
-        if (seen.has(rec.id) || excludedSet.has(rec.id)) return false;
-        seen.add(rec.id);
+      const unique = results.filter((recommendation) => {
+        if (seen.has(recommendation.id) || excludedSet.has(recommendation.id)) return false;
+        seen.add(recommendation.id);
         return true;
       });
 
