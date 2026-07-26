@@ -3,6 +3,7 @@ import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode';
 import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { collections } from './runtime-schema';
+import { moderationCollections } from '../moderation/moderation-schema';
 import type {
   AuthorDoc,
   BookWyrmInstanceDoc,
@@ -10,6 +11,9 @@ import type {
   EntityLinkDoc,
   EntityResolutionDoc,
   FetchQueueDoc,
+  ModerationPolicyDoc,
+  ModerationRelationshipDoc,
+  ModerationSyncStateDoc,
   ReviewDoc,
   SearchIndexDependencyDoc,
   SearchVectorDoc,
@@ -31,6 +35,10 @@ export type RyuCollections = {
   searchindexdependencies: RxCollection<SearchIndexDependencyDoc>;
   fetchqueue: RxCollection<FetchQueueDoc>;
   writequeue: RxCollection<WriteQueueDoc>;
+  // Moderation collections (3 consolidated — within 16-collection limit)
+  moderationpolicies: RxCollection<ModerationPolicyDoc>;
+  moderationrelationships: RxCollection<ModerationRelationshipDoc>;
+  moderationsyncstate: RxCollection<ModerationSyncStateDoc>;
 };
 
 export type RyuDatabase = RxDatabase<RyuCollections>;
@@ -79,7 +87,17 @@ export async function initializeDatabase(): Promise<RyuDatabase> {
         ignoreDuplicate: isDevelopmentRuntime()
       });
 
+      // Register core collections (must succeed — app cannot function without them)
       await db.addCollections(collections as any);
+
+      // Register moderation collections (additive — failure here is non-fatal,
+      // the app falls back to localStorage-based moderation)
+      try {
+        await db.addCollections(moderationCollections as any);
+      } catch (err) {
+        console.warn('[db] Moderation collections failed to register. Falling back to localStorage.', err);
+      }
+
       return db;
     })().catch((err) => {
       dbPromise = null;
