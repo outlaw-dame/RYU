@@ -41,9 +41,9 @@ describe("ModerationInterventionGate", () => {
 
     expect(screen.getByText("Spoiler warning")).toBeInTheDocument();
     expect(screen.queryByText("Revealed content")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /show/i }));
+    fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText("Revealed content")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /hide/i }));
+    fireEvent.click(screen.getByRole("button"));
     expect(screen.queryByText("Revealed content")).not.toBeInTheDocument();
   });
 
@@ -54,7 +54,7 @@ describe("ModerationInterventionGate", () => {
         <span>Original content</span>
       </ModerationInterventionGate>
     );
-    fireEvent.click(screen.getByRole("button", { name: /show/i }));
+    fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText("Original content")).toBeInTheDocument();
 
     rerender(
@@ -63,5 +63,6 @@ describe("ModerationInterventionGate", () => {
       </ModerationInterventionGate>
     );
     expect(screen.queryByText("Edited content")).not.toBeInTheDocument();
+    expect(screen.getByRole("button")).toBeInTheDocument();
   });
 });
