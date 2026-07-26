@@ -194,8 +194,12 @@ function isBoundedString(value: unknown, maximum: number): value is string {
 }
 
 function createBrowserChannel(name: string): BroadcastChannelLike | null {
-  if (typeof window === "undefined" || typeof window.BroadcastChannel !== "function") return null;
-  return new window.BroadcastChannel(name);
+  if (typeof BroadcastChannel === "undefined") return null;
+  try {
+    return new BroadcastChannel(name) as unknown as BroadcastChannelLike;
+  } catch {
+    return null;
+  }
 }
 
 function createSourceId(): string {
