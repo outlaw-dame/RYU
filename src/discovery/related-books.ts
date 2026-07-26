@@ -12,6 +12,7 @@
 import { initializeDatabase } from "../db/client";
 import type { EditionDoc } from "../db/schema";
 import type { Recommendation, RecommendationReason } from "./types";
+import { isEntitySuppressed } from "../recommendations/signal-store";
 
 /**
  * Extract meaningful keywords from a title for similarity matching.
@@ -94,6 +95,7 @@ export async function findRelatedBooks(
     for (const doc of allEditionDocs) {
       const other = doc.toJSON() as EditionDoc;
       if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
+      if (isEntitySuppressed("edition", other.id)) continue;
 
       const sharedAuthors = (other.authorIds || []).filter((aid) =>
         editionAuthorSet.has(aid)
@@ -139,6 +141,7 @@ export async function findRelatedBooks(
     for (const doc of sameWorkEditions) {
       const other = doc.toJSON() as EditionDoc;
       if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
+      if (isEntitySuppressed("edition", other.id)) continue;
 
       const reason: RecommendationReason = {
         type: "same_work",
@@ -165,6 +168,7 @@ export async function findRelatedBooks(
   for (const doc of allEditionDocs) {
     const other = doc.toJSON() as EditionDoc;
     if (excludeSet.has(other.id) || seenIds.has(other.id)) continue;
+    if (isEntitySuppressed("edition", other.id)) continue;
 
     const similarity = titleSimilarity(edition.title, other.title);
     if (similarity >= titleSimilarityThreshold) {

@@ -14,6 +14,7 @@ import { initializeDatabase } from "../db/client";
 import type { AuthorDoc, EditionDoc } from "../db/schema";
 import { getReadingStatus, type ReadingStatus } from "../hooks/useLibrary";
 import type { Recommendation, RecommendationReason } from "./types";
+import { isEntitySuppressed } from "../recommendations/signal-store";
 
 export type ReadingHistoryOptions = {
   /** Maximum number of recommendations to return. */
@@ -86,6 +87,7 @@ export async function findBecauseYouRead(
   // Find candidate editions by the same authors
   for (const candidate of candidateEditions) {
     if (seenIds.has(candidate.id) || excludeSet.has(candidate.id)) continue;
+    if (isEntitySuppressed("edition", candidate.id)) continue;
 
     const matchingAuthorIds = (candidate.authorIds || []).filter((aid) =>
       authorFrequency.has(aid)

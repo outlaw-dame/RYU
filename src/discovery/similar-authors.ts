@@ -13,6 +13,7 @@ import type { AuthorDoc, EditionDoc } from "../db/schema";
 import { compareAuthorNames } from "../entity-resolution/author-normalizer";
 import { getReadingStatus } from "../hooks/useLibrary";
 import type { Recommendation, RecommendationReason } from "./types";
+import { isEntitySuppressed } from "../recommendations/signal-store";
 
 export type SimilarAuthorsOptions = {
   /** Maximum number of similar authors to return. */
@@ -63,6 +64,7 @@ export async function findSimilarAuthors(
 
     for (const authorId of authorIds) {
       if (excludeSet.has(authorId)) continue;
+      if (isEntitySuppressed("author", authorId)) continue;
       coAuthorScores.set(authorId, (coAuthorScores.get(authorId) || 0) + 1);
     }
   }
