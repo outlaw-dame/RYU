@@ -1,14 +1,16 @@
 /* @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewDoc } from "../../db/schema";
 import { ReviewerTrustControl } from "./ReviewerTrustControl";
 
-const setState = vi.fn();
-const load = vi.fn();
-const dispose = vi.fn();
-let listener: ((snapshot: any) => void) | null = null;
+const mocks = vi.hoisted(() => ({
+  setState: vi.fn(),
+  load: vi.fn(),
+  dispose: vi.fn(),
+  listener: null as ((snapshot: any) => void) | null
+}));
 
 vi.mock("../../sync/use-mastodon-activity", () => ({
   useMastodonSession: () => ({
@@ -34,7 +36,7 @@ vi.mock("../../recommendations", () => ({
   ],
   createReviewerTrustManager: () => ({
     subscribe: (next: (snapshot: any) => void) => {
-      listener = next;
+      mocks.listener = next;
       next({
         reviewerAccountId: "https://books.example/users/alice",
         state: "neutral",
@@ -43,13 +45,13 @@ vi.mock("../../recommendations", () => ({
         error: null,
         revision: 1
       });
-      return () => { listener = null; };
+      return () => { mocks.listener = null; };
     },
-    load,
-    setState,
+    load: mocks.load,
+    setState: mocks.setState,
     retry: vi.fn(),
     getSnapshot: vi.fn(),
-    dispose
+    dispose: mocks.dispose
   })
 }));
 
@@ -86,16 +88,16 @@ const baseReview: ReviewDoc = {
 afterEach(() => cleanup());
 beforeEach(() => {
   vi.clearAllMocks();
-  listener = null;
-  load.mockResolvedValue(undefined);
-  setState.mockResolvedValue(undefined);
+  mocks.listener = null;
+  mocks.load.mockResolvedValue(undefined);
+  mocks.setState.mockResolvedValue(undefined);
 });
 
 describe("ReviewerTrustControl", () => {
   it("renders nothing for an unverified review", () => {
     const { container } = render(<ReviewerTrustControl review={baseReview} />);
     expect(container).toBeEmptyDOMElement();
-    expect(load).not.toHaveBeenCalled();
+    expect(mocks.load).not.toHaveBeenCalled();
   });
 
   it("loads and changes trust only for authenticated verified attribution", async () => {
@@ -109,11 +111,11 @@ describe("ReviewerTrustControl", () => {
       />
     );
 
-    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByLabelText("Change reviewer influence"));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Prioritize reviews" }));
 
-    expect(setState).toHaveBeenCalledWith("trusted");
+    expect(mocks.setState).toHaveBeenCalledWith("trusted");
   });
 
   it("shows a generic error and never exposes reviewer IDs", async () => {
@@ -127,14 +129,16 @@ describe("ReviewerTrustControl", () => {
       />
     );
 
-    await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-    listener?.({
-      reviewerAccountId: "https://books.example/users/alice",
-      state: "neutral",
-      persistedState: "neutral",
-      status: "error",
-      error: new Error("private database details"),
-      revision: 2
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(1));
+    act(() => {
+      mocks.listener?.({
+        reviewerAccountId: "https://books.example/users/alice",
+        state: "neutral",
+        persistedState: "neutral",
+        status: "error",
+        error: new Error("private database details"),
+        revision: 2
+      });
     });
 
     expect(await screen.findByRole("status")).toHaveTextContent("Could not save");
