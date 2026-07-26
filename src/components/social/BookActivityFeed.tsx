@@ -1,8 +1,8 @@
 /**
- * Phase 31 - BookActivityFeed component.
+ * Phase 31 / Moderation Phase 7 - BookActivityFeed component.
  *
- * Book-centered activity feed showing grouped activities.
- * Activities about the same book are visually grouped together.
+ * Book-centered activity feed showing grouped activities. Canonical moderation
+ * policy is evaluated before classification, grouping, counters, or rendering.
  */
 
 import React, { useMemo } from "react";
@@ -10,6 +10,12 @@ import { useTranslation } from "react-i18next";
 import type { MastodonStatus } from "../../sync/mastodon-client";
 import type { ActivityFilter, BookActivity, ActivityGroup } from "../../social/types";
 import { useBookActivity } from "../../hooks/useBookActivity";
+import { usePolicySurface } from "../../hooks/usePolicySurface";
+import { ModerationInterventionGate } from "../moderation/ModerationInterventionGate";
+import {
+  buildBookActivityContentIdentity,
+  projectBookActivityPolicy
+} from "../../moderation/book-activity-policy";
 import { ActivityFilterBar } from "./ActivityFilterBar";
 
 export type BookActivityFeedProps = {
@@ -23,14 +29,12 @@ export type BookActivityFeedProps = {
   renderGroupHeader?: (group: ActivityGroup) => React.ReactNode;
 };
 
-/**
- * Default activity item renderer.
- */
 function DefaultActivityItem({ activity }: { activity: BookActivity }) {
   const { t } = useTranslation();
   const text = useMemo(() => {
     const raw = activity.status.content ?? "";
-    return raw.replace(/<[^>]*>/g, "").trim() || t("social.readingActivity", { defaultValue: "Updated their reading activity." });
+    return raw.replace(/<[^>]*>/g, "").trim()
+      || t("social.readingActivity", { defaultValue: "Updated their reading activity." });
   }, [activity.status.content, t]);
 
   const typeLabel = getActivityTypeLabel(activity.activityType, t);
@@ -80,9 +84,6 @@ function DefaultActivityItem({ activity }: { activity: BookActivity }) {
   );
 }
 
-/**
- * Default group header renderer.
- */
 function DefaultGroupHeader({ group }: { group: ActivityGroup }) {
   const { t } = useTranslation();
 
@@ -114,6 +115,13 @@ export function BookActivityFeed({
   renderGroupHeader
 }: BookActivityFeedProps) {
   const { t } = useTranslation();
+  const { filterItems } = usePolicySurface("public");
+
+  const policyProjection = useMemo(
+    () => projectBookActivityPolicy(filterItems(statuses)),
+    [filterItems, statuses]
+  );
+
   const {
     filter,
     setFilter,
@@ -121,9 +129,27 @@ export function BookActivityFeed({
     ungrouped,
     bookRelatedCount,
     totalCount
-  } = useBookActivity(statuses, { initialFilter });
+  } = useBookActivity(policyProjection.visibleStatuses, { initialFilter });
 
   const hasContent = groups.length > 0 || ungrouped.length > 0;
+
+  const renderModeratedActivity = (activity: BookActivity) => {
+    const decision = policyProjection.decisionByStatus.get(activity.status);
+    if (!decision) return null; // Fail closed if projection integrity is lost.
+
+    const rendered = renderActivity
+      ? renderActivity(activity)
+      : <DefaultActivityItem activity={activity} />;
+
+    return (
+      <ModerationInterventionGate
+        decision={decision}
+        contentIdentity={buildBookActivityContentIdentity(activity.status)}
+      >
+        {rendered}
+      </ModerationInterventionGate>
+    );
+  };
 
   return (
     <div style={{ display: "grid", gap: "var(--space-4)" }}>
@@ -144,7 +170,6 @@ export function BookActivityFeed({
           </p>
         ) : null}
 
-        {/* Grouped book activities */}
         {groups.map((group) => (
           <section key={group.groupKey} style={{ display: "grid", gap: "var(--space-2)" }}>
             {renderGroupHeader
@@ -152,15 +177,12 @@ export function BookActivityFeed({
               : <DefaultGroupHeader group={group} />}
             {group.activities.map((activity) => (
               <React.Fragment key={activity.status.id}>
-                {renderActivity
-                  ? renderActivity(activity)
-                  : <DefaultActivityItem activity={activity} />}
+                {renderModeratedActivity(activity)}
               </React.Fragment>
             ))}
           </section>
         ))}
 
-        {/* Ungrouped (non-book) activities */}
         {ungrouped.length > 0 ? (
           <section style={{ display: "grid", gap: "var(--space-2)" }}>
             <div style={{ padding: "var(--space-2) 0" }}>
@@ -170,9 +192,7 @@ export function BookActivityFeed({
             </div>
             {ungrouped.map((activity) => (
               <React.Fragment key={activity.status.id}>
-                {renderActivity
-                  ? renderActivity(activity)
-                  : <DefaultActivityItem activity={activity} />}
+                {renderModeratedActivity(activity)}
               </React.Fragment>
             ))}
           </section>
