@@ -1,5 +1,6 @@
 import { enqueueAuthorSearchDependents, upsertSearchIndexDependenciesForEntity } from "../search/search-index-dependencies";
 import { importedSearchIndexQueue, type SearchIndexQueue } from "../search/write-through-indexing";
+import { createAuthenticatedActivityPubReviewerAttribution } from "../reviews/reviewer-attribution";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
 import {
@@ -7,16 +8,23 @@ import {
   type EntityEnrichmentScheduler
 } from "./entity-enrichment-scheduler";
 
+type CanonicalReview = Extract<CanonicalApEntity, { kind: "review" }>;
+
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
   upsertWork(entity: Extract<CanonicalApEntity, { kind: "work" }>): Promise<void>;
   upsertEdition(entity: Extract<CanonicalApEntity, { kind: "edition" }>): Promise<void>;
-  upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
+  upsertReview(entity: CanonicalReview): Promise<void>;
 };
+
+export type AuthenticatedReviewerResolver = (
+  entity: CanonicalReview
+) => string | null | Promise<string | null>;
 
 export type ActivityPubStoreOptions = {
   searchIndexQueue?: SearchIndexQueue;
   enrichmentScheduler?: EntityEnrichmentScheduler;
+  authenticatedReviewerResolver?: AuthenticatedReviewerResolver;
 };
 
 function nowIso(): string {
@@ -122,21 +130,29 @@ export function createRxDBActivityPubStore(
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
+      const authenticatedAccountId = options.authenticatedReviewerResolver
+        ? await options.authenticatedReviewerResolver(entity)
+        : null;
+      const attribution = authenticatedAccountId
+        ? createAuthenticatedActivityPubReviewerAttribution(entity.accountId, authenticatedAccountId)
+        : null;
+
       await safeUpsert(db.reviews, {
         id: entity.id,
         title: entity.title,
         content: entity.content,
         editionId: entity.editionId,
         accountId: entity.accountId,
+        ...(attribution ? {
+          reviewerAccountId: attribution.accountId,
+          reviewerAttributionSource: attribution.source
+        } : {}),
         rating: entity.rating,
         published: entity.published,
         importedAt: timestamp,
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      // Phase 16: wire review indexing through the search queue so
-      // reviews are immediately searchable after AP import, matching
-      // the behavior of authors/works/editions.
       searchIndexQueue.enqueue(db, entity, timestamp);
     }
   };
