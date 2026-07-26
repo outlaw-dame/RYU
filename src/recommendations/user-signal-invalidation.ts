@@ -20,6 +20,7 @@ type InvalidationEnvelope = Readonly<{
 export type UserSignalInvalidationBus = {
   publish(scope: UserSignalScope): void;
   subscribe(scope: UserSignalScope, listener: () => void): () => void;
+  subscribeAll(listener: (scope: UserSignalScope) => void): () => void;
   dispose(): void;
 };
 
@@ -36,6 +37,7 @@ export function createUserSignalInvalidationBus(
   const createChannel = options.createChannel ?? createBrowserChannel;
   const schedule = options.schedule ?? queueMicrotask;
   const listeners = new Map<string, Set<() => void>>();
+  const globalListeners = new Set<(scope: UserSignalScope) => void>();
   const pendingScopes = new Map<string, UserSignalScope>();
   let channel: BroadcastChannelLike | null = null;
   let disposed = false;
@@ -61,6 +63,7 @@ export function createUserSignalInvalidationBus(
   function notify(scope: UserSignalScope): void {
     const key = scopeKey(scope);
     for (const listener of [...(listeners.get(key) ?? [])]) listener();
+    for (const listener of [...globalListeners]) listener(scope);
   }
 
   function flush(): void {
@@ -108,11 +111,19 @@ export function createUserSignalInvalidationBus(
       };
     },
 
+    subscribeAll(listener) {
+      if (disposed) return () => undefined;
+      globalListeners.add(listener);
+      ensureChannel();
+      return () => globalListeners.delete(listener);
+    },
+
     dispose() {
       if (disposed) return;
       disposed = true;
       pendingScopes.clear();
       listeners.clear();
+      globalListeners.clear();
       if (channel) {
         channel.onmessage = null;
         channel.close();
@@ -133,6 +144,12 @@ export function subscribeUserSignalInvalidation(
   listener: () => void
 ): () => void {
   return sharedBus.subscribe(scope, listener);
+}
+
+export function subscribeAllUserSignalInvalidation(
+  listener: (scope: UserSignalScope) => void
+): () => void {
+  return sharedBus.subscribeAll(listener);
 }
 
 function normalizeScope(scope: UserSignalScope): UserSignalScope {
