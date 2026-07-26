@@ -1,4 +1,5 @@
-import { normalizeUserSignalScope, type UserSignalScope } from "./user-signal-store";
+import type { UserSignalScope } from "./user-signal-store";
+import { normalizeInstanceOrigin } from "./user-signals";
 
 const CHANNEL_NAME = "ryu.user-signal-invalidation.v1";
 const MAX_SCOPE_PART_LENGTH = 2048;
@@ -82,7 +83,7 @@ export function createUserSignalInvalidationBus(
   return Object.freeze({
     publish(scope) {
       if (disposed) return;
-      const canonicalScope = normalizeUserSignalScope(scope);
+      const canonicalScope = normalizeScope(scope);
       pendingScopes.set(scopeKey(canonicalScope), canonicalScope);
       if (flushScheduled) return;
       flushScheduled = true;
@@ -91,7 +92,7 @@ export function createUserSignalInvalidationBus(
 
     subscribe(scope, listener) {
       if (disposed) return () => undefined;
-      const canonicalScope = normalizeUserSignalScope(scope);
+      const canonicalScope = normalizeScope(scope);
       const key = scopeKey(canonicalScope);
       const scoped = listeners.get(key) ?? new Set<() => void>();
       scoped.add(listener);
@@ -134,6 +135,20 @@ export function subscribeUserSignalInvalidation(
   return sharedBus.subscribe(scope, listener);
 }
 
+function normalizeScope(scope: UserSignalScope): UserSignalScope {
+  const ownerAccountId = typeof scope.ownerAccountId === "string"
+    ? scope.ownerAccountId.trim()
+    : "";
+  if (!ownerAccountId) throw new Error("User signal owner account ID is required");
+  if (ownerAccountId.length > MAX_SCOPE_PART_LENGTH) {
+    throw new Error("User signal owner account ID is too long");
+  }
+  return {
+    ownerAccountId,
+    instanceOrigin: normalizeInstanceOrigin(scope.instanceOrigin)
+  };
+}
+
 function scopeKey(scope: UserSignalScope): string {
   return JSON.stringify([scope.ownerAccountId, scope.instanceOrigin]);
 }
@@ -147,7 +162,7 @@ function parseEnvelope(value: unknown): InvalidationEnvelope | null {
   if (!isBoundedString(candidate.instanceOrigin, MAX_SCOPE_PART_LENGTH)) return null;
 
   try {
-    const scope = normalizeUserSignalScope({
+    const scope = normalizeScope({
       ownerAccountId: candidate.ownerAccountId,
       instanceOrigin: candidate.instanceOrigin
     });
