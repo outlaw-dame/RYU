@@ -1,256 +1,228 @@
 /**
- * localStorage → RxDB moderation migration.
+ * One-way, owner-scoped localStorage → RxDB moderation migration.
  *
- * Reads the Phase 35 localStorage-based moderation data and writes it
- * into the new RxDB moderation collections. This migration is:
- *
- * - IDEMPOTENT: safe to run any number of times. Uses upsert so
- *   re-running never duplicates data.
- * - ONE-WAY: writes to RxDB but never deletes from localStorage.
- *   localStorage remains the fallback if RxDB is unavailable.
- * - OWNER-SCOPED: every migrated document is tagged with ownerAccountId
- *   so multi-account isolation is enforced from the start.
- * - RESUMABLE: if interrupted, next run picks up where it left off
- *   because each item is upserted independently.
- *
- * Call `migrateModerationToRxDB(db, ownerAccountId)` after the database
- * is initialized and the user's session is known.
+ * Completion is recorded only after every eligible write succeeds. Legacy
+ * records are normalized to schema bounds before upsert so permanently invalid
+ * local data cannot poison every retry.
  */
+import type { RyuDatabase } from "../db/client";
+import type { ModerationFilterKeyword, ModerationPolicyDoc } from "../db/schema";
+import { normalizeDomain } from "./domain-block-store";
 
-import type { RyuDatabase } from '../db/client';
-import type { ModerationPolicyDoc, ModerationFilterKeyword } from '../db/schema';
+const MIGRATION_KEY = "ryu:moderation-migration-v1";
+const MAX_OWNER_ID_LENGTH = 512;
+const MAX_ID_LENGTH = 2048;
+const MAX_SHORT_TEXT_LENGTH = 512;
+const MAX_TEXT_LENGTH = 4096;
 
-// ─── Migration State ──────────────────────────────────────────────────────────
-
-const MIGRATION_KEY = 'ryu:moderation-migration-v1';
+type MigrationCounts = {
+  mutes: number;
+  blocks: number;
+  domains: number;
+  filters: number;
+};
 
 type MigrationState = {
   completedAt: string;
   ownerAccountId: string;
-  counts: {
-    mutes: number;
-    blocks: number;
-    domains: number;
-    filters: number;
-  };
+  counts: MigrationCounts;
 };
 
-/**
- * Check if migration has already completed for this owner.
- */
 export function isMigrationComplete(ownerAccountId: string): boolean {
-  if (typeof localStorage === 'undefined') return false;
+  if (typeof localStorage === "undefined") return false;
   try {
     const raw = localStorage.getItem(MIGRATION_KEY);
     if (!raw) return false;
-    const state: MigrationState = JSON.parse(raw);
+    const state = JSON.parse(raw) as MigrationState;
     return state.ownerAccountId === ownerAccountId && Boolean(state.completedAt);
   } catch {
     return false;
   }
 }
 
-/**
- * Record that migration completed successfully.
- */
-function markMigrationComplete(ownerAccountId: string, counts: MigrationState['counts']): void {
-  if (typeof localStorage === 'undefined') return;
+function markMigrationComplete(ownerAccountId: string, counts: MigrationCounts): void {
+  if (typeof localStorage === "undefined") return;
   try {
-    const state: MigrationState = {
+    localStorage.setItem(MIGRATION_KEY, JSON.stringify({
       completedAt: new Date().toISOString(),
       ownerAccountId,
       counts
-    };
-    localStorage.setItem(MIGRATION_KEY, JSON.stringify(state));
+    } satisfies MigrationState));
   } catch {
-    // Non-fatal — migration will just re-run next time
+    // A missing marker is safe because upserts are idempotent.
   }
 }
 
-// ─── Data Readers (from localStorage) ─────────────────────────────────────────
-
 function readLocalStorageJson<T>(key: string): T[] {
-  if (typeof localStorage === 'undefined') return [];
+  if (typeof localStorage === "undefined") return [];
   try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(localStorage.getItem(key) ?? "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-// ─── Migration Logic ──────────────────────────────────────────────────────────
+function bounded(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  return normalized.slice(0, maxLength);
+}
 
-/**
- * Migrate localStorage moderation data into RxDB.
- *
- * @param db - The initialized RyuDatabase instance
- * @param ownerAccountId - The current user's account ID (for ownership tagging)
- * @returns The number of documents migrated, or null if skipped
- */
+function timestamp(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : fallback;
+}
+
+function policyId(...parts: string[]): string | null {
+  const id = parts.join(":");
+  return id.length <= MAX_ID_LENGTH ? id : null;
+}
+
 export async function migrateModerationToRxDB(
   db: RyuDatabase,
   ownerAccountId: string
-): Promise<MigrationState['counts'] | null> {
-  // Guard: don't migrate if already complete for this owner
-  if (isMigrationComplete(ownerAccountId)) return null;
-
-  // Guard: don't migrate if moderation collections aren't available
-  if (!db.moderationpolicies) {
-    return null;
-  }
-
-  // Validate owner ID to prevent IDOR (owner must be non-empty, reasonable length)
-  const sanitizedOwner = ownerAccountId.trim();
-  if (!sanitizedOwner || sanitizedOwner.length > 512) {
-    console.warn('[moderation-migration] Invalid ownerAccountId, skipping migration.');
-    return null;
-  }
+): Promise<MigrationCounts | null> {
+  const owner = ownerAccountId.trim();
+  if (!owner || owner.length > MAX_OWNER_ID_LENGTH) return null;
+  if (isMigrationComplete(owner)) return null;
+  if (!db.moderationpolicies) return null;
 
   const now = new Date().toISOString();
-  const counts = { mutes: 0, blocks: 0, domains: 0, filters: 0 };
+  const counts: MigrationCounts = { mutes: 0, blocks: 0, domains: 0, filters: 0 };
+  let failures = 0;
 
-  // ─── Migrate mutes ───────────────────────────────────────────────────────
-  const mutes = readLocalStorageJson<{
-    accountId: string;
+  const upsert = async (doc: ModerationPolicyDoc, bucket: keyof MigrationCounts): Promise<void> => {
+    try {
+      await db.moderationpolicies.upsert(doc);
+      counts[bucket] += 1;
+    } catch {
+      failures += 1;
+    }
+  };
+
+  for (const entry of readLocalStorageJson<{
+    accountId?: string;
     acct?: string;
     createdAt?: string;
     expiresAt?: string | null;
     hideNotifications?: boolean;
-  }>('ryu:mute-list');
-
-  for (const entry of mutes) {
-    if (!entry.accountId) continue;
-    const doc: ModerationPolicyDoc = {
-      id: `local:mute:${sanitizedOwner}:${entry.accountId}`,
-      policyType: 'account_mute',
-      ownerAccountId: sanitizedOwner,
-      source: 'local',
-      createdAt: entry.createdAt ?? now,
+  }>("ryu:mute-list")) {
+    const accountId = bounded(entry.accountId, MAX_ID_LENGTH);
+    if (!accountId) continue;
+    const id = policyId("local", "mute", owner, accountId);
+    if (!id) continue;
+    await upsert({
+      id,
+      policyType: "account_mute",
+      ownerAccountId: owner,
+      source: "local",
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
-      accountId: entry.accountId,
-      acct: entry.acct,
+      accountId,
+      acct: bounded(entry.acct, MAX_SHORT_TEXT_LENGTH),
       hideNotifications: entry.hideNotifications ?? true,
-      expiresAt: entry.expiresAt ?? undefined
-    };
-    try {
-      await db.moderationpolicies.upsert(doc);
-      counts.mutes++;
-    } catch (err) {
-      console.warn('[moderation-migration] Failed to migrate mute', entry.accountId, err);
-    }
+      expiresAt: entry.expiresAt ? timestamp(entry.expiresAt, now) : undefined
+    }, "mutes");
   }
 
-  // ─── Migrate blocks ──────────────────────────────────────────────────────
-  const blocks = readLocalStorageJson<{
-    accountId: string;
+  for (const entry of readLocalStorageJson<{
+    accountId?: string;
     acct?: string;
     createdAt?: string;
-  }>('ryu:block-list');
-
-  for (const entry of blocks) {
-    if (!entry.accountId) continue;
-    const doc: ModerationPolicyDoc = {
-      id: `local:block:${sanitizedOwner}:${entry.accountId}`,
-      policyType: 'account_block',
-      ownerAccountId: sanitizedOwner,
-      source: 'local',
-      createdAt: entry.createdAt ?? now,
+  }>("ryu:block-list")) {
+    const accountId = bounded(entry.accountId, MAX_ID_LENGTH);
+    if (!accountId) continue;
+    const id = policyId("local", "block", owner, accountId);
+    if (!id) continue;
+    await upsert({
+      id,
+      policyType: "account_block",
+      ownerAccountId: owner,
+      source: "local",
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
-      accountId: entry.accountId,
-      acct: entry.acct,
+      accountId,
+      acct: bounded(entry.acct, MAX_SHORT_TEXT_LENGTH),
       hideNotifications: true
-    };
-    try {
-      await db.moderationpolicies.upsert(doc);
-      counts.blocks++;
-    } catch (err) {
-      console.warn('[moderation-migration] Failed to migrate block', entry.accountId, err);
-    }
+    }, "blocks");
   }
 
-  // ─── Migrate domain blocks ───────────────────────────────────────────────
-  const domains = readLocalStorageJson<{
-    domain: string;
+  for (const entry of readLocalStorageJson<{
+    domain?: string;
     createdAt?: string;
     reason?: string;
-  }>('ryu:domain-block-list');
-
-  for (const entry of domains) {
-    if (!entry.domain) continue;
-    const doc: ModerationPolicyDoc = {
-      id: `local:domain:${sanitizedOwner}:${entry.domain}`,
-      policyType: 'domain_block',
-      ownerAccountId: sanitizedOwner,
-      source: 'local',
-      createdAt: entry.createdAt ?? now,
+  }>("ryu:domain-block-list")) {
+    const domain = bounded(normalizeDomain(entry.domain ?? ""), MAX_SHORT_TEXT_LENGTH);
+    if (!domain) continue;
+    const id = policyId("local", "domain", owner, domain);
+    if (!id) continue;
+    await upsert({
+      id,
+      policyType: "domain_block",
+      ownerAccountId: owner,
+      source: "local",
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
-      domain: entry.domain,
-      severity: 'block',
-      reason: entry.reason
-    };
-    try {
-      await db.moderationpolicies.upsert(doc);
-      counts.domains++;
-    } catch (err) {
-      console.warn('[moderation-migration] Failed to migrate domain block', entry.domain, err);
-    }
+      domain,
+      severity: "block",
+      reason: bounded(entry.reason, MAX_TEXT_LENGTH)
+    }, "domains");
   }
 
-  // ─── Migrate content filters ─────────────────────────────────────────────
-  const filters = readLocalStorageJson<{
-    id: string;
-    phrase: string;
+  for (const entry of readLocalStorageJson<{
+    id?: string;
+    phrase?: string;
     wholeWord?: boolean;
     action?: string;
     createdAt?: string;
     expiresAt?: string | null;
-  }>('ryu:content-filters');
-
-  for (const entry of filters) {
-    if (!entry.id || !entry.phrase) continue;
+  }>("ryu:content-filters")) {
+    const legacyId = bounded(entry.id, MAX_SHORT_TEXT_LENGTH);
+    const phrase = bounded(entry.phrase, MAX_TEXT_LENGTH);
+    if (!legacyId || !phrase) continue;
+    const id = policyId("local", "filter", owner, legacyId);
+    if (!id) continue;
+    const keywordId = bounded(`kw-${legacyId}`, MAX_ID_LENGTH);
+    if (!keywordId) continue;
     const keyword: ModerationFilterKeyword = {
-      id: `kw-${entry.id}`,
-      keyword: entry.phrase,
+      id: keywordId,
+      keyword: phrase,
       wholeWord: entry.wholeWord ?? false
     };
-    const action = (['warn', 'hide', 'blur'].includes(entry.action ?? '') ? entry.action : 'hide') as ModerationPolicyDoc['filterAction'];
-    const doc: ModerationPolicyDoc = {
-      id: `local:filter:${sanitizedOwner}:${entry.id}`,
-      policyType: 'filter',
-      ownerAccountId: sanitizedOwner,
-      source: 'local',
-      createdAt: entry.createdAt ?? now,
+    const filterAction = (["warn", "hide", "blur"].includes(entry.action ?? "")
+      ? entry.action
+      : "hide") as ModerationPolicyDoc["filterAction"];
+    await upsert({
+      id,
+      policyType: "filter",
+      ownerAccountId: owner,
+      source: "local",
+      createdAt: timestamp(entry.createdAt, now),
       updatedAt: now,
-      title: entry.phrase.slice(0, 100),
+      title: phrase.slice(0, 100),
       keywords: [keyword],
-      contexts: ['home', 'notifications', 'public', 'thread', 'account'],
-      filterAction: action,
-      expiresAt: entry.expiresAt ?? undefined
-    };
-    try {
-      await db.moderationpolicies.upsert(doc);
-      counts.filters++;
-    } catch (err) {
-      console.warn('[moderation-migration] Failed to migrate filter', entry.id, err);
-    }
+      contexts: ["home", "notifications", "public", "thread", "account"],
+      filterAction,
+      expiresAt: entry.expiresAt ? timestamp(entry.expiresAt, now) : undefined
+    }, "filters");
   }
 
-  // ─── Mark complete ───────────────────────────────────────────────────────
-  markMigrationComplete(sanitizedOwner, counts);
+  if (failures > 0) {
+    throw new Error("Moderation migration incomplete; retry required");
+  }
+
+  markMigrationComplete(owner, counts);
   return counts;
 }
 
-/**
- * Reset migration state (for testing or account switch).
- */
 export function resetMigrationState(): void {
-  if (typeof localStorage === 'undefined') return;
+  if (typeof localStorage === "undefined") return;
   try {
     localStorage.removeItem(MIGRATION_KEY);
   } catch {
-    // Non-fatal
+    // Non-fatal.
   }
 }
