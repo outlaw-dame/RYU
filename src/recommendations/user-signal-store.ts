@@ -108,14 +108,19 @@ export async function resetInferredUserSignals(
   const canonicalScope = normalizeUserSignalScope(scope);
   const persistence = adapter ?? await createRxDbUserSignalAdapter();
   const signals = await listUserSignals({ ...canonicalScope, provenance: "local_inference" }, persistence);
+  const results = await Promise.allSettled(
+    signals.map((signal) => persistence.remove(signal.id))
+  );
+  const removedCount = results.filter((result) => result.status === "fulfilled").length;
+  if (removedCount > 0) publishUserSignalInvalidation(canonicalScope);
 
-  try {
-    await Promise.all(signals.map((signal) => persistence.remove(signal.id)));
-    if (signals.length > 0) publishUserSignalInvalidation(canonicalScope);
-    return signals.length;
-  } catch (cause) {
-    throw databaseFailure("Unable to reset inferred recommendation preferences", cause);
+  const failure = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (failure) {
+    throw databaseFailure("Unable to reset inferred recommendation preferences", failure.reason);
   }
+  return removedCount;
 }
 
 export function buildUserSignalSelector(query: UserSignalQuery): Record<string, string> {
