@@ -1,4 +1,5 @@
 import { getDatabase } from "../db/client";
+import { publishUserSignalInvalidation } from "./user-signal-invalidation";
 import type {
   UserRecommendationSignalDoc,
   UserSignalEntityType,
@@ -48,7 +49,12 @@ export async function upsertUserSignal(
   const adapter = options.adapter ?? await createRxDbUserSignalAdapter();
 
   try {
-    return await adapter.upsert(signal);
+    const persisted = await adapter.upsert(signal);
+    publishUserSignalInvalidation({
+      ownerAccountId: persisted.ownerAccountId,
+      instanceOrigin: persisted.instanceOrigin
+    });
+    return persisted;
   } catch (cause) {
     throw databaseFailure("Unable to persist the recommendation preference", cause);
   }
@@ -87,6 +93,7 @@ export async function removeUserSignal(
     const signal = await persistence.get(normalizedId);
     if (!signal || !signalMatchesScope(signal, canonicalScope)) return false;
     await persistence.remove(normalizedId);
+    publishUserSignalInvalidation(canonicalScope);
     return true;
   } catch (cause) {
     throw databaseFailure("Unable to remove the recommendation preference", cause);
@@ -98,11 +105,13 @@ export async function resetInferredUserSignals(
   scope: UserSignalScope,
   adapter?: UserSignalPersistenceAdapter
 ): Promise<number> {
+  const canonicalScope = normalizeUserSignalScope(scope);
   const persistence = adapter ?? await createRxDbUserSignalAdapter();
-  const signals = await listUserSignals({ ...scope, provenance: "local_inference" }, persistence);
+  const signals = await listUserSignals({ ...canonicalScope, provenance: "local_inference" }, persistence);
 
   try {
     await Promise.all(signals.map((signal) => persistence.remove(signal.id)));
+    if (signals.length > 0) publishUserSignalInvalidation(canonicalScope);
     return signals.length;
   } catch (cause) {
     throw databaseFailure("Unable to reset inferred recommendation preferences", cause);
