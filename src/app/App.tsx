@@ -11,6 +11,7 @@ import { SectionHeader } from "../components/common/SectionHeader";
 import { MediaGallery, type MediaAttachmentData } from "../components/media";
 import { Skeleton, SkeletonCoverGrid } from "../components/common/Skeleton";
 import { useDatabase } from "../hooks/useDatabase";
+import { useModerationMigration } from "../hooks/useModerationMigration";
 import { useImportedBooks } from "../hooks/useImportedBooks";
 import { normalizeSearchQuery } from "../search/query-normalize";
 import { scheduleSearchIndexHealthCheck } from "../search/index-lifecycle";
@@ -2145,6 +2146,9 @@ export function App() {
       grantedScopes: s.scope ? s.scope.split(" ").filter(Boolean) : undefined
     };
   }, [sessionQuery.data]);
+
+  // --- Moderation migration (localStorage → RxDB, fires once per session) ---
+  useModerationMigration(connectedAccount?.acct ?? null);
 
   const bookTokQuery = useBookTokTrends({ enabled: activeTab === "home" });
   const disconnectMutation = useDisconnectMastodon();

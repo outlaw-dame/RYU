@@ -1,9 +1,13 @@
 /**
- * Phase 35 - useModeration hook.
+ * Phase 35/36 - useModeration hook.
  *
  * Provides moderation actions (mute, block, domain-block, filter) and state.
  * Wraps the moderation stores with React state management so UI updates
  * when moderation lists change.
+ *
+ * Dual-write strategy: all mutations write to localStorage (synchronous,
+ * always available) AND asynchronously to RxDB (durable, cross-tab via
+ * multi-instance). Reads remain from localStorage for now (synchronous).
  */
 
 import { useCallback, useEffect, useState, useMemo } from "react";
@@ -43,6 +47,56 @@ import {
 } from "../moderation/safe-search";
 import { evaluateModeration } from "../moderation/moderation-engine";
 import type { ContentFilterAction } from "../moderation/types";
+import type { ModerationPolicyDoc } from "../db/schema";
+import { getDatabase } from "../db/client";
+
+// ─── RxDB Dual-Write (fire-and-forget) ────────────────────────────────────────
+
+/**
+ * Asynchronously upsert a moderation policy to RxDB.
+ * Never throws — failures are logged but don't affect the UI.
+ */
+function dualWritePolicy(doc: ModerationPolicyDoc): void {
+  getDatabase()
+    .then((db) => {
+      if (!db.moderationpolicies) return;
+      return db.moderationpolicies.upsert(doc);
+    })
+    .catch((err) => {
+      console.warn("[useModeration] RxDB dual-write failed:", err);
+    });
+}
+
+/**
+ * Asynchronously remove a moderation policy from RxDB by ID.
+ */
+function dualRemovePolicy(docId: string): void {
+  getDatabase()
+    .then(async (db) => {
+      if (!db.moderationpolicies) return;
+      const existing = await db.moderationpolicies.findOne(docId).exec();
+      if (existing) await existing.remove();
+    })
+    .catch((err) => {
+      console.warn("[useModeration] RxDB dual-remove failed:", err);
+    });
+}
+
+/**
+ * Get the current owner account ID from localStorage session state.
+ * Returns empty string if not available (pre-login).
+ */
+function getCurrentOwnerAccountId(): string {
+  if (typeof localStorage === "undefined") return "";
+  try {
+    const raw = localStorage.getItem("ryu:session");
+    if (!raw) return "";
+    const session = JSON.parse(raw);
+    return session?.account?.acct ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export type UseModerationResult = {
   /** Current mute list. */
@@ -129,36 +183,88 @@ export function useModeration(): UseModerationResult {
     const updated = addMuteStore(accountId, options);
     setMuteList(updated);
     notifySync();
+    const owner = getCurrentOwnerAccountId();
+    if (owner) {
+      const now = new Date().toISOString();
+      dualWritePolicy({
+        id: `local:mute:${owner}:${accountId}`,
+        policyType: "account_mute",
+        ownerAccountId: owner,
+        source: "local",
+        createdAt: now,
+        updatedAt: now,
+        accountId,
+        acct: options?.acct,
+        hideNotifications: options?.hideNotifications ?? true,
+        expiresAt: options?.durationMs ? new Date(Date.now() + options.durationMs).toISOString() : undefined
+      });
+    }
   }, [notifySync]);
 
   const unmute = useCallback((accountId: string) => {
     const updated = removeMuteStore(accountId);
     setMuteList(updated);
     notifySync();
+    const owner = getCurrentOwnerAccountId();
+    if (owner) dualRemovePolicy(`local:mute:${owner}:${accountId}`);
   }, [notifySync]);
 
   const block = useCallback((accountId: string, acct?: string) => {
     const updated = addBlockStore(accountId, acct);
     setBlockList(updated);
     notifySync();
+    const owner = getCurrentOwnerAccountId();
+    if (owner) {
+      const now = new Date().toISOString();
+      dualWritePolicy({
+        id: `local:block:${owner}:${accountId}`,
+        policyType: "account_block",
+        ownerAccountId: owner,
+        source: "local",
+        createdAt: now,
+        updatedAt: now,
+        accountId,
+        acct,
+        hideNotifications: true
+      });
+    }
   }, [notifySync]);
 
   const unblock = useCallback((accountId: string) => {
     const updated = removeBlockStore(accountId);
     setBlockList(updated);
     notifySync();
+    const owner = getCurrentOwnerAccountId();
+    if (owner) dualRemovePolicy(`local:block:${owner}:${accountId}`);
   }, [notifySync]);
 
   const blockDomain = useCallback((domain: string, reason?: string) => {
     const updated = addDomainBlockStore(domain, reason);
     setDomainBlockList(updated);
     notifySync();
-  }, []);
+    const owner = getCurrentOwnerAccountId();
+    if (owner) {
+      const now = new Date().toISOString();
+      dualWritePolicy({
+        id: `local:domain:${owner}:${domain}`,
+        policyType: "domain_block",
+        ownerAccountId: owner,
+        source: "local",
+        createdAt: now,
+        updatedAt: now,
+        domain,
+        severity: "block",
+        reason
+      });
+    }
+  }, [notifySync]);
 
   const unblockDomain = useCallback((domain: string) => {
     const updated = removeDomainBlockStore(domain);
     setDomainBlockList(updated);
     notifySync();
+    const owner = getCurrentOwnerAccountId();
+    if (owner) dualRemovePolicy(`local:domain:${owner}:${domain}`);
   }, [notifySync]);
 
   const addFilter = useCallback((phrase: string, options?: { wholeWord?: boolean; action?: ContentFilterAction; durationMs?: number }) => {
