@@ -16,15 +16,28 @@ const OPTIONS = Object.freeze(listReviewerTrustOptions().map((option) => Object.
 export function ReviewerTrustControl({ review }: { review: ReviewDoc }) {
   const { t } = useTranslation();
   const sessionQuery = useMastodonSession();
-  const attribution = useMemo(() => getVerifiedReviewerAttribution(review), [review]);
+  const reviewerAccountId = review.reviewerAccountId;
+  const reviewerAttributionSource = review.reviewerAttributionSource;
+  const connected = sessionQuery.data?.connected;
+  const instanceOrigin = sessionQuery.data?.instanceOrigin;
+  const ownerAccountId = sessionQuery.data?.account?.id;
+
+  const attribution = useMemo(
+    () => getVerifiedReviewerAttribution({ reviewerAccountId, reviewerAttributionSource }),
+    [reviewerAccountId, reviewerAttributionSource]
+  );
   const scope = useMemo(
-    () => buildUserSignalScopeFromSession(sessionQuery.data),
-    [sessionQuery.data]
+    () => buildUserSignalScopeFromSession({
+      connected,
+      instanceOrigin,
+      account: ownerAccountId ? { id: ownerAccountId } : null
+    }),
+    [connected, instanceOrigin, ownerAccountId]
   );
   const manager = useMemo(() => {
     if (!attribution || !scope) return null;
     return createReviewerTrustManager(scope, attribution.accountId);
-  }, [attribution, scope]);
+  }, [attribution?.accountId, scope?.instanceOrigin, scope?.ownerAccountId]);
   const [snapshot, setSnapshot] = useState<ReviewerTrustManagementSnapshot | null>(null);
 
   useEffect(() => {
