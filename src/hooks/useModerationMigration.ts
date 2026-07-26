@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getDatabase } from "../db/client";
 import { isMigrationComplete, migrateModerationToRxDB } from "../moderation/migration";
+import { buildModerationOwnerIdentity } from "../moderation/owner-identity";
+import { useMastodonSession } from "../sync/use-mastodon-activity";
 
 export type MigrationStatus = "idle" | "running" | "complete" | "skipped" | "error";
 
@@ -26,7 +28,17 @@ function runMigration(ownerAccountId: string): Promise<"complete" | "skipped"> {
   return promise;
 }
 
-export function useModerationMigration(ownerAccountId: string | null): MigrationStatus {
+/**
+ * Trigger migration from the authenticated server session. The optional legacy
+ * argument is intentionally ignored so older call sites cannot supply an
+ * unscoped account name.
+ */
+export function useModerationMigration(_legacyOwnerAccountId?: string | null): MigrationStatus {
+  const sessionQuery = useMastodonSession();
+  const ownerAccountId = useMemo(
+    () => buildModerationOwnerIdentity(sessionQuery.data),
+    [sessionQuery.data]
+  );
   const [status, setStatus] = useState<MigrationStatus>("idle");
 
   useEffect(() => {
@@ -55,7 +67,6 @@ export function useModerationMigration(ownerAccountId: string | null): Migration
   return status;
 }
 
-/** Test-only cleanup for module-level in-flight state. */
 export function resetModerationMigrationInFlightForTests(): void {
   inFlightMigrations.clear();
 }
