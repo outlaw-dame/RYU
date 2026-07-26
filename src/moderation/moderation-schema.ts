@@ -1,12 +1,13 @@
 /**
  * RxDB collections for local-first moderation store.
  *
+ * Consolidated into 3 collections to stay within RxDB open-source
+ * limit of 16 parallel collections (11 core + 3 moderation = 14).
+ *
  * Collections:
- * - moderationfilters: Keyword/phrase filters with contexts and actions
- * - moderationaccounts: Blocked/muted accounts
- * - moderationdomains: Domain-level blocks and silences
- * - moderationrelationships: Cached relationship state
- * - moderationreports: Filed reports
+ * - moderationpolicies: Polymorphic store for filters, account actions,
+ *   domain blocks, and reports (discriminated by policyType)
+ * - moderationrelationships: Cached relationship state per account
  * - moderationsyncstate: Sync tracking per data type per instance
  */
 
@@ -18,20 +19,39 @@ const shortText = { type: "string", maxLength: 512 } as const;
 const text = { type: "string", maxLength: 4096 } as const;
 const longText = { type: "string", maxLength: 20000 } as const;
 const timestamp = { type: "string", minLength: 20, maxLength: 40 } as const;
-const optionalTimestamp = { type: ["string", "null"], maxLength: 40 } as const;
 const sourceEnum = { type: "string", enum: ["local", "remote"] } as const;
 
 export const moderationCollections = {
-  moderationfilters: {
+  /**
+   * Polymorphic policy collection.
+   *
+   * policyType discriminates:
+   * - "filter": keyword/phrase filter with contexts and actions
+   * - "account_block": blocked account
+   * - "account_mute": muted account (with optional expiry)
+   * - "domain_block": domain-level block
+   * - "report": filed report
+   *
+   * Shared fields: id, policyType, ownerAccountId, source, createdAt, updatedAt
+   * Type-specific fields are optional (only populated for their policyType).
+   */
+  moderationpolicies: {
     schema: {
-      title: "moderation filters schema",
+      title: "moderation policies schema",
       version,
       type: "object",
       primaryKey: "id",
       additionalProperties: false,
-      indexes: ["accountId", "source", "updatedAt"],
+      indexes: ["policyType", "ownerAccountId", "source", "updatedAt"],
       properties: {
         id,
+        policyType: { type: "string", enum: ["filter", "account_block", "account_mute", "domain_block", "report"] },
+        ownerAccountId: shortText,
+        source: sourceEnum,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+
+        // ─── Filter fields ────────────────────────────────────────
         title: text,
         keywords: {
           type: "array",
@@ -51,68 +71,33 @@ export const moderationCollections = {
           items: { type: "string", enum: ["home", "notifications", "public", "thread", "account"] },
           default: []
         },
-        action: { type: "string", enum: ["warn", "hide", "blur"] },
-        expiresAt: optionalTimestamp,
-        source: sourceEnum,
-        remoteId: shortText,
-        instanceOrigin: shortText,
+        filterAction: { type: "string", enum: ["warn", "hide", "blur"] },
+
+        // ─── Account fields ───────────────────────────────────────
         accountId: shortText,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      },
-      required: ["id", "title", "keywords", "contexts", "action", "source", "createdAt", "updatedAt"]
-    },
-    migrationStrategies: { 1: passThrough }
-  },
-
-  moderationaccounts: {
-    schema: {
-      title: "moderation accounts schema",
-      version,
-      type: "object",
-      primaryKey: "id",
-      additionalProperties: false,
-      indexes: ["accountId", "action", "source", "updatedAt"],
-      properties: {
-        id,
-        accountId: id,
         acct: shortText,
-        action: { type: "string", enum: ["block", "mute"] },
         hideNotifications: { type: "boolean" },
-        expiresAt: optionalTimestamp,
-        source: sourceEnum,
-        remoteId: shortText,
-        instanceOrigin: shortText,
-        ownerAccountId: shortText,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      },
-      required: ["id", "accountId", "action", "hideNotifications", "source", "createdAt", "updatedAt"]
-    },
-    migrationStrategies: { 1: passThrough }
-  },
+        expiresAt: shortText,
 
-  moderationdomains: {
-    schema: {
-      title: "moderation domains schema",
-      version,
-      type: "object",
-      primaryKey: "id",
-      additionalProperties: false,
-      indexes: ["domain", "severity", "source", "updatedAt"],
-      properties: {
-        id,
+        // ─── Domain fields ────────────────────────────────────────
         domain: shortText,
         severity: { type: "string", enum: ["block", "silence", "hide_from_discovery"] },
         reason: text,
-        source: sourceEnum,
+
+        // ─── Report fields ────────────────────────────────────────
+        targetAccountId: shortText,
+        statusIds: { type: "array", items: id, default: [] },
+        comment: longText,
+        category: { type: "string", enum: ["spam", "violation", "legal", "other"] },
+        ruleIds: { type: "array", items: shortText, default: [] },
+        forward: { type: "boolean" },
+        reportStatus: { type: "string", enum: ["draft", "submitted", "resolved", "failed"] },
+
+        // ─── Shared optional fields ──────────────────────────────
         remoteId: shortText,
-        instanceOrigin: shortText,
-        accountId: shortText,
-        createdAt: timestamp,
-        updatedAt: timestamp
+        instanceOrigin: shortText
       },
-      required: ["id", "domain", "severity", "source", "createdAt", "updatedAt"]
+      required: ["id", "policyType", "ownerAccountId", "source", "createdAt", "updatedAt"]
     },
     migrationStrategies: { 1: passThrough }
   },
@@ -124,7 +109,7 @@ export const moderationCollections = {
       type: "object",
       primaryKey: "id",
       additionalProperties: false,
-      indexes: ["accountId", "instanceOrigin", "ownerAccountId", "syncedAt", "updatedAt"],
+      indexes: ["accountId", "ownerAccountId", "updatedAt"],
       properties: {
         id,
         accountId: id,
@@ -139,7 +124,7 @@ export const moderationCollections = {
         domainBlocking: { type: "boolean" },
         endorsed: { type: "boolean" },
         note: text,
-        mutingExpiresAt: optionalTimestamp,
+        mutingExpiresAt: shortText,
         instanceOrigin: shortText,
         ownerAccountId: shortText,
         syncedAt: timestamp,
@@ -148,45 +133,9 @@ export const moderationCollections = {
       required: [
         "id", "accountId", "following", "followedBy", "blocking", "blockedBy",
         "muting", "mutingNotifications", "requested", "requestedBy",
-        "domainBlocking", "endorsed", "instanceOrigin", "ownerAccountId",
+        "domainBlocking", "endorsed", "ownerAccountId",
         "syncedAt", "updatedAt"
       ]
-    },
-    migrationStrategies: { 1: passThrough }
-  },
-
-  moderationreports: {
-    schema: {
-      title: "moderation reports schema",
-      version,
-      type: "object",
-      primaryKey: "id",
-      additionalProperties: false,
-      indexes: ["targetAccountId", "status", "category", "updatedAt"],
-      properties: {
-        id,
-        targetAccountId: id,
-        statusIds: {
-          type: "array",
-          items: id,
-          default: []
-        },
-        comment: longText,
-        category: { type: "string", enum: ["spam", "violation", "legal", "other"] },
-        ruleIds: {
-          type: "array",
-          items: shortText,
-          default: []
-        },
-        forward: { type: "boolean" },
-        status: { type: "string", enum: ["draft", "submitted", "resolved", "failed"] },
-        remoteId: shortText,
-        instanceOrigin: shortText,
-        accountId: shortText,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      },
-      required: ["id", "targetAccountId", "statusIds", "comment", "category", "ruleIds", "forward", "status", "createdAt", "updatedAt"]
     },
     migrationStrategies: { 1: passThrough }
   },
@@ -198,18 +147,18 @@ export const moderationCollections = {
       type: "object",
       primaryKey: "id",
       additionalProperties: false,
-      indexes: ["dataType", "instanceOrigin", "accountId", "syncedAt"],
+      indexes: ["dataType", "accountId", "updatedAt"],
       properties: {
         id,
         dataType: { type: "string", enum: ["filters", "accounts", "domains", "relationships", "reports"] },
         instanceOrigin: shortText,
         accountId: shortText,
         syncedAt: timestamp,
-        nextSyncAt: optionalTimestamp,
+        nextSyncAt: shortText,
         failureCount: { type: "number", minimum: 0, maximum: 1000 },
         updatedAt: timestamp
       },
-      required: ["id", "dataType", "instanceOrigin", "accountId", "syncedAt", "failureCount", "updatedAt"]
+      required: ["id", "dataType", "accountId", "syncedAt", "failureCount", "updatedAt"]
     },
     migrationStrategies: { 1: passThrough }
   }

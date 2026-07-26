@@ -16,6 +16,90 @@ export interface SearchIndexDependencyDoc { id: string; authorId: string; entity
 export interface FetchQueueDoc { id: string; url: string; host: string; status: QueueStatus; attempts: number; lastAttemptAt?: string; nextAttemptAt?: string; error?: string; }
 export interface WriteQueueDoc { id: string; operation: string; entityType: string; entityId: string; payload: string; status: QueueStatus; attempts: number; enqueuedAt: string; updatedAt: string; error?: string; }
 
+// ─── Moderation Document Types ────────────────────────────────────────────────
+
+export type ModerationPolicyType = 'filter' | 'account_block' | 'account_mute' | 'domain_block' | 'report';
+export type ModerationFilterContext = 'home' | 'notifications' | 'public' | 'thread' | 'account';
+export type ModerationFilterAction = 'warn' | 'hide' | 'blur';
+export type ModerationDomainSeverity = 'block' | 'silence' | 'hide_from_discovery';
+export type ModerationSource = 'local' | 'remote';
+export type ModerationReportCategory = 'spam' | 'violation' | 'legal' | 'other';
+export type ModerationReportStatus = 'draft' | 'submitted' | 'resolved' | 'failed';
+export type ModerationSyncDataType = 'filters' | 'accounts' | 'domains' | 'relationships' | 'reports';
+
+export interface ModerationFilterKeyword { id: string; keyword: string; wholeWord: boolean; }
+
+/**
+ * Polymorphic moderation policy document.
+ * Discriminated by `policyType`. Only the fields relevant to each type
+ * are populated; others are undefined.
+ */
+export interface ModerationPolicyDoc {
+  id: string;
+  policyType: ModerationPolicyType;
+  ownerAccountId: string;
+  source: ModerationSource;
+  createdAt: string;
+  updatedAt: string;
+  // Filter fields
+  title?: string;
+  keywords?: ModerationFilterKeyword[];
+  contexts?: ModerationFilterContext[];
+  filterAction?: ModerationFilterAction;
+  // Account fields
+  accountId?: string;
+  acct?: string;
+  hideNotifications?: boolean;
+  expiresAt?: string;
+  // Domain fields
+  domain?: string;
+  severity?: ModerationDomainSeverity;
+  reason?: string;
+  // Report fields
+  targetAccountId?: string;
+  statusIds?: string[];
+  comment?: string;
+  category?: ModerationReportCategory;
+  ruleIds?: string[];
+  forward?: boolean;
+  reportStatus?: ModerationReportStatus;
+  // Shared optional
+  remoteId?: string;
+  instanceOrigin?: string;
+}
+
+export interface ModerationRelationshipDoc {
+  id: string;
+  accountId: string;
+  following: boolean;
+  followedBy: boolean;
+  blocking: boolean;
+  blockedBy: boolean;
+  muting: boolean;
+  mutingNotifications: boolean;
+  requested: boolean;
+  requestedBy: boolean;
+  domainBlocking: boolean;
+  endorsed: boolean;
+  note?: string;
+  mutingExpiresAt?: string;
+  instanceOrigin?: string;
+  ownerAccountId: string;
+  syncedAt: string;
+  updatedAt: string;
+}
+
+export interface ModerationSyncStateDoc {
+  id: string;
+  dataType: ModerationSyncDataType;
+  instanceOrigin?: string;
+  accountId: string;
+  syncedAt: string;
+  nextSyncAt?: string;
+  failureCount: number;
+  updatedAt: string;
+}
+
 const version = 1;
 const id = { type: 'string', minLength: 1, maxLength: 2048 } as const;
 const url = { type: 'string', minLength: 1, maxLength: 2048 } as const;
