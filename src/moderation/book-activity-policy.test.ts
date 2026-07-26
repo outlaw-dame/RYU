@@ -4,6 +4,7 @@ import type { PolicyDecision } from "./policy-types";
 import type { PolicySurfaceResult } from "./policy-surface-adapter";
 import {
   buildBookActivityContentIdentity,
+  buildBookActivityRenderKey,
   projectBookActivityPolicy
 } from "./book-activity-policy";
 
@@ -86,6 +87,17 @@ describe("book activity policy projection", () => {
     expect(projection.visibleStatuses).toEqual([first, second]);
     expect(projection.decisionByStatus.get(first)).toBe(showDecision);
     expect(projection.decisionByStatus.get(second)).toBe(warnDecision);
+  });
+
+  it("scopes React keys beyond the server-local status ID", () => {
+    const first = status("same-id");
+    const second = {
+      ...first,
+      account: { ...first.account, id: "another-instance-account" }
+    };
+
+    expect(buildBookActivityRenderKey(first))
+      .not.toBe(buildBookActivityRenderKey(second));
   });
 
   it("changes content identity when policy-relevant content changes", () => {
