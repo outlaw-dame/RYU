@@ -56,14 +56,9 @@ function endpointFor(item: ModerationQueueItem): { url: string; init: RequestIni
 
 export const defaultModerationTransport: ModerationTransport = async (item, signal) => {
   const { url, init } = endpointFor(item);
-  return fetch(url, {
-    ...init,
-    signal,
-    headers: {
-      ...Object.fromEntries(new Headers(init.headers).entries()),
-      "X-RYU-Queue-Item": item.id
-    }
-  });
+  const headers = new Headers(init.headers);
+  headers.set("X-RYU-Queue-Item", item.id);
+  return fetch(url, { ...init, signal, headers });
 };
 
 function retryAfterMs(response: Response): number | null {
@@ -138,8 +133,6 @@ export async function replayModerationQueue(
         continue;
       }
 
-      // Validation and unsupported-operation responses are terminal; replaying
-      // them would create an infinite local queue and duplicate user intent.
       removeModerationQueueItem(owner, item.id);
       result.blocked += 1;
     } catch (error) {
