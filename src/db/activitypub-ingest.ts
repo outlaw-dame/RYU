@@ -1,6 +1,6 @@
 import { enqueueAuthorSearchDependents, upsertSearchIndexDependenciesForEntity } from "../search/search-index-dependencies";
 import { importedSearchIndexQueue, type SearchIndexQueue } from "../search/write-through-indexing";
-import { createActivityPubReviewerAttribution } from "../reviews/reviewer-attribution";
+import { createAuthenticatedActivityPubReviewerAttribution } from "../reviews/reviewer-attribution";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
 import {
@@ -8,16 +8,23 @@ import {
   type EntityEnrichmentScheduler
 } from "./entity-enrichment-scheduler";
 
+type CanonicalReview = Extract<CanonicalApEntity, { kind: "review" }>;
+
 export type ActivityPubEntityStore = {
   upsertAuthor(entity: Extract<CanonicalApEntity, { kind: "author" }>): Promise<void>;
   upsertWork(entity: Extract<CanonicalApEntity, { kind: "work" }>): Promise<void>;
   upsertEdition(entity: Extract<CanonicalApEntity, { kind: "edition" }>): Promise<void>;
-  upsertReview(entity: Extract<CanonicalApEntity, { kind: "review" }>): Promise<void>;
+  upsertReview(entity: CanonicalReview): Promise<void>;
 };
+
+export type AuthenticatedReviewerResolver = (
+  entity: CanonicalReview
+) => string | null | Promise<string | null>;
 
 export type ActivityPubStoreOptions = {
   searchIndexQueue?: SearchIndexQueue;
   enrichmentScheduler?: EntityEnrichmentScheduler;
+  authenticatedReviewerResolver?: AuthenticatedReviewerResolver;
 };
 
 function nowIso(): string {
@@ -123,15 +130,23 @@ export function createRxDBActivityPubStore(
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
-      const attribution = createActivityPubReviewerAttribution(entity.accountId);
+      const authenticatedAccountId = options.authenticatedReviewerResolver
+        ? await options.authenticatedReviewerResolver(entity)
+        : null;
+      const attribution = authenticatedAccountId
+        ? createAuthenticatedActivityPubReviewerAttribution(entity.accountId, authenticatedAccountId)
+        : null;
+
       await safeUpsert(db.reviews, {
         id: entity.id,
         title: entity.title,
         content: entity.content,
         editionId: entity.editionId,
         accountId: entity.accountId,
-        reviewerAccountId: attribution.accountId,
-        reviewerAttributionSource: attribution.source,
+        ...(attribution ? {
+          reviewerAccountId: attribution.accountId,
+          reviewerAttributionSource: attribution.source
+        } : {}),
         rating: entity.rating,
         published: entity.published,
         importedAt: timestamp,
