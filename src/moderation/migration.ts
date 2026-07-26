@@ -85,8 +85,8 @@ export async function migrateModerationToRxDB(
   db: RyuDatabase,
   ownerAccountId: string
 ): Promise<MigrationCounts | null> {
-  const owner = bounded(ownerAccountId, MAX_OWNER_ID_LENGTH);
-  if (!owner) return null;
+  const owner = ownerAccountId.trim();
+  if (!owner || owner.length > MAX_OWNER_ID_LENGTH) return null;
   if (isMigrationComplete(owner)) return null;
   if (!db.moderationpolicies) return null;
 
