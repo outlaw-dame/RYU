@@ -4,6 +4,7 @@ import {
   type ReviewerTrustManager
 } from "./reviewer-trust-management";
 import type { ReviewerTrustState } from "./reviewer-trust";
+import { subscribeAllUserSignalInvalidation } from "./user-signal-invalidation";
 import type { UserSignalScope } from "./user-signal-store";
 
 export type ReviewerTrustListener = (snapshot: ReviewerTrustManagementSnapshot) => void;
@@ -11,6 +12,7 @@ export type ReviewerTrustInvalidationListener = () => void;
 
 type RegistryEntry = {
   manager: ReviewerTrustManager;
+  scope: UserSignalScope;
   subscribers: number;
   loaded: boolean;
   lastPersistedState: ReviewerTrustState;
@@ -18,6 +20,15 @@ type RegistryEntry = {
 
 const registry = new Map<string, RegistryEntry>();
 const invalidationListeners = new Set<ReviewerTrustInvalidationListener>();
+let invalidationScheduled = false;
+
+subscribeAllUserSignalInvalidation((scope) => {
+  for (const entry of registry.values()) {
+    if (!sameScope(entry.scope, scope)) continue;
+    void entry.manager.load();
+  }
+  notifyInvalidation();
+});
 
 export function subscribeSharedReviewerTrust(
   scope: UserSignalScope,
@@ -30,6 +41,7 @@ export function subscribeSharedReviewerTrust(
     const manager = createReviewerTrustManager(scope, reviewerAccountId);
     entry = {
       manager,
+      scope: Object.freeze({ ...scope }),
       subscribers: 0,
       loaded: false,
       lastPersistedState: manager.getSnapshot().persistedState
@@ -98,7 +110,17 @@ export function subscribeReviewerTrustInvalidation(
 }
 
 function notifyInvalidation(): void {
-  for (const listener of [...invalidationListeners]) listener();
+  if (invalidationScheduled) return;
+  invalidationScheduled = true;
+  queueMicrotask(() => {
+    invalidationScheduled = false;
+    for (const listener of [...invalidationListeners]) listener();
+  });
+}
+
+function sameScope(left: UserSignalScope, right: UserSignalScope): boolean {
+  return left.ownerAccountId === right.ownerAccountId
+    && left.instanceOrigin === right.instanceOrigin;
 }
 
 function registryKey(scope: UserSignalScope, reviewerAccountId: string): string {

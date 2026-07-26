@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { UserRecommendationSignalDoc } from "./user-signal-schema";
 import {
   buildUserSignalSelector,
@@ -116,5 +116,28 @@ describe("user signal repository", () => {
     expect(records.has(inferred.id)).toBe(false);
     expect(records.has(explicit.id)).toBe(true);
     expect(records.has(foreign.id)).toBe(true);
+  });
+
+  it("waits for every inferred removal and reports partial failure after successful mutations", async () => {
+    const { adapter, records } = createMemoryAdapter();
+    const first = await insert(adapter, {
+      entityId: "work-first",
+      provenance: "local_inference"
+    });
+    const second = await insert(adapter, {
+      entityId: "work-second",
+      provenance: "local_inference"
+    });
+    adapter.remove = vi.fn(async (id: string) => {
+      if (id === second.id) throw new Error("simulated removal failure");
+      records.delete(id);
+    });
+
+    await expect(resetInferredUserSignals(scope, adapter)).rejects.toMatchObject({
+      code: "database_failure"
+    });
+    expect(adapter.remove).toHaveBeenCalledTimes(2);
+    expect(records.has(first.id)).toBe(false);
+    expect(records.has(second.id)).toBe(true);
   });
 });
