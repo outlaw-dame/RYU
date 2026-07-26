@@ -14,6 +14,7 @@ import { usePolicySurface } from "../../hooks/usePolicySurface";
 import { ModerationInterventionGate } from "../moderation/ModerationInterventionGate";
 import {
   buildBookActivityContentIdentity,
+  buildBookActivityRenderKey,
   projectBookActivityPolicy
 } from "../../moderation/book-activity-policy";
 import { ActivityFilterBar } from "./ActivityFilterBar";
@@ -176,7 +177,7 @@ export function BookActivityFeed({
               ? renderGroupHeader(group)
               : <DefaultGroupHeader group={group} />}
             {group.activities.map((activity) => (
-              <React.Fragment key={activity.status.id}>
+              <React.Fragment key={buildBookActivityRenderKey(activity.status)}>
                 {renderModeratedActivity(activity)}
               </React.Fragment>
             ))}
@@ -191,7 +192,7 @@ export function BookActivityFeed({
               </span>
             </div>
             {ungrouped.map((activity) => (
-              <React.Fragment key={activity.status.id}>
+              <React.Fragment key={buildBookActivityRenderKey(activity.status)}>
                 {renderModeratedActivity(activity)}
               </React.Fragment>
             ))}
