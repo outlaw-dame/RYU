@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   findBecauseYouRead,
   findRelatedBooks,
@@ -25,6 +25,7 @@ import { applyVerifiedReviewerTrustToDiscovery } from "../recommendations/review
 import { evaluateRecommendationCandidates } from "../recommendations/recommendation-score-trace";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
+import { createAsyncScopeGuard, type AsyncScopeGuard } from "./async-scope-guard";
 
 const EMPTY_FEEDBACK_POLICY: DiscoveryFeedbackPolicy = Object.freeze({
   excludedIds: Object.freeze([]),
@@ -71,11 +72,37 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     }),
     [connected, instanceOrigin, ownerAccountId]
   );
+  const discoveryScopeKey = useMemo(
+    () => userSignalScope
+      ? JSON.stringify([userSignalScope.instanceOrigin, userSignalScope.ownerAccountId])
+      : "signed-out",
+    [userSignalScope]
+  );
+  const refreshGuardRef = useRef<AsyncScopeGuard | null>(null);
+  const publishedRecommendationScopeRef = useRef(discoveryScopeKey);
+  if (!refreshGuardRef.current) {
+    refreshGuardRef.current = createAsyncScopeGuard(discoveryScopeKey);
+  } else {
+    refreshGuardRef.current.setScope(discoveryScopeKey);
+  }
+
+  const publishRecommendations = useCallback((items: Recommendation[]) => {
+    publishedRecommendationScopeRef.current = discoveryScopeKey;
+    setRecommendations(items);
+  }, [discoveryScopeKey]);
 
   const refresh = useCallback(async () => {
+    const guard = refreshGuardRef.current;
+    const request = guard?.begin(discoveryScopeKey) ?? null;
+    if (!guard || !request) return;
+
     const currentControls = getDiscoveryControls();
     if (!currentControls.enabled || !isSearchFeatureEnabled("personalization")) {
-      setRecommendations([]);
+      if (guard.isCurrent(request)) {
+        publishRecommendations([]);
+        setLoading(false);
+        setError(null);
+      }
       return;
     }
 
@@ -113,17 +140,30 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         ? await applyVerifiedReviewerTrustToDiscovery(feedbackRanked, userSignalScope)
         : feedbackRanked;
 
-      setRecommendations(
-        trustRanked
+      if (!guard.isCurrent(request)) return;
+      publishRecommendations(
+        [...trustRanked]
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
       );
     } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
+      if (guard.isCurrent(request)) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
-      setLoading(false);
+      if (guard.isCurrent(request)) setLoading(false);
     }
-  }, [editionId, limit, userSignalScope, version]);
+  }, [discoveryScopeKey, editionId, limit, publishRecommendations, userSignalScope, version]);
+
+  useEffect(() => {
+    publishRecommendations([]);
+    setLoading(false);
+    setError(null);
+    setFeedbackPendingIds(new Set());
+    setFeedbackErrors({});
+    setResettingHidden(false);
+    setHiddenResetError(null);
+  }, [discoveryScopeKey, publishRecommendations]);
 
   useEffect(() => {
     void refresh();
@@ -138,6 +178,10 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     const timer = setInterval(() => void refresh(), refreshInterval);
     return () => clearInterval(timer);
   }, [refresh, refreshInterval]);
+
+  useEffect(() => () => {
+    refreshGuardRef.current?.invalidate();
+  }, []);
 
   const setEnabled = useCallback((enabled: boolean) => {
     setDiscoveryControls({ enabled });
@@ -178,6 +222,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       return;
     }
 
+    const operationScopeKey = discoveryScopeKey;
     setFeedbackPendingIds((current) => new Set(current).add(recommendation.id));
     setFeedbackErrors((current) => {
       const next = { ...current };
@@ -187,46 +232,62 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
     try {
       await setRecommendationFeedbackState(recommendation, userSignalScope, state);
+      if (!refreshGuardRef.current?.isScopeActive(operationScopeKey)) return;
       if (state === "not_interested" || state === "suppress") {
         setRecommendations((current) => current.filter((item) => item.id !== recommendation.id));
       } else {
         setVersion((value) => value + 1);
       }
     } catch {
-      setFeedbackErrors((current) => ({
-        ...current,
-        [recommendation.id]: "discovery.feedback.saveError"
-      }));
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setFeedbackErrors((current) => ({
+          ...current,
+          [recommendation.id]: "discovery.feedback.saveError"
+        }));
+      }
     } finally {
-      setFeedbackPendingIds((current) => {
-        const next = new Set(current);
-        next.delete(recommendation.id);
-        return next;
-      });
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setFeedbackPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(recommendation.id);
+          return next;
+        });
+      }
     }
-  }, [excludeRecommendation, userSignalScope]);
+  }, [discoveryScopeKey, excludeRecommendation, userSignalScope]);
 
   const resetHiddenRecommendations = useCallback(async (): Promise<void> => {
     if (!userSignalScope || resettingHidden) return;
+    const operationScopeKey = discoveryScopeKey;
     setResettingHidden(true);
     setHiddenResetError(null);
     try {
       await resetHiddenDiscoveryFeedback(userSignalScope);
-      setVersion((value) => value + 1);
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setVersion((value) => value + 1);
+      }
     } catch {
-      setHiddenResetError("discovery.feedback.resetHiddenError");
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setHiddenResetError("discovery.feedback.resetHiddenError");
+      }
     } finally {
-      setResettingHidden(false);
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setResettingHidden(false);
+      }
     }
-  }, [resettingHidden, userSignalScope]);
+  }, [discoveryScopeKey, resettingHidden, userSignalScope]);
 
   const reset = useCallback(() => {
     resetDiscoveryControls();
     setVersion((value) => value + 1);
   }, []);
 
+  const visibleRecommendations = publishedRecommendationScopeRef.current === discoveryScopeKey
+    ? recommendations
+    : [];
+
   return {
-    recommendations,
+    recommendations: visibleRecommendations,
     loading,
     error,
     enabled: controls.enabled,
