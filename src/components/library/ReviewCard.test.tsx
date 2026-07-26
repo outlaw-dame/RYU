@@ -20,6 +20,12 @@ vi.mock("../../design/icons/AppIcon", () => ({
   )
 }));
 
+// Reviewer trust has its own authenticated-session integration tests. Keep
+// ReviewCard's established rendering tests independent of query-provider setup.
+vi.mock("./ReviewerTrustControl", () => ({
+  ReviewerTrustControl: () => null
+}));
+
 beforeEach(() => { cleanup(); });
 afterEach(() => { cleanup(); });
 
@@ -47,7 +53,6 @@ describe("ReviewCard", () => {
 
   it("renders publication date", () => {
     render(<ReviewCard review={baseReview} />);
-    // Should display a formatted date
     expect(screen.getByRole("article")).toBeDefined();
   });
 
