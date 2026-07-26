@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { addSignal, loadSignals } from "./signal-store";
+import {
+  addSignal,
+  loadSignals,
+  recommendationSignalStorageKey
+} from "./signal-store";
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();
@@ -33,14 +37,20 @@ describe("owner-scoped recommendation signals", () => {
   });
 
   it("rejects a distinct addition when the store is full of non-evictable signals", () => {
-    for (let index = 0; index < 2_000; index++) {
-      addSignal({
-        entityType: "edition",
-        entityId: `edition-${index}`,
-        kind: "show_more",
-        provenance: "user_explicit"
-      }, "owner-a");
-    }
+    const now = "2026-01-01T00:00:00.000Z";
+    const signals = Array.from({ length: 2_000 }, (_, index) => ({
+      id: `signal:edition:edition-${index}:show_more:user_explicit`,
+      entityType: "edition",
+      entityId: `edition-${index}`,
+      kind: "show_more",
+      strength: 1,
+      provenance: "user_explicit",
+      createdAt: now,
+      updatedAt: now
+    }));
+    const key = recommendationSignalStorageKey("owner-a");
+    expect(key).not.toBeNull();
+    localStorage.setItem(key!, JSON.stringify(signals));
 
     const result = addSignal({
       entityType: "edition",
