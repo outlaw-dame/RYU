@@ -3,30 +3,38 @@ import type { PolicyDecision } from "./policy-types";
 import type { PolicySurfaceResult } from "./policy-surface-adapter";
 
 export type BookActivityPolicyProjection = {
-  visibleStatuses: MastodonStatus[];
+  /** Fully visible statuses allowed to contribute to groups, labels, and counts. */
+  showStatuses: MastodonStatus[];
+  /** Non-hidden statuses that require explicit reveal and must remain ungrouped. */
+  interventionStatuses: MastodonStatus[];
   decisionByStatus: ReadonlyMap<MastodonStatus, PolicyDecision>;
 };
 
 /**
  * Projects canonical policy results into the inputs required by the book
- * activity classifier. Hard-hidden statuses are removed before they can affect
- * grouping, counts, or labels; intervention decisions remain attached to the
- * exact status object rendered by the feed.
+ * activity classifier. Only `show` statuses may contribute to shared metadata.
+ * Intervention-required statuses remain renderable, but are isolated so their
+ * quoted titles, hashtags, authors, and classifications cannot leak through a
+ * group header or count before explicit reveal.
  */
 export function projectBookActivityPolicy(
   results: readonly PolicySurfaceResult<MastodonStatus>[]
 ): BookActivityPolicyProjection {
-  const visibleStatuses: MastodonStatus[] = [];
+  const showStatuses: MastodonStatus[] = [];
+  const interventionStatuses: MastodonStatus[] = [];
   const decisionByStatus = new Map<MastodonStatus, PolicyDecision>();
 
   for (const result of results) {
     if (result.hidden || result.decision.action === "hide") continue;
-    visibleStatuses.push(result.item);
+
     decisionByStatus.set(result.item, result.decision);
+    if (result.decision.action === "show") showStatuses.push(result.item);
+    else interventionStatuses.push(result.item);
   }
 
   return {
-    visibleStatuses,
+    showStatuses,
+    interventionStatuses,
     decisionByStatus
   };
 }
