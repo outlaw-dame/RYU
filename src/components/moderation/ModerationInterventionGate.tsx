@@ -1,9 +1,12 @@
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { PolicyDecision } from "../../moderation/policy-types";
 
 export type ModerationInterventionGateProps = {
   decision: PolicyDecision;
   children: ReactNode;
+  /** Stable identity for the moderated content version, such as status.updated_at. */
+  contentIdentity?: string;
 };
 
 /**
@@ -12,17 +15,33 @@ export type ModerationInterventionGateProps = {
  */
 export function ModerationInterventionGate({
   decision,
-  children
+  children,
+  contentIdentity = ""
 }: ModerationInterventionGateProps) {
+  const { t } = useTranslation();
   const [revealed, setRevealed] = useState(false);
   const detailsId = useId();
+  const decisionIdentity = useMemo(() => JSON.stringify({
+    action: decision.action,
+    collapseSummary: decision.collapseSummary ?? "",
+    reasons: decision.reasons,
+    matchedFilterIds: decision.matchedFilters.map((filter) => filter.id),
+    safetyLabels: decision.safetyLabels.map((label) => `${label.label}:${label.severity}`),
+    contentIdentity
+  }), [contentIdentity, decision]);
+
+  // A reveal grants access only to the exact moderated version the user chose.
+  // Edited content or a newly applicable policy must require a fresh reveal.
+  useEffect(() => {
+    setRevealed(false);
+  }, [decisionIdentity]);
 
   if (decision.action === "show") return <>{children}</>;
   if (decision.action === "hide") return null;
 
   const summary = decision.collapseSummary?.trim()
     || decision.reasons.find((reason) => reason.trim().length > 0)
-    || "This content is covered by your moderation preferences.";
+    || t("moderation.contentWarning");
 
   if (revealed) {
     return (
@@ -35,7 +54,7 @@ export function ModerationInterventionGate({
           aria-expanded="true"
           style={buttonStyle}
         >
-          Hide again
+          {t("moderation.hideContent")}
         </button>
       </div>
     );
@@ -44,7 +63,7 @@ export function ModerationInterventionGate({
   return (
     <div
       role="group"
-      aria-label="Moderated content"
+      aria-label={t("moderation.contentWarning")}
       style={{
         borderRadius: "var(--radius-md)",
         border: "1px solid color-mix(in srgb, var(--color-text) 12%, transparent)",
@@ -64,7 +83,7 @@ export function ModerationInterventionGate({
         aria-expanded="false"
         style={buttonStyle}
       >
-        Show content
+        {t("moderation.showAnyway")}
       </button>
     </div>
   );
