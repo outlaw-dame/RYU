@@ -1,4 +1,4 @@
-export const REVIEWER_ATTRIBUTION_SOURCES = ["activitypub_attributed_to"] as const;
+export const REVIEWER_ATTRIBUTION_SOURCES = ["authenticated_activitypub_actor"] as const;
 
 export type ReviewerAttributionSource = (typeof REVIEWER_ATTRIBUTION_SOURCES)[number];
 
@@ -14,24 +14,34 @@ export type ReviewerAttributedReview = Readonly<{
 
 const MAX_REVIEWER_ACCOUNT_ID_LENGTH = 2048;
 
-export function createActivityPubReviewerAttribution(
-  accountId: string
+export function createAuthenticatedActivityPubReviewerAttribution(
+  claimedAccountId: string,
+  authenticatedAccountId: string
 ): VerifiedReviewerAttribution {
-  const normalized = normalizeReviewerAccountId(accountId);
+  const claimed = normalizeReviewerAccountId(claimedAccountId);
+  const authenticated = normalizeReviewerAccountId(authenticatedAccountId);
+  if (claimed !== authenticated) {
+    throw new Error("Authenticated reviewer identity does not match attributed actor");
+  }
+
   return Object.freeze({
-    accountId: normalized,
-    source: "activitypub_attributed_to"
+    accountId: authenticated,
+    source: "authenticated_activitypub_actor"
   });
 }
 
 export function getVerifiedReviewerAttribution(
   review: ReviewerAttributedReview
 ): VerifiedReviewerAttribution | null {
-  if (review.reviewerAttributionSource !== "activitypub_attributed_to") return null;
+  if (review.reviewerAttributionSource !== "authenticated_activitypub_actor") return null;
   if (!review.reviewerAccountId) return null;
 
   try {
-    return createActivityPubReviewerAttribution(review.reviewerAccountId);
+    const accountId = normalizeReviewerAccountId(review.reviewerAccountId);
+    return Object.freeze({
+      accountId,
+      source: "authenticated_activitypub_actor"
+    });
   } catch {
     return null;
   }
