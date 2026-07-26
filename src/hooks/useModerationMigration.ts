@@ -6,8 +6,10 @@ import { useMastodonSession } from "../sync/use-mastodon-activity";
 
 export type MigrationStatus = "idle" | "running" | "complete" | "skipped" | "error";
 
-/** Shared in-flight work prevents duplicate writes while allowing Strict Mode replay. */
 const inFlightMigrations = new Map<string, Promise<"complete" | "skipped">>();
+const MAX_RETRY_ATTEMPTS = 5;
+const BASE_RETRY_DELAY_MS = 500;
+const MAX_RETRY_DELAY_MS = 8_000;
 
 function runMigration(ownerAccountId: string): Promise<"complete" | "skipped"> {
   const existing = inFlightMigrations.get(ownerAccountId);
@@ -28,11 +30,14 @@ function runMigration(ownerAccountId: string): Promise<"complete" | "skipped"> {
   return promise;
 }
 
-/**
- * Trigger migration from the authenticated server session. The optional legacy
- * argument is intentionally ignored so older call sites cannot supply an
- * unscoped account name.
- */
+function retryDelay(attempt: number): number {
+  const exponential = Math.min(
+    MAX_RETRY_DELAY_MS,
+    BASE_RETRY_DELAY_MS * 2 ** Math.max(0, attempt - 1)
+  );
+  return Math.round(exponential * (0.8 + Math.random() * 0.4));
+}
+
 export function useModerationMigration(_legacyOwnerAccountId?: string | null): MigrationStatus {
   const sessionQuery = useMastodonSession();
   const ownerAccountId = useMemo(
@@ -48,19 +53,34 @@ export function useModerationMigration(_legacyOwnerAccountId?: string | null): M
     }
 
     let active = true;
-    setStatus(isMigrationComplete(ownerAccountId) ? "complete" : "running");
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
 
-    void runMigration(ownerAccountId).then(
-      (next) => {
-        if (active) setStatus(next);
-      },
-      () => {
-        if (active) setStatus("error");
-      }
-    );
+    const execute = () => {
+      if (!active) return;
+      setStatus(isMigrationComplete(ownerAccountId) ? "complete" : "running");
+      void runMigration(ownerAccountId).then(
+        (next) => {
+          if (active) setStatus(next);
+        },
+        () => {
+          if (!active) return;
+          attempt += 1;
+          if (attempt >= MAX_RETRY_ATTEMPTS) {
+            setStatus("error");
+            return;
+          }
+          setStatus("error");
+          retryTimer = setTimeout(execute, retryDelay(attempt));
+        }
+      );
+    };
+
+    execute();
 
     return () => {
       active = false;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
   }, [ownerAccountId]);
 
