@@ -55,8 +55,7 @@ const KLIPY_BASE_URL = "https://api.klipy.com/v1";
 
 function getApiKey(): string {
   // Vite env var — set VITE_KLIPY_API_KEY in .env
-  const key = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_KLIPY_API_KEY;
-  return key || "";
+  return import.meta.env?.VITE_KLIPY_API_KEY || "";
 }
 
 /**

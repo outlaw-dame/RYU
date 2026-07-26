@@ -26,7 +26,7 @@ export type RecommendationReason = {
 export type RecommendationScoreTraceContribution = Readonly<{
   /** Stable identity for deterministic rendering and comparison. */
   id: string;
-  kind: "reason" | "user_signal";
+  kind: "reason" | "user_signal" | "reviewer_trust";
   /** i18n key derived from the actual ranking input. */
   labelKey: string;
   labelParams?: Readonly<Record<string, string>>;

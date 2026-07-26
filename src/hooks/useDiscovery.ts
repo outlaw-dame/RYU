@@ -20,6 +20,8 @@ import {
   setRecommendationFeedbackState,
   type RecommendationFeedbackState
 } from "../recommendations/recommendation-feedback";
+import { subscribeReviewerTrustInvalidation } from "../recommendations/reviewer-trust-manager-registry";
+import { applyVerifiedReviewerTrustToDiscovery } from "../recommendations/reviewer-trust-discovery";
 import { evaluateRecommendationCandidates } from "../recommendations/recommendation-score-trace";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
@@ -45,6 +47,9 @@ export type UseDiscoveryOptions = {
 export function useDiscovery(options: UseDiscoveryOptions = {}) {
   const { editionId = null, limit = 20, refreshInterval = 0 } = options;
   const sessionQuery = useMastodonSession();
+  const connected = sessionQuery.data?.connected;
+  const instanceOrigin = sessionQuery.data?.instanceOrigin;
+  const ownerAccountId = sessionQuery.data?.account?.id;
 
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,8 +64,12 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
   const controls = useMemo(() => getDiscoveryControls(), [version]);
   const userSignalScope = useMemo(
-    () => buildUserSignalScopeFromSession(sessionQuery.data),
-    [sessionQuery.data]
+    () => buildUserSignalScopeFromSession({
+      connected,
+      instanceOrigin,
+      account: ownerAccountId ? { id: ownerAccountId } : null
+    }),
+    [connected, instanceOrigin, ownerAccountId]
   );
 
   const refresh = useCallback(async () => {
@@ -83,8 +92,6 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         }
       }
 
-      // Legacy discovery controls are intentionally bare-ID exclusions. Durable
-      // feedback is typed and must be evaluated only after candidates exist.
       const excludeIds = [...new Set(currentControls.excludedIds)];
       const settled = await Promise.allSettled([
         editionId
@@ -101,9 +108,13 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
       const excludedSet = new Set(excludeIds);
       const eligible = results.filter((recommendation) => !excludedSet.has(recommendation.id));
+      const feedbackRanked = evaluateRecommendationCandidates(eligible, durablePolicy);
+      const trustRanked = userSignalScope
+        ? await applyVerifiedReviewerTrustToDiscovery(feedbackRanked, userSignalScope)
+        : feedbackRanked;
 
       setRecommendations(
-        evaluateRecommendationCandidates(eligible, durablePolicy)
+        trustRanked
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
       );
@@ -117,6 +128,10 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => subscribeReviewerTrustInvalidation(() => {
+    setVersion((value) => value + 1);
+  }), []);
 
   useEffect(() => {
     if (refreshInterval <= 0) return;
