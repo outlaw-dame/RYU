@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   findBecauseYouRead,
   findRelatedBooks,
@@ -25,6 +25,7 @@ import { applyVerifiedReviewerTrustToDiscovery } from "../recommendations/review
 import { evaluateRecommendationCandidates } from "../recommendations/recommendation-score-trace";
 import { isSearchFeatureEnabled } from "../search/release/featureFlags";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
+import { createAsyncScopeGuard, type AsyncScopeGuard } from "./async-scope-guard";
 
 const EMPTY_FEEDBACK_POLICY: DiscoveryFeedbackPolicy = Object.freeze({
   excludedIds: Object.freeze([]),
@@ -71,11 +72,31 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     }),
     [connected, instanceOrigin, ownerAccountId]
   );
+  const discoveryScopeKey = useMemo(
+    () => userSignalScope
+      ? JSON.stringify([userSignalScope.instanceOrigin, userSignalScope.ownerAccountId])
+      : "signed-out",
+    [userSignalScope]
+  );
+  const refreshGuardRef = useRef<AsyncScopeGuard | null>(null);
+  if (!refreshGuardRef.current) {
+    refreshGuardRef.current = createAsyncScopeGuard(discoveryScopeKey);
+  } else {
+    refreshGuardRef.current.setScope(discoveryScopeKey);
+  }
 
   const refresh = useCallback(async () => {
+    const guard = refreshGuardRef.current;
+    const request = guard?.begin(discoveryScopeKey) ?? null;
+    if (!guard || !request) return;
+
     const currentControls = getDiscoveryControls();
     if (!currentControls.enabled || !isSearchFeatureEnabled("personalization")) {
-      setRecommendations([]);
+      if (guard.isCurrent(request)) {
+        setRecommendations([]);
+        setLoading(false);
+        setError(null);
+      }
       return;
     }
 
@@ -113,17 +134,30 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
         ? await applyVerifiedReviewerTrustToDiscovery(feedbackRanked, userSignalScope)
         : feedbackRanked;
 
+      if (!guard.isCurrent(request)) return;
       setRecommendations(
-        trustRanked
+        [...trustRanked]
           .sort((a, b) => b.score - a.score)
           .slice(0, limit)
       );
     } catch (err) {
-      setError(err instanceof Error ? err : new Error(String(err)));
+      if (guard.isCurrent(request)) {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
-      setLoading(false);
+      if (guard.isCurrent(request)) setLoading(false);
     }
-  }, [editionId, limit, userSignalScope, version]);
+  }, [discoveryScopeKey, editionId, limit, userSignalScope, version]);
+
+  useEffect(() => {
+    setRecommendations([]);
+    setLoading(false);
+    setError(null);
+    setFeedbackPendingIds(new Set());
+    setFeedbackErrors({});
+    setResettingHidden(false);
+    setHiddenResetError(null);
+  }, [discoveryScopeKey]);
 
   useEffect(() => {
     void refresh();
@@ -138,6 +172,10 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
     const timer = setInterval(() => void refresh(), refreshInterval);
     return () => clearInterval(timer);
   }, [refresh, refreshInterval]);
+
+  useEffect(() => () => {
+    refreshGuardRef.current?.dispose();
+  }, []);
 
   const setEnabled = useCallback((enabled: boolean) => {
     setDiscoveryControls({ enabled });
