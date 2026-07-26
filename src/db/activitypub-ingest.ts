@@ -1,5 +1,6 @@
 import { enqueueAuthorSearchDependents, upsertSearchIndexDependenciesForEntity } from "../search/search-index-dependencies";
 import { importedSearchIndexQueue, type SearchIndexQueue } from "../search/write-through-indexing";
+import { createActivityPubReviewerAttribution } from "../reviews/reviewer-attribution";
 import type { CanonicalApEntity, CanonicalApGraph } from "../sync/activitypub-client";
 import { initializeDatabase, type RyuDatabase } from "./client";
 import {
@@ -122,21 +123,21 @@ export function createRxDBActivityPubStore(
     },
     async upsertReview(entity) {
       const timestamp = nowIso();
+      const attribution = createActivityPubReviewerAttribution(entity.accountId);
       await safeUpsert(db.reviews, {
         id: entity.id,
         title: entity.title,
         content: entity.content,
         editionId: entity.editionId,
         accountId: entity.accountId,
+        reviewerAccountId: attribution.accountId,
+        reviewerAttributionSource: attribution.source,
         rating: entity.rating,
         published: entity.published,
         importedAt: timestamp,
         updatedAt: timestamp
       });
       await writeEntityResolution(db, entity);
-      // Phase 16: wire review indexing through the search queue so
-      // reviews are immediately searchable after AP import, matching
-      // the behavior of authors/works/editions.
       searchIndexQueue.enqueue(db, entity, timestamp);
     }
   };
