@@ -109,9 +109,17 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       const excludedSet = new Set(excludeIds);
       const eligible = results.filter((recommendation) => !excludedSet.has(recommendation.id));
       const feedbackRanked = evaluateRecommendationCandidates(eligible, durablePolicy);
-      const trustRanked = userSignalScope
-        ? await applyVerifiedReviewerTrustToDiscovery(feedbackRanked, userSignalScope)
-        : feedbackRanked;
+      let trustRanked = feedbackRanked;
+      if (userSignalScope) {
+        try {
+          trustRanked = await applyVerifiedReviewerTrustToDiscovery(feedbackRanked, userSignalScope);
+        } catch {
+          // Reviewer-trust enrichment is supplemental. A transient local database,
+          // migration, or read failure must not suppress otherwise valid discovery
+          // results; the next invalidation or refresh retries the enrichment.
+          trustRanked = feedbackRanked;
+        }
+      }
 
       setRecommendations(
         trustRanked
