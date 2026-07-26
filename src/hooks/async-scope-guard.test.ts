@@ -17,7 +17,10 @@ describe("createAsyncScopeGuard", () => {
     const guard = createAsyncScopeGuard("account-a");
     const previousAccount = guard.begin("account-a");
 
+    expect(guard.isScopeActive("account-a")).toBe(true);
     expect(guard.setScope("account-b")).toBe(true);
+    expect(guard.isScopeActive("account-a")).toBe(false);
+    expect(guard.isScopeActive("account-b")).toBe(true);
     expect(guard.isCurrent(previousAccount!)).toBe(false);
     expect(guard.begin("account-a")).toBeNull();
 
@@ -38,6 +41,7 @@ describe("createAsyncScopeGuard", () => {
     guard.dispose();
 
     expect(guard.isCurrent(next!)).toBe(false);
+    expect(guard.isScopeActive("account-a")).toBe(false);
     expect(guard.begin("account-a")).toBeNull();
     expect(guard.setScope("account-b")).toBe(false);
   });
