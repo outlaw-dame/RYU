@@ -19,8 +19,11 @@ import {
   scoreAndFilterRecommendations,
   type ScoredRecommendation
 } from "../recommendations/unified-scorer";
+import { recommendationSignalStorageKey } from "../recommendations/signal-store";
 import { buildModerationOwnerIdentity } from "../moderation/owner-identity";
 import { useMastodonSession } from "../sync/use-mastodon-activity";
+
+const RECOMMENDATION_SIGNAL_SYNC_EVENT = "ryu:recommendation-signals-sync";
 
 export type DiscoveryState = {
   recommendations: ScoredRecommendation[];
@@ -111,6 +114,24 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Recommendation controls dispatch a same-tab invalidation event. Storage
+  // events cover other tabs. Both are owner-scoped before triggering a refresh.
+  useEffect(() => {
+    if (!ownerAccountId) return;
+    const expectedStorageKey = recommendationSignalStorageKey(ownerAccountId);
+    const handleSignalChange = () => setVersion((value) => value + 1);
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === null || event.key === expectedStorageKey) handleSignalChange();
+    };
+
+    window.addEventListener(RECOMMENDATION_SIGNAL_SYNC_EVENT, handleSignalChange);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener(RECOMMENDATION_SIGNAL_SYNC_EVENT, handleSignalChange);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [ownerAccountId]);
 
   useEffect(() => {
     if (refreshInterval <= 0) return;
