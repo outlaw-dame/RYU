@@ -1,8 +1,5 @@
 /**
  * Phase 34 - Discovery and recommendations types.
- *
- * Core types for the local-first recommendation engine including
- * recommendations, reasons, and discovery sources.
  */
 
 export type RecommendationReasonType =
@@ -39,6 +36,8 @@ export type Recommendation = {
   coverUrl?: string;
   /** Optional author name for editions. */
   author?: string;
+  /** Canonical candidate author IDs for author-level controls and suppression. */
+  authorIds?: string[];
   /** Why this was recommended. */
   reasons: RecommendationReason[];
   /** Where this recommendation was sourced from. */
@@ -50,11 +49,8 @@ export type Recommendation = {
 };
 
 export type DiscoveryControls = {
-  /** Whether recommendations are enabled. */
   enabled: boolean;
-  /** IDs of entities the user has explicitly excluded from recommendations. */
   excludedIds: string[];
-  /** Whether federated sources are enabled (requires feature flag). */
   federatedEnabled: boolean;
 };
 
