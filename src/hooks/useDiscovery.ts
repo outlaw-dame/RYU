@@ -216,6 +216,7 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
       return;
     }
 
+    const operationScopeKey = discoveryScopeKey;
     setFeedbackPendingIds((current) => new Set(current).add(recommendation.id));
     setFeedbackErrors((current) => {
       const next = { ...current };
@@ -225,38 +226,50 @@ export function useDiscovery(options: UseDiscoveryOptions = {}) {
 
     try {
       await setRecommendationFeedbackState(recommendation, userSignalScope, state);
+      if (!refreshGuardRef.current?.isScopeActive(operationScopeKey)) return;
       if (state === "not_interested" || state === "suppress") {
         setRecommendations((current) => current.filter((item) => item.id !== recommendation.id));
       } else {
         setVersion((value) => value + 1);
       }
     } catch {
-      setFeedbackErrors((current) => ({
-        ...current,
-        [recommendation.id]: "discovery.feedback.saveError"
-      }));
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setFeedbackErrors((current) => ({
+          ...current,
+          [recommendation.id]: "discovery.feedback.saveError"
+        }));
+      }
     } finally {
-      setFeedbackPendingIds((current) => {
-        const next = new Set(current);
-        next.delete(recommendation.id);
-        return next;
-      });
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setFeedbackPendingIds((current) => {
+          const next = new Set(current);
+          next.delete(recommendation.id);
+          return next;
+        });
+      }
     }
-  }, [excludeRecommendation, userSignalScope]);
+  }, [discoveryScopeKey, excludeRecommendation, userSignalScope]);
 
   const resetHiddenRecommendations = useCallback(async (): Promise<void> => {
     if (!userSignalScope || resettingHidden) return;
+    const operationScopeKey = discoveryScopeKey;
     setResettingHidden(true);
     setHiddenResetError(null);
     try {
       await resetHiddenDiscoveryFeedback(userSignalScope);
-      setVersion((value) => value + 1);
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setVersion((value) => value + 1);
+      }
     } catch {
-      setHiddenResetError("discovery.feedback.resetHiddenError");
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setHiddenResetError("discovery.feedback.resetHiddenError");
+      }
     } finally {
-      setResettingHidden(false);
+      if (refreshGuardRef.current?.isScopeActive(operationScopeKey)) {
+        setResettingHidden(false);
+      }
     }
-  }, [resettingHidden, userSignalScope]);
+  }, [discoveryScopeKey, resettingHidden, userSignalScope]);
 
   const reset = useCallback(() => {
     resetDiscoveryControls();
