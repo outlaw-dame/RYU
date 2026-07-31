@@ -1,0 +1,185 @@
+{
+  "description": "Expanded search quality evaluation cases for RYU local-first hybrid search. Covers exact title, author, ISBN, fuzzy, semantic, federated, and mixed queries.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "exact-title-dune",
+      "category": "exact-title",
+      "query": "dune",
+      "expectedTopResultTitle": "Dune",
+      "expectedTop3Includes": ["Dune"],
+      "expectedResultType": "work",
+      "notes": "Classic exact title match — must not be displaced by semantic drift."
+    },
+    {
+      "id": "exact-title-kindred",
+      "category": "exact-title",
+      "query": "kindred",
+      "expectedTopResultTitle": "Kindred",
+      "expectedResultType": "work"
+    },
+    {
+      "id": "exact-title-left-hand",
+      "category": "exact-title",
+      "query": "the left hand of darkness",
+      "expectedTopResultTitle": "The Left Hand of Darkness",
+      "expectedResultType": "work"
+    },
+    {
+      "id": "exact-title-piranesi",
+      "category": "exact-title",
+      "query": "piranesi",
+      "expectedTopResultTitle": "Piranesi",
+      "expectedResultType": "work"
+    },
+    {
+      "id": "author-octavia-butler",
+      "category": "author",
+      "query": "octavia butler",
+      "expectedTop3IncludesAuthor": "Octavia Butler",
+      "expectedResultType": "author",
+      "notes": "Author query should surface the author entity and their works."
+    },
+    {
+      "id": "author-ursula-le-guin",
+      "category": "author",
+      "query": "ursula le guin",
+      "expectedTop3IncludesAuthor": "Ursula K. Le Guin"
+    },
+    {
+      "id": "author-n-k-jemisin",
+      "category": "author",
+      "query": "n.k. jemisin",
+      "expectedTop3IncludesAuthor": "N.K. Jemisin"
+    },
+    {
+      "id": "isbn-harry-potter",
+      "category": "isbn",
+      "query": "9780439708180",
+      "expectedTopResultTitle": "Harry Potter and the Sorcerer's Stone",
+      "expectedResultType": "edition",
+      "notes": "ISBN must exact-match and not be displaced by semantic results."
+    },
+    {
+      "id": "isbn-dune",
+      "category": "isbn",
+      "query": "9780441013593",
+      "expectedTopResultTitle": "Dune"
+    },
+    {
+      "id": "fuzzy-sorcerers-stone",
+      "category": "fuzzy",
+      "query": "sorcerers stone",
+      "expectedTop3Includes": ["Harry Potter and the Sorcerer's Stone"],
+      "notes": "Missing apostrophe and 'Harry Potter' prefix — fuzzy should still match."
+    },
+    {
+      "id": "fuzzy-parable-sower",
+      "category": "fuzzy",
+      "query": "parabel of the sower",
+      "expectedTop3Includes": ["Parable of the Sower"],
+      "notes": "Common misspelling — should still rank the correct result highly."
+    },
+    {
+      "id": "fuzzy-murderbot",
+      "category": "fuzzy",
+      "query": "murderbot",
+      "expectedTop3Includes": ["All Systems Red"],
+      "notes": "Series nickname — should find the first book."
+    },
+    {
+      "id": "semantic-empire-ecology",
+      "category": "semantic",
+      "query": "books about empire and ecology",
+      "semanticMustImproveOverLexical": true,
+      "expectedTop3IncludesAny": ["Dune", "The Dispossessed", "The Word for World Is Forest"],
+      "notes": "Pure semantic concept query. Lexical alone should score poorly."
+    },
+    {
+      "id": "semantic-black-women-sf",
+      "category": "semantic",
+      "query": "Black women science fiction authors",
+      "semanticMustImproveOverLexical": true,
+      "expectedTop3IncludesAuthor": "Octavia Butler",
+      "notes": "Demographic + genre intersection — needs semantic understanding."
+    },
+    {
+      "id": "semantic-cozy-fantasy-libraries",
+      "category": "semantic",
+      "query": "cozy fantasy with libraries",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Thematic concept query."
+    },
+    {
+      "id": "semantic-queer-ya-graphic",
+      "category": "semantic",
+      "query": "queer coming of age graphic novels",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Intersectional concept query."
+    },
+    {
+      "id": "semantic-grief-memory",
+      "category": "semantic",
+      "query": "books about grief and memory",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Emotional/thematic query."
+    },
+    {
+      "id": "semantic-solarpunk",
+      "category": "semantic",
+      "query": "solarpunk optimistic futures",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Subgenre concept."
+    },
+    {
+      "id": "mixed-butler-parable",
+      "category": "mixed",
+      "query": "butler parable",
+      "expectedTop3Includes": ["Parable of the Sower"],
+      "notes": "Partial author + partial title — fusion should outperform either alone."
+    },
+    {
+      "id": "mixed-murderbot-review",
+      "category": "mixed",
+      "query": "murderbot review",
+      "expectedResultTypeAny": ["review", "work"],
+      "notes": "Series nickname + entity type hint."
+    },
+    {
+      "id": "mixed-le-guin-dispossessed",
+      "category": "mixed",
+      "query": "le guin dispossessed",
+      "expectedTop3Includes": ["The Dispossessed"],
+      "notes": "Partial author + partial title."
+    },
+    {
+      "id": "exact-title-long",
+      "category": "exact-title",
+      "query": "the house in the cerulean sea",
+      "expectedTopResultTitle": "The House in the Cerulean Sea",
+      "expectedResultType": "work"
+    },
+    {
+      "id": "exact-title-short",
+      "category": "exact-title",
+      "query": "1984",
+      "expectedTopResultTitle": "1984",
+      "expectedResultType": "work",
+      "notes": "Short numeric title — must not be confused with ISBNs."
+    },
+    {
+      "id": "semantic-unreliable-narrator",
+      "category": "semantic",
+      "query": "unreliable narrator literary fiction",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Narrative technique query — needs deep semantic matching."
+    },
+    {
+      "id": "semantic-found-family",
+      "category": "semantic",
+      "query": "found family space opera",
+      "semanticMustImproveOverLexical": true,
+      "notes": "Trope + subgenre combination."
+    }
+  ]
+}
